@@ -10,6 +10,8 @@ export default {
         naranja: "#E8621A",
         "naranja-suave": "#FFF0E8",
         carbon: "#1A1A1A",
+        verde: "#2E5C31",
+        "verde-oscuro": "#244A27",
       },
       fontFamily: {
         jakarta: ['"Plus Jakarta Sans"', "sans-serif"],

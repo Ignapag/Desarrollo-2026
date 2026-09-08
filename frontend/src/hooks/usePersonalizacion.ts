@@ -42,17 +42,20 @@ export function usePersonalizacion(
   }, [opcionalesEstados]);
 
   const payload: PersonalizacionPayload = useMemo(() => {
-    const ingredientesQuitados = baseEstados
+    const baseQuitados = baseEstados
       .filter((item) => !item.incluido)
       .map((item) => item.ingrediente.id);
 
-    const agregadosSeleccionados = opcionalesEstados
+    const opcionalesAgregados = opcionalesEstados
       .filter((item) => item.seleccionado)
-      .map((item) => item.ingrediente.id);
+      .map((item) => ({
+        ingredienteId: item.ingrediente.id,
+        costoAdicional: item.ingrediente.costoAdicional,
+      }));
 
     return {
-      ingredientesQuitados,
-      agregadosSeleccionados,
+      baseQuitados,
+      opcionalesAgregados,
     };
   }, [baseEstados, opcionalesEstados]);
 

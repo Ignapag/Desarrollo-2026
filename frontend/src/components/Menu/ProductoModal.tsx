@@ -12,8 +12,8 @@ interface ProductoModalProps {
 
 export function ProductoModal({ producto, abierto, onCerrar, onConfirmar }: ProductoModalProps) {
     const [payloadActual, setPayloadActual] = useState<PersonalizacionPayload>({
-    ingredientesQuitados: [],
-    agregadosSeleccionados: [],
+    baseQuitados: [],
+    opcionalesAgregados: [],
     });
     const [costoExtra, setCostoExtra] = useState(0);
 
@@ -30,7 +30,7 @@ export function ProductoModal({ producto, abierto, onCerrar, onConfirmar }: Prod
         <button
         type="button"
         onClick={() => onConfirmar(payloadActual, precioTotal)}
-        className="w-full bg-[#E65100] hover:bg-[#CC4800] text-white font-inter font-semibold py-3.5 rounded-2xl transition-colors shadow-sm"
+        className="w-full bg-naranja hover:bg-naranja/90 text-white font-inter font-semibold py-3.5 rounded-2xl transition-colors shadow-sm"
         >
         Agregar al pedido
         </button>
