@@ -12,11 +12,14 @@ export function usePersonalizacion(
     }))
   );
 
+  // Solo se ofrecen como agregado los ingredientes activos y con stock (CU_PED_02, paso 4)
   const [opcionalesEstados, setOpcionalesEstados] = useState(() =>
-    ingredientesOpcionalesIniciales.map((ingrediente) => ({
-      ingrediente,
-      seleccionado: false,
-    }))
+    ingredientesOpcionalesIniciales
+      .filter((ingrediente) => ingrediente.activo && ingrediente.enStock)
+      .map((ingrediente) => ({
+        ingrediente,
+        seleccionado: false,
+      }))
   );
 
   const toggleBase = (id: string) => {

@@ -6,12 +6,14 @@ export default {
   theme: {
     extend: {
       colors: {
-        crema: "#F5F0E8",
-        naranja: "#E8621A",
-        "naranja-suave": "#FFF0E8",
-        carbon: "#1A1A1A",
-        verde: "#2E5C31",
-        "verde-oscuro": "#244A27",
+        crema: "#F4E7CC",
+        hueso: "#FFFDF7",
+        naranja: "#E85D2C",
+        "naranja-quemado": "#AC3400",
+        "amarillo-sol": "#F6B42C",
+        "verde-monu": "#1C5A3F",
+        "verde-oscuro": "#00422A",
+        carbon: "#191C1A",
       },
       fontFamily: {
         jakarta: ['"Plus Jakarta Sans"', "sans-serif"],

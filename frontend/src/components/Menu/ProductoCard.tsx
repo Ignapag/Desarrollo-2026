@@ -34,7 +34,7 @@ export function ProductoCard({ producto }: ProductoCardProps) {
             <button
                 type="button"
                 onClick={() => setModalAbierto(true)}
-                className="bg-verde hover:bg-verde-oscuro text-white font-inter font-medium text-sm px-4 py-2 rounded-xl transition-colors"
+                className="bg-verde-monu hover:bg-verde-oscuro text-white font-inter font-medium text-sm px-4 py-2 rounded-xl transition-colors"
             >
                 Agregar
             </button>

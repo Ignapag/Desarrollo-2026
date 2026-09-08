@@ -17,6 +17,7 @@ export interface IngredienteOpcional {
   nombre: string;
   costoAdicional: number; // >= 0, puede ser 0
   activo: boolean;
+  enStock: boolean;
 }
 
 export interface Producto {
