@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Producto } from "../../types/product";
 import { ProductoModal } from "./ProductoModal";
+import { useCarrito } from "../../context/CarritoContext";
 
 interface ProductoCardProps {
     producto: Producto;
@@ -8,6 +9,7 @@ interface ProductoCardProps {
 
 export function ProductoCard({ producto }: ProductoCardProps) {
     const [modalAbierto, setModalAbierto] = useState(false);
+    const { agregarItem } = useCarrito();
 
     return (
     <>
@@ -47,7 +49,7 @@ export function ProductoCard({ producto }: ProductoCardProps) {
         abierto={modalAbierto}
         onCerrar={() => setModalAbierto(false)}
         onConfirmar={(payload, total) => {
-            console.log("Ítem personalizado listo para el carrito:", { payload, total });
+            agregarItem(producto, payload, total);
             setModalAbierto(false);
         }}
         />
