@@ -15,7 +15,7 @@ export function usePersonalizacion(
   // Solo se ofrecen como agregado los ingredientes activos y con stock (CU_PED_02, paso 4)
   const [opcionalesEstados, setOpcionalesEstados] = useState(() =>
     ingredientesOpcionalesIniciales
-      .filter((ingrediente) => ingrediente.activo && ingrediente.enStock)
+      .filter((ingrediente) => ingrediente.activo)
       .map((ingrediente) => ({
         ingrediente,
         seleccionado: false,
