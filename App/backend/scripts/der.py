@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import date
 from pathlib import Path
 
 from scripts.diccionario import RAIZ_REPO, Tabla, parsear
@@ -89,8 +88,8 @@ def generar() -> str:
         "",
         "> **Generado automáticamente** con `python -m scripts.der` a partir de",
         "> `App/db/migrations/`. No editar a mano: al derivarse del SQL, no puede",
-        "> quedar desactualizado respecto del esquema real.",
-        f"> Última generación: {date.today().isoformat()}.",
+        "> quedar desactualizado respecto del esquema real. CI verifica que",
+        "> este al dia.",
         "",
         f"**{len(todas)} entidades · {len(relaciones)} relaciones.**",
         "",

@@ -1,5 +1,7 @@
 # Sistema de Gestión — Monu Burger
 
+![CI](https://github.com/Ignapag/Proyecto---Seminario-Integrador-2026/actions/workflows/ci.yml/badge.svg)
+
 **Grupo 19** · Seminario Integrador 2026 · Habilitación Profesional
 
 Sistema integral de gestión para **Monu Burger**, una hamburguesería de

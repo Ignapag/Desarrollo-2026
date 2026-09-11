@@ -4,8 +4,8 @@ Modelo de datos **tal como está implementado** en la base.
 
 > **Generado automáticamente** con `python -m scripts.der` a partir de
 > `App/db/migrations/`. No editar a mano: al derivarse del SQL, no puede
-> quedar desactualizado respecto del esquema real.
-> Última generación: 2026-09-11.
+> quedar desactualizado respecto del esquema real. CI verifica que
+> este al dia.
 
 **27 entidades · 46 relaciones.**
 

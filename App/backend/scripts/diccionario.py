@@ -18,7 +18,6 @@ import argparse
 import re
 import sys
 from dataclasses import dataclass, field
-from datetime import date
 from pathlib import Path
 
 from scripts.migrate import DIR_MIGRACIONES
@@ -221,8 +220,8 @@ def generar() -> str:
         "columnas, tipos, obligatoriedad, relaciones y valores permitidos.",
         "",
         "> **Generado automáticamente** con `python -m scripts.diccionario` a partir",
-        "> de `db/migrations/`. No editar a mano: cada vez que se agrega una",
-        f"> migración, volver a generarlo. Última generación: {date.today().isoformat()}.",
+        "> de `App/db/migrations/`. No editar a mano: cada vez que se agrega una",
+        "> migración, volver a generarlo. CI verifica que este al dia.",
         "",
         "## Reglas de uso",
         "",

@@ -4,8 +4,8 @@ Referencia del esquema para todo el grupo: nombres exactos de tablas y
 columnas, tipos, obligatoriedad, relaciones y valores permitidos.
 
 > **Generado automáticamente** con `python -m scripts.diccionario` a partir
-> de `db/migrations/`. No editar a mano: cada vez que se agrega una
-> migración, volver a generarlo. Última generación: 2026-09-11.
+> de `App/db/migrations/`. No editar a mano: cada vez que se agrega una
+> migración, volver a generarlo. CI verifica que este al dia.
 
 ## Reglas de uso
 

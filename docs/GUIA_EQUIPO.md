@@ -113,6 +113,30 @@ En VS Code todo esto está en el panel de Source Control (`Ctrl+Shift+G`): el
 selector de rama abajo a la izquierda y los botones de sincronizar. No hace
 falta usar la terminal.
 
+### Qué revisa GitHub solo en cada PR
+
+Hay integración continua configurada (`.github/workflows/ci.yml`). En cada
+push a `main` y en **cada Pull Request**, GitHub levanta una máquina y corre:
+
+1. `ruff` sobre el backend
+2. Las 8 migraciones **sobre un PostgreSQL vacío**, más el seed
+3. Las 68 pruebas
+4. Un chequeo de que el diccionario de datos y el DER estén al día con el SQL
+
+Si algo falla, el PR muestra una cruz roja y no conviene mergearlo.
+
+El PostgreSQL de CI es descartable y vive dos minutos: **no toca la base
+compartida**, así que las pruebas no pueden ensuciarla. Y como las migraciones
+se aplican desde cero, se detectan los errores que en una base ya migrada no
+se ven — justo antes de que alguien los aplique sobre la base del grupo.
+
+Si tocás el esquema, antes de pushear regenerá la documentación:
+
+```bash
+cd App/backend
+python -m scripts.diccionario && python -m scripts.der
+```
+
 ### Las tres reglas que evitan el dolor
 
 1. **Nadie trabaja directo en `main`.** `main` es lo que funciona; tu rama es
