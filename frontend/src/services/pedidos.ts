@@ -20,11 +20,13 @@ export async function registrarPedido(input: RegistrarPedidoInput): Promise<Pedi
     await new Promise((resolve) => setTimeout(resolve, 700));
 
     contadorPedidosMock += 1;
+    const ahora = new Date().toISOString();
 
     return {
     numeroPedido: contadorPedidosMock,
-    fechaHora: new Date().toISOString(),
+    fechaHora: ahora,
     estado: "Pendiente",
+    historial: [{ estado: "Pendiente", fechaHora: ahora }],
     ...input,
     };
-}
+}   

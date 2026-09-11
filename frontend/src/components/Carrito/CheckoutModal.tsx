@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { Modal } from "../ui/Modal";
 import { useCarrito } from "../../context/CarritoContext";
+import { usePedidos } from "../../context/PedidosContext";
 import { validarZonaCobertura } from "../../utils/zonas";
 import { registrarPedido } from "../../services/pedidos";
 import type { MetodoPago, Pedido, ZonaResultado } from "../../types/order";
@@ -13,14 +14,13 @@ interface CheckoutModalProps {
 
 const METODOS_PAGO: MetodoPago[] = ["Efectivo", "Mercado Pago", "Cuenta DNI", "Naranja X"];
 
-// TODO backend/Delivery: cuando exista el módulo real, este punto vendría
-// calculado por el sistema (CU_DEL_02); por ahora es un valor fijo de ejemplo.
 const PUNTO_ENCUENTRO_SUGERIDO = "Kiosco Don Pepe, esquina 12 y 60";
 
 type Paso = "formulario" | "confirmando" | "exito";
 
 export function CheckoutModal({ abierto, onCerrar }: CheckoutModalProps) {
     const { items, total, vaciarCarrito } = useCarrito();
+    const { agregarPedido } = usePedidos();
 
     const [direccion, setDireccion] = useState("");
     const [zona, setZona] = useState<ZonaResultado | null>(null);
@@ -57,6 +57,7 @@ export function CheckoutModal({ abierto, onCerrar }: CheckoutModalProps) {
         },
     });
 
+    agregarPedido(nuevoPedido);
     setPedido(nuevoPedido);
     setPaso("exito");
     vaciarCarrito();
@@ -85,6 +86,9 @@ export function CheckoutModal({ abierto, onCerrar }: CheckoutModalProps) {
             <p className="font-jakarta font-bold text-2xl text-stone-900">#{pedido.numeroPedido}</p>
             <p className="font-inter text-sm text-stone-500">
             Total: <span className="font-semibold text-stone-800">${pedido.total.toLocaleString("es-AR")}</span>
+            </p>
+            <p className="font-inter text-xs text-stone-400 mt-1">
+            Podés ver el estado en "Mis pedidos" desde el header.
             </p>
             <button
             type="button"
