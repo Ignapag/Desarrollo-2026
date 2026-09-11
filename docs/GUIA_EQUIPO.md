@@ -73,7 +73,74 @@ distintas, y el próximo que clone el repo va a construir un esquema diferente
 del que está en producción. Es el tipo de problema que aparece recién en la
 integración final, cuando ya no hay tiempo.
 
-## 4. Referencia del esquema
+## 4. Flujo de trabajo con Git
+
+Cada uno clona el repositorio en su máquina y trabaja **en su propia rama**.
+Lo que cada uno hace se integra a `main` por Pull Request.
+
+```bash
+git clone https://github.com/Ignapag/Proyecto---Seminario-Integrador-2026.git
+cd Proyecto---Seminario-Integrador-2026
+git checkout -b TuNombre       # la primera vez
+```
+
+### El ciclo de cada día
+
+```bash
+git checkout main
+git pull                       # traer lo último del grupo
+git checkout TuNombre          # volver a tu rama
+git merge main                 # incorporar lo nuevo a tu trabajo
+
+# ... trabajás ...
+
+git add .
+git commit -m "qué hiciste"
+git push
+```
+
+Cuando terminás algo que vale la pena integrar, abrís el **Pull Request** en
+GitHub. Alguien del grupo lo revisa, se mergea a `main`, y todos vuelven a
+hacer `git pull`.
+
+En VS Code todo esto está en el panel de Source Control (`Ctrl+Shift+G`): el
+selector de rama abajo a la izquierda y los botones de sincronizar. No hace
+falta usar la terminal.
+
+### Las tres reglas que evitan el dolor
+
+1. **Nadie trabaja directo en `main`.** `main` es lo que funciona; tu rama es
+   donde experimentás.
+2. **Traé `main` a tu rama todos los días**, no una vez por mes. Es la regla
+   que más se incumple y la que más cuesta: cuanto más tiempo trabajás aislado,
+   más diverge tu código del de los demás y más doloroso es el merge.
+3. **Commits chicos y frecuentes**, uno por cosa terminada. No uno gigante al
+   final de la semana.
+
+### Por qué la regla 2 importa
+
+Un caso real de este proyecto: durante un tiempo convivieron dos frontends
+distintos, uno en `App/frontend/` (JSX) y otro en `frontend/` (TypeScript +
+Tailwind), en ramas separadas. No eran el mismo proyecto con cambios: eran dos
+proyectos Vite independientes.
+
+Git no avisa de eso — no hay conflicto que resolver, simplemente termina
+habiendo trabajo duplicado que alguien tiene que descartar. Integrando seguido
+se detecta el primer día, no en la entrega.
+
+### La base de datos NO funciona así
+
+Esta es la diferencia importante. Git te protege de pisar el trabajo de otro:
+podés equivocarte en tu rama sin afectar a nadie, y siempre se puede volver
+atrás.
+
+**La base compartida no.** Si alguien borra una tabla, la borró para los seis
+en ese instante. No hay rama, no hay revisión previa, no hay `git revert`. Por
+eso valen las reglas de la sección 2, y por eso el script bloquea `--reset`
+contra la base remota. Si necesitás romper cosas para probar, levantá un
+Postgres local con Docker.
+
+## 5. Referencia del esquema
 
 **[DICCIONARIO_DATOS.md](DICCIONARIO_DATOS.md)** tiene las 27 tablas con sus
 columnas, tipos, obligatoriedad, claves foráneas y valores permitidos en cada
@@ -88,7 +155,7 @@ python -m scripts.diccionario
 
 Correlo después de cada migración nueva.
 
-## 5. Convenciones de código
+## 6. Convenciones de código
 
 - Tablas, columnas y código en **español**, `snake_case`.
 - **SQL directo con psycopg, sin ORM** (así lo define el stack del proyecto).
@@ -100,7 +167,7 @@ Correlo después de cada migración nueva.
 - Errores de negocio: usar las excepciones de `app/core/errores.py`, no
   `HTTPException`.
 
-## 6. Estructura de un módulo
+## 7. Estructura de un módulo
 
 Cada módulo respeta las cuatro capas de Clean Architecture:
 
@@ -118,7 +185,7 @@ Al escribir endpoints con autenticación, declarar la **dependencia de rol antes
 que `UoW`** en la firma: FastAPI resuelve en orden, y así un request sin sesión
 se rechaza sin gastar una conexión a la base.
 
-## 7. Qué hay implementado
+## 8. Qué hay implementado
 
 | Módulo | Estado | Responsable |
 |--------|--------|-------------|
@@ -132,7 +199,7 @@ stock y notificaciones están creadas y esperando a que cada uno construya
 encima. No hace falta pedir tablas nuevas para lo que ya está en el
 diccionario.
 
-## 8. Decisiones de modelado que conviene conocer
+## 9. Decisiones de modelado que conviene conocer
 
 Están detalladas en [CAMBIOS_DER.md](CAMBIOS_DER.md), pero estas afectan a todos:
 
