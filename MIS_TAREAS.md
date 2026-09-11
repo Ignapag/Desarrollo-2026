@@ -14,16 +14,6 @@ hacerlas.
 
 Lo que falta de mi parte, en orden de dependencia:
 
-- [ ] **7. Carga inicial y procedimientos almacenados** — *a medias*
-  El `seed.sql`, las funciones y los triggers ya están escritos; falta
-  ejecutarlos una vez y confirmar que corren sin errores.
-- [ ] **8. Pruebas de integridad**
-  Necesita PostgreSQL levantado: es lo único que bloquea todo lo demás.
-  1. Docker Desktop (o PostgreSQL local)
-  2. `docker compose up -d db`
-  3. `python -m scripts.migrate --seed` desde `backend/`
-  4. Verificar constraints, FKs, triggers y las vistas `producto_costo`,
-     `producto_disponible` y `notificacion_latencia`.
 - [ ] **9. Algoritmo de agrupación geográfica**
   Ya existen la tabla `viaje` (con el tope de 2 pedidos por salida impuesto por
   trigger), `zona_cobertura` con polígonos GeoJSON y la función `distancia_km()`
@@ -45,6 +35,13 @@ Lo que falta de mi parte, en orden de dependencia:
   Entrega final, capacitación y documentación de cierre.
 
 ## Hecho
+
+- [x] **7. Carga inicial y procedimientos almacenados**
+  `seed.sql` cargado en la base compartida: usuarios, zonas, ingredientes,
+  productos y recetas. Funciones y triggers aplicados y verificados.
+- [x] **8. Pruebas de integridad**
+  Esquema aplicado sobre PostgreSQL 17 en Supabase sin errores.
+  27 pruebas en `App/backend/tests/test_integridad_bd.py`, todas pasan.
 
 - [x] **1. Planificación**
 - [x] **2. Análisis de requerimientos** — con Emilio B. Rivero, Juan Ignacio Martínez

@@ -113,9 +113,16 @@ ruff check .
 
 | Módulo | Estado |
 |--------|--------|
-| Base de datos (esquema completo) | ✅ 27 tablas, 3 vistas, 5 funciones, 3 triggers |
+| Base de datos (esquema completo) | ✅ aplicado en Supabase · 27 tablas, 3 vistas, 5 funciones, 3 triggers, 47 FKs |
+| Pruebas de integridad | ✅ 27 pruebas contra la base real |
 | Asignación de repartidores | 🔨 en curso |
 | Pedidos · Menú · Stock · Pagos · Reportes · Bot · Usuarios | ⬜ a cargo del resto del grupo |
 
-⚠️ **El esquema todavía no se ejecutó contra un PostgreSQL real.** Hasta que
-eso pase, un error de sintaxis o una restricción mal definida no se detecta.
+Las pruebas de integridad corren contra la base configurada en `DATABASE_URL`:
+
+```bash
+pytest tests/test_integridad_bd.py -v
+```
+
+Cada una corre dentro de una transacción que se revierte, así que **no ensucian
+la base compartida**. Si no hay base accesible, se saltean.

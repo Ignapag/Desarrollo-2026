@@ -122,11 +122,12 @@ se rechaza sin gastar una conexión a la base.
 
 | Módulo | Estado | Responsable |
 |--------|--------|-------------|
-| Base de datos (esquema completo) | ✅ 27 tablas, 3 vistas, 5 funciones, 3 triggers | Ignacio Pagotto |
+| Base de datos (esquema completo) | ✅ **aplicado y funcionando** en Supabase | Ignacio Pagotto |
 | Asignación de repartidores | 🔨 en curso | Ignacio Pagotto |
 | Pedidos · Menú · Stock · Pagos y Caja · Reportes · Bot · Usuarios | ⬜ | resto del grupo |
 
-El esquema ya contempla **todos** los módulos: las tablas de pedidos, pagos,
+La base ya está creada, con el esquema aplicado y datos de desarrollo cargados:
+podés empezar a consultarla hoy. El esquema contempla **todos** los módulos: las tablas de pedidos, pagos,
 stock y notificaciones están creadas y esperando a que cada uno construya
 encima. No hace falta pedir tablas nuevas para lo que ya está en el
 diccionario.

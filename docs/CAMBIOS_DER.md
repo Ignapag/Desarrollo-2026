@@ -152,13 +152,21 @@ los comandos.
 |------|--------|
 | Backend compila e importa; `/api/salud` responde | ✅ verificado |
 | `ruff check` limpio | ✅ verificado |
-| El runner encuentra y checksumea las 6 migraciones | ✅ verificado |
-| Las migraciones aplicadas contra PostgreSQL real | ⚠️ **no verificado** |
-| Pruebas de integridad del esquema | ⚠️ pendiente |
+| Las 6 migraciones aplicadas contra PostgreSQL real | ✅ **verificado** |
+| Seed cargado | ✅ verificado |
+| Pruebas de integridad del esquema (27 pruebas) | ✅ **pasan** |
 
-**Nada del SQL se ejecutó todavía contra un PostgreSQL real**: en esta máquina
-no hay Docker ni Postgres instalados. Hasta que eso pase, un error de sintaxis
-o una restricción mal definida no se detecta. Es el primer paso a dar.
+El esquema se aplicó sobre **PostgreSQL 17 en Supabase** (región São Paulo),
+sin un solo error. Resultado: 27 tablas, 3 vistas, 5 funciones propias, 3
+triggers, 47 claves foráneas y 68 índices.
+
+Las pruebas de `tests/test_integridad_bd.py` verifican contra la base real que
+las reglas de negocio del esquema se cumplen: rechazo de roles inválidos y
+duplicados, delivery sin dirección, stock negativo, precio cero, el tope de 2
+pedidos por viaje, la inmutabilidad del pago conciliado y del cierre aprobado,
+las funciones `punto_en_zona()` y `distancia_km()`, y las vistas de costo y
+disponibilidad. Cada prueba corre en una transacción que se revierte, así que
+no ensucian la base compartida.
 
 ---
 
