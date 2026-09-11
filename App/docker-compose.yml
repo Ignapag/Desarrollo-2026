@@ -1,0 +1,59 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: monu_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-monu}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-monu}
+      POSTGRES_DB: ${POSTGRES_DB:-monuburger}
+      TZ: America/Argentina/Buenos_Aires
+    ports:
+      - "5432:5432"
+    volumes:
+      - datos_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-monu} -d ${POSTGRES_DB:-monuburger}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    container_name: monu_backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-monu}:${POSTGRES_PASSWORD:-monu}@db:5432/${POSTGRES_DB:-monuburger}
+      JWT_SECRET: ${JWT_SECRET:-clave-de-desarrollo-cambiar}
+      ENTORNO: desarrollo
+      ORIGENES_PERMITIDOS: http://localhost:5173,http://127.0.0.1:5173
+      MONU_DB_DIR: /db
+      TZ: America/Argentina/Buenos_Aires
+    volumes:
+      - ./backend:/app
+      - ./db:/db
+    ports:
+      - "8000:8000"
+
+  # Perfil opcional: se levanta con `docker compose --profile bot up`
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: monu_n8n
+    profiles: ["bot"]
+    restart: unless-stopped
+    environment:
+      N8N_HOST: localhost
+      N8N_PORT: 5678
+      GENERIC_TIMEZONE: America/Argentina/Buenos_Aires
+      N8N_SECURE_COOKIE: "false"
+    ports:
+      - "5678:5678"
+    volumes:
+      - datos_n8n:/home/node/.n8n
+
+volumes:
+  datos_db:
+  datos_n8n:
