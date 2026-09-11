@@ -1,0 +1,19 @@
+[project]
+name = "monu-burger-backend"
+version = "0.1.0"
+description = "API del Sistema de Gestion para Monu Burger - Seminario Integrador 2026"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["B008"]  # Depends() como valor por defecto es el patron de FastAPI
