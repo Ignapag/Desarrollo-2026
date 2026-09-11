@@ -39,7 +39,7 @@ cd App/backend
 python -m venv .venv
 .venv\Scripts\pip install -r requirements-dev.txt
 .venv\Scripts\python -m scripts.migrate --status    # ver estado del esquema
-.venv\Scripts\python -m uvicorn app.main:app --reload
+.venv\Scripts\python run.py
 ```
 
 | Servicio | URL |
@@ -90,11 +90,24 @@ python -m scripts.migrate --reset      # DESTRUCTIVO, bloqueado contra la base c
 # Diccionario de datos (regenerar tras cada migración nueva)
 python -m scripts.diccionario
 
-# Backend
-python -m uvicorn app.main:app --reload
+# Backend  (usar run.py, NO uvicorn directo: ver nota abajo)
+python run.py
 pytest -q
 ruff check .
 ```
+
+## Nota para Windows
+
+Levantá la API con **`python run.py`**, no con `uvicorn app.main:app`.
+
+En Windows, psycopg en modo async necesita `SelectorEventLoop` y Python usa
+`ProactorEventLoop` por defecto. Ajustarlo dentro de la aplicación no alcanza:
+cuando uvicorn importa `app.main`, el event loop ya está creado. `run.py` fija
+la política antes de arrancar uvicorn.
+
+Si la levantás con uvicorn directo, la API responde pero **ninguna consulta a
+PostgreSQL funciona**: todos los endpoints devuelven 503 y `/api/salud` informa
+`degradado`.
 
 ## Convenciones
 
@@ -114,8 +127,8 @@ ruff check .
 | Módulo | Estado |
 |--------|--------|
 | Base de datos (esquema completo) | ✅ aplicado en Supabase · 27 tablas, 3 vistas, 5 funciones, 3 triggers, 47 FKs |
-| Pruebas de integridad | ✅ 27 pruebas contra la base real |
-| Asignación de repartidores | 🔨 en curso |
+| Pruebas | ✅ 68 pruebas (41 contra la base real) |
+| Asignación de repartidores | ✅ agrupación, asignación automática y ciclo de entrega |
 | Pedidos · Menú · Stock · Pagos · Reportes · Bot · Usuarios | ⬜ a cargo del resto del grupo |
 
 Las pruebas de integridad corren contra la base configurada en `DATABASE_URL`:

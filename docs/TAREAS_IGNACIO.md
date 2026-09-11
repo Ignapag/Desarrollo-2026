@@ -14,17 +14,6 @@ hacerlas.
 
 Lo que falta de mi parte, en orden de dependencia:
 
-- [ ] **9. Algoritmo de agrupación geográfica**
-  Ya existen la tabla `viaje` (con el tope de 2 pedidos por salida impuesto por
-  trigger), `zona_cobertura` con polígonos GeoJSON y la función `distancia_km()`
-  (haversine). Falta el algoritmo que arma los grupos de pedidos cercanos.
-- [ ] **10. Lógica de asignación automática**
-  Ya existen `repartidor.estado`, la última posición conocida
-  (`ultima_lat` / `ultima_lng`) y los estados de `envio`. Falta elegir el
-  repartidor disponible más cercano y crear el viaje.
-- [ ] **11. Pruebas de asignación**
-  Para probar de punta a punta hacen falta pedidos confirmados, y el módulo de
-  Pedidos todavía no está implementado. Coordinar con quien lo tenga asignado.
 - [ ] **13. Control de Avance — Septiembre**
 - [ ] **14. Pruebas funcionales por módulo** — con José Joaquín Santoro, Emilio B. Rivero, Juan Ignacio Martínez
 - [ ] **15. Pruebas de integración end-to-end** — con José Joaquín Santoro, Emilio B. Rivero, Juan Ignacio Martínez
@@ -35,6 +24,18 @@ Lo que falta de mi parte, en orden de dependencia:
   Entrega final, capacitación y documentación de cierre.
 
 ## Hecho
+
+- [x] **9. Algoritmo de agrupación geográfica**
+  Dos pedidos viajan juntos si están en la misma zona y a menos de 1,5 km
+  (configurable). Prioriza el pedido más antiguo para que ninguno quede
+  postergado. `App/backend/app/modules/delivery/domain/entidades.py`
+- [x] **10. Lógica de asignación automática**
+  Elige el repartidor disponible más cercano al primer domicilio, con radio
+  de búsqueda configurable y desempate determinista. Crea el viaje, los
+  envíos, y lleva el ciclo hasta la entrega.
+- [x] **11. Pruebas de asignación**
+  23 pruebas del algoritmo (sin base) + 18 contra la base real, más una demo
+  completa por HTTP verificada de punta a punta.
 
 - [x] **7. Carga inicial y procedimientos almacenados**
   `seed.sql` cargado en la base compartida: usuarios, zonas, ingredientes,

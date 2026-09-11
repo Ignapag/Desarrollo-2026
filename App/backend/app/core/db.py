@@ -7,6 +7,8 @@ valores en el string SQL.
 
 from __future__ import annotations
 
+import asyncio
+import sys
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from typing import Any
@@ -18,6 +20,21 @@ from psycopg_pool import AsyncConnectionPool
 from app.core.config import settings
 
 _pool: AsyncConnectionPool | None = None
+
+
+def configurar_event_loop() -> None:
+    """En Windows, psycopg async no funciona con el event loop por defecto.
+
+    Python usa ProactorEventLoop en Windows y psycopg necesita
+    SelectorEventLoop; sin esto, cualquier consulta falla con
+    InterfaceError. Se llama al importar este modulo para que valga tanto
+    para la API como para los scripts y las pruebas.
+    """
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+
+configurar_event_loop()
 
 
 async def abrir_pool() -> AsyncConnectionPool:

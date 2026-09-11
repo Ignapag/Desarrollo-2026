@@ -33,12 +33,18 @@ Probá que conecta:
 ```bash
 cd App/backend
 python -m scripts.migrate --status     # debería decir "Sin migraciones pendientes"
-python -m uvicorn app.main:app --reload
+python run.py                          # NO `uvicorn app.main:app`, ver nota abajo
 # y abrir http://localhost:8000/api/salud  →  "estado": "ok"
 ```
 
 Si `/api/salud` dice `degradado`, no estás llegando a la base: revisá la URL,
 el `sslmode` y si tu IP necesita estar habilitada en el panel del proveedor.
+
+> **Windows:** levantá la API con `python run.py`, no con `uvicorn app.main:app`.
+> psycopg en modo async necesita `SelectorEventLoop` y Python usa
+> `ProactorEventLoop` por defecto; `run.py` fija la política antes de que
+> uvicorn cree el loop. Con uvicorn directo la API arranca pero ninguna
+> consulta funciona y todo responde 503.
 
 ## 2. Qué NO hacer nunca
 
@@ -190,7 +196,7 @@ se rechaza sin gastar una conexión a la base.
 | Módulo | Estado | Responsable |
 |--------|--------|-------------|
 | Base de datos (esquema completo) | ✅ **aplicado y funcionando** en Supabase | Ignacio Pagotto |
-| Asignación de repartidores | 🔨 en curso | Ignacio Pagotto |
+| Asignación de repartidores | ✅ implementada y probada | Ignacio Pagotto |
 | Pedidos · Menú · Stock · Pagos y Caja · Reportes · Bot · Usuarios | ⬜ | resto del grupo |
 
 La base ya está creada, con el esquema aplicado y datos de desarrollo cargados:

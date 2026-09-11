@@ -8,6 +8,8 @@ from typing import Annotated
 from fastapi import Depends, Request
 
 from app.core.db import UnidadDeTrabajo, conexion
+from app.modules.delivery.application.servicio_delivery import ServicioDelivery
+from app.modules.delivery.infrastructure.repositorio_sql import RepositorioDeliverySQL
 
 
 async def obtener_uow() -> AsyncIterator[UnidadDeTrabajo]:
@@ -17,6 +19,13 @@ async def obtener_uow() -> AsyncIterator[UnidadDeTrabajo]:
 
 
 UoW = Annotated[UnidadDeTrabajo, Depends(obtener_uow)]
+
+
+def obtener_servicio_delivery(uow: UoW) -> ServicioDelivery:
+    return ServicioDelivery(uow, RepositorioDeliverySQL(uow))
+
+
+ServicioDeliveryDep = Annotated[ServicioDelivery, Depends(obtener_servicio_delivery)]
 
 
 def ip_cliente(request: Request) -> str | None:

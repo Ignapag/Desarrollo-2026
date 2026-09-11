@@ -5,7 +5,7 @@ columnas, tipos, obligatoriedad, relaciones y valores permitidos.
 
 > **Generado automáticamente** con `python -m scripts.diccionario` a partir
 > de `db/migrations/`. No editar a mano: cada vez que se agrega una
-> migración, volver a generarlo. Última generación: 2026-09-10.
+> migración, volver a generarlo. Última generación: 2026-09-11.
 
 ## Reglas de uso
 
@@ -31,6 +31,10 @@ columnas, tipos, obligatoriedad, relaciones y valores permitidos.
 **Pagos y caja** — [`cierre_caja`](#cierre_caja), [`pago`](#pago)
 
 **Notificaciones** — [`notificacion_plantilla`](#notificacion_plantilla), [`notificacion`](#notificacion)
+
+**Parametros delivery** — 
+
+**Funciones geo float** — 
 
 Total: **27 tablas**.
 
@@ -493,3 +497,9 @@ _===================================================================== 006 - Not
 | `enviada_en` | TIMESTAMPTZ | No | — |
 
 **Vistas:** `notificacion_latencia`
+
+## 007_parametros_delivery — Parametros delivery
+
+## 008_funciones_geo_float — Funciones geo float
+
+**Funciones:** `distancia_km`, `punto_en_zona`
