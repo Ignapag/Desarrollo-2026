@@ -3,7 +3,11 @@ import type { CarritoItem } from "./cart";
 
 export type MetodoPago = "Efectivo" | "Mercado Pago" | "Cuenta DNI" | "Naranja X";
 
-export type ZonaResultado = "Ensenada" | "El Dique" | "Punta Lara" | "Fuera de zona";
+export type ZonaResultado =
+    | "Ensenada"
+    | "El Dique"
+    | "Punta Lara hasta Hospital Municipal"
+    | "Fuera de zona";
 
 export interface DatosEntrega {
     direccionOriginal: string;
