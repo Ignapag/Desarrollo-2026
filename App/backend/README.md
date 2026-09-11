@@ -11,7 +11,7 @@ El frontend vive en [`App/frontend/`](../frontend).
 
 | Documento | Para qué |
 |-----------|----------|
-| **[docs/GUIA_EQUIPO.md](../../docs/GUIA_EQUIPO.md)** | Cómo conectarse a la base compartida y cómo pedir cambios de esquema. **Leer antes de empezar.** |
+| **[GUIA_EQUIPO.md](../../docs/GUIA_EQUIPO.md)** | Cómo conectarse a la base compartida y cómo pedir cambios de esquema. **Leer antes de empezar.** |
 | **[docs/DICCIONARIO_DATOS.md](../../docs/DICCIONARIO_DATOS.md)** | Las 27 tablas con columnas, tipos, relaciones y valores permitidos. Generado del SQL. |
 | **[docs/CAMBIOS_DER.md](../../docs/CAMBIOS_DER.md)** | Las 12 correcciones aplicadas al DER entregado en la Actividad N°2, y por qué. |
 

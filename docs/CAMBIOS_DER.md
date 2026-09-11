@@ -172,7 +172,7 @@ no ensucian la base compartida.
 
 ## 6. Próximos pasos sugeridos
 
-Según el plan de tareas (ver [MIS_TAREAS.md](../MIS_TAREAS.md)):
+Según el plan de tareas (ver [TAREAS_IGNACIO.md](TAREAS_IGNACIO.md)):
 
 1. **Levantar PostgreSQL** y correr las migraciones + seed.
 2. **Pruebas de integridad** del esquema: constraints, FKs, triggers y vistas.

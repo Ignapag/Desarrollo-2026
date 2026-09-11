@@ -51,7 +51,7 @@ Lo que falta de mi parte, en orden de dependencia:
 - [x] **4. Control de Avance — Junio**
 - [x] **5. Diseño del modelo de datos (DER)**
   El DER entregado se corrigió: 12 cambios documentados como C-01…C-12 en
-  [docs/CAMBIOS_DER.md](docs/CAMBIOS_DER.md). **Queda actualizar el diagrama del informe** con
+  [CAMBIOS_DER.md](CAMBIOS_DER.md). **Queda actualizar el diagrama del informe** con
   esas correcciones.
 - [x] **6. Implementación de esquema y tablas**
   6 migraciones en `db/migrations/` (001 a 006), con índices, constraints y
