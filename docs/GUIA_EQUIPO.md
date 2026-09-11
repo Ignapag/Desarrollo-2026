@@ -152,14 +152,18 @@ Postgres local con Docker.
 columnas, tipos, obligatoriedad, claves foráneas y valores permitidos en cada
 campo de estado. Es la fuente de verdad para programar.
 
-Se genera del SQL, no se escribe a mano:
+**[DER.md](DER.md)** es el diagrama entidad-relación, con un diagrama general
+y uno por módulo. GitHub los renderiza solos.
+
+Los dos se generan del SQL, no se escriben a mano:
 
 ```bash
 cd App/backend
 python -m scripts.diccionario
+python -m scripts.der
 ```
 
-Correlo después de cada migración nueva.
+Correlos después de cada migración nueva.
 
 ## 6. Convenciones de código
 

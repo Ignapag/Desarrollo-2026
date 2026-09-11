@@ -24,6 +24,7 @@ App/                    el sistema
 
 docs/                   documentación técnica
 ├── GUIA_EQUIPO.md      cómo trabaja el grupo: base compartida y flujo de Git
+├── DER.md              diagrama entidad-relación (generado del SQL)
 ├── DICCIONARIO_DATOS.md  referencia del esquema (generada del SQL)
 ├── CAMBIOS_DER.md      correcciones aplicadas al DER de la Actividad N°2
 └── TAREAS_IGNACIO.md   plan de tareas por responsable

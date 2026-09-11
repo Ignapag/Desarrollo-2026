@@ -12,6 +12,7 @@ El frontend vive en [`App/frontend/`](../frontend).
 | Documento | Para qué |
 |-----------|----------|
 | **[GUIA_EQUIPO.md](../../docs/GUIA_EQUIPO.md)** | Cómo conectarse a la base compartida y cómo pedir cambios de esquema. **Leer antes de empezar.** |
+| **[docs/DER.md](../../docs/DER.md)** | Diagrama entidad-relación del esquema implementado. Generado del SQL, se renderiza en GitHub. |
 | **[docs/DICCIONARIO_DATOS.md](../../docs/DICCIONARIO_DATOS.md)** | Las 27 tablas con columnas, tipos, relaciones y valores permitidos. Generado del SQL. |
 | **[docs/CAMBIOS_DER.md](../../docs/CAMBIOS_DER.md)** | Las 12 correcciones aplicadas al DER entregado en la Actividad N°2, y por qué. |
 
@@ -87,8 +88,9 @@ python -m scripts.migrate --status     # ver qué falta
 python -m scripts.migrate --seed       # aplicar + datos de desarrollo
 python -m scripts.migrate --reset      # DESTRUCTIVO, bloqueado contra la base compartida
 
-# Diccionario de datos (regenerar tras cada migración nueva)
+# Documentación del esquema (regenerar tras cada migración nueva)
 python -m scripts.diccionario
+python -m scripts.der
 
 # Backend  (usar run.py, NO uvicorn directo: ver nota abajo)
 python run.py

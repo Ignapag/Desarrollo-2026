@@ -8,6 +8,9 @@ modelo de datos respecto del diagrama entidad-relación entregado en
 
 ---
 
+El diagrama actualizado, generado del esquema real, está en
+**[DER.md](DER.md)**.
+
 ## 1. Correcciones al diagrama entidad-relación
 
 Al contrastar el ER entregado contra el alcance de la Actividad N°2 aparecieron
