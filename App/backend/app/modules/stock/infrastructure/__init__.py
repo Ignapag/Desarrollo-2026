@@ -1,0 +1,1 @@
+"""Persistencia SQL de stock."""
