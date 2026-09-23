@@ -32,8 +32,12 @@ class Settings(BaseSettings):
     # por defecto de Vite, para cuando se integre.
     origenes_permitidos: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
-    # Nota: la configuracion de JWT y cookies vive en el modulo de Usuarios y
-    # Seguridad (EDT 1.8), a cargo de otro integrante.
+    # --- Autenticacion (EDT 1.8 - Usuarios y Seguridad) ----------------
+    # JWT en cookie HttpOnly. En produccion, JWT_SECRET tiene que venir del
+    # entorno: el valor por defecto es solo para desarrollo local.
+    jwt_secret: str = "clave-de-desarrollo-cambiar"
+    jwt_exp_minutos: int = 480  # 8 horas: una jornada de trabajo
+    cookie_sesion: str = "monu_session"
 
     @field_validator("origenes_permitidos", mode="before")
     @classmethod

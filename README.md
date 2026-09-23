@@ -77,5 +77,5 @@ Backend y base de datos: ver [App/backend/README.md](App/backend/README.md).
 | Control de stock | 1.5 | ⬜ |
 | Pagos y cierre de caja | 1.4 | ⬜ |
 | Reportes y estadísticas | 1.6 | ⬜ |
-| Bot de WhatsApp (n8n) | 1.7 | ⬜ |
-| Usuarios y seguridad | 1.8 | ⬜ |
+| Bot de WhatsApp (n8n) | 1.7 | 🔨 plantillas, encolado y envío simulado listos · falta la integración con WhatsApp Cloud API / n8n |
+| Usuarios y seguridad | 1.8 | ✅ login, hash de contraseñas, roles y permisos, auditoría |

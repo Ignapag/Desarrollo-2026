@@ -131,7 +131,9 @@ PostgreSQL funciona**: todos los endpoints devuelven 503 y `/api/salud` informa
 | Base de datos (esquema completo) | ✅ aplicado en Supabase · 27 tablas, 3 vistas, 5 funciones, 3 triggers, 47 FKs |
 | Pruebas | ✅ 68 pruebas (41 contra la base real) |
 | Asignación de repartidores | ✅ agrupación, asignación automática y ciclo de entrega |
-| Pedidos · Menú · Stock · Pagos · Reportes · Bot · Usuarios | ⬜ a cargo del resto del grupo |
+| Usuarios y seguridad | ✅ login, hash de contraseñas, roles, auditoría · 65 pruebas (43 contra la base real) |
+| Notificaciones / Bot de WhatsApp | 🔨 plantillas y encolado listos · falta la integración con WhatsApp Cloud API / n8n |
+| Pedidos · Menú · Stock · Pagos · Reportes | ⬜ a cargo del resto del grupo |
 
 Las pruebas de integridad corren contra la base configurada en `DATABASE_URL`:
 

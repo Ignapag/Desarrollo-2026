@@ -225,7 +225,9 @@ se rechaza sin gastar una conexión a la base.
 |--------|--------|-------------|
 | Base de datos (esquema completo) | ✅ **aplicado y funcionando** en Supabase | Ignacio Pagotto |
 | Asignación de repartidores | ✅ implementada y probada | Ignacio Pagotto |
-| Pedidos · Menú · Stock · Pagos y Caja · Reportes · Bot · Usuarios | ⬜ | resto del grupo |
+| Usuarios y seguridad (login, roles, auditoría) | ✅ implementado y probado | Tomás Arber Aramburu |
+| Notificaciones / Bot de WhatsApp | 🔨 plantillas y encolado listos, falta la integración con n8n | Tomás Arber Aramburu (n8n: resto del grupo) |
+| Pedidos · Menú · Stock · Pagos y Caja · Reportes | ⬜ | resto del grupo |
 
 La base ya está creada, con el esquema aplicado y datos de desarrollo cargados:
 podés empezar a consultarla hoy. El esquema contempla **todos** los módulos: las tablas de pedidos, pagos,

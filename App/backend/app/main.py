@@ -4,9 +4,10 @@ Monolito modular: una sola aplicacion FastAPI que monta el router de cada
 modulo. Las capas siguen Clean Architecture (presentation / application /
 domain / infrastructure) dentro de cada modulo.
 
-Alcance de este repositorio: Base de Datos (EDT 1.9.2) y Asignacion de
-Repartidores (EDT 1.3.1). Los demas modulos estan a cargo de otros
-integrantes del grupo y se integran mas adelante.
+Alcance de este repositorio: Base de Datos (EDT 1.9.2), Asignacion de
+Repartidores (EDT 1.3.1), Usuarios y Seguridad (EDT 1.8) y Notificaciones /
+Bot de WhatsApp sin la integracion n8n (EDT 1.7). Los demas modulos estan a
+cargo de otros integrantes del grupo y se integran mas adelante.
 """
 
 from __future__ import annotations
@@ -28,6 +29,8 @@ from app.core.errores import (
     manejador_error_dominio,
 )
 from app.modules.delivery.presentation.router import router as router_delivery
+from app.modules.notificaciones.presentation.router import router as router_notificaciones
+from app.modules.usuarios.presentation.router import router as router_usuarios
 
 logging.basicConfig(
     level=logging.DEBUG if settings.debug else logging.INFO,
@@ -78,6 +81,8 @@ app.add_exception_handler(OperationalError, manejador_base_no_disponible)
 
 # Los routers de cada modulo se montan aca:
 app.include_router(router_delivery)
+app.include_router(router_usuarios)
+app.include_router(router_notificaciones)
 
 
 @app.get("/api/salud", tags=["infra"])
