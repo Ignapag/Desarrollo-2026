@@ -22,6 +22,13 @@ class DatosIngrediente:
     activo: bool = True
 
 
+@dataclass(frozen=True, slots=True)
+class ItemConsumoStock:
+    producto_id: int
+    cantidad: int
+    opciones: tuple[object, ...] = ()
+
+
 def validar_ingrediente(datos: DatosIngrediente) -> DatosIngrediente:
     nombre = datos.nombre.strip() if isinstance(datos.nombre, str) else ""
     if not nombre:

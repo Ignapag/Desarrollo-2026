@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import replace
 from datetime import date
 from decimal import Decimal
@@ -12,12 +13,21 @@ from app.modules.stock.domain.entidades import (
     NIVELES,
     TIPOS_MOVIMIENTO,
     DatosIngrediente,
+    ItemConsumoStock,
     validar_ingrediente,
     validar_reposicion,
 )
 
 
 class RepositorioStock(Protocol):
+    async def bloquear_pedido(self, pedido_id: int) -> bool: ...
+    async def consumo_existente(self, pedido_id: int) -> bool: ...
+    async def pedido_tiene_opciones(self, pedido_id: int) -> bool: ...
+    async def recetas(self, producto_ids: list[int]) -> list[dict]: ...
+    async def bloquear_ingredientes(self, ingrediente_ids: list[int]) -> list[dict]: ...
+    async def consumir(
+        self, ingrediente_id: int, cantidad: Decimal, pedido_id: int
+    ) -> dict | None: ...
     async def listar(
         self,
         *,
@@ -45,9 +55,101 @@ class RepositorioStock(Protocol):
     ) -> list[dict]: ...
 
 
+class PedidoYaProcesado(ReglaDeNegocio):
+    codigo = "pedido_ya_procesado"
+
+
+class StockInsuficiente(ReglaDeNegocio):
+    codigo = "stock_insuficiente"
+
+
 class ServicioStock:
     def __init__(self, repositorio: RepositorioStock) -> None:
         self.repo = repositorio
+
+    async def procesar_consumo(
+        self, pedido_id: int, items: Sequence[ItemConsumoStock]
+    ) -> list[dict]:
+        """Consume una vez por pedido dentro de la transaccion del llamador.
+
+        Pedidos debera usar la misma UnidadDeTrabajo y propagar los errores para
+        que se reviertan tanto la confirmacion como el consumo.
+        """
+        if isinstance(pedido_id, bool) or not isinstance(pedido_id, int) or pedido_id <= 0:
+            raise DatosInvalidos("El pedido_id no es valido")
+        if not items:
+            raise DatosInvalidos("El pedido debe contener al menos un item")
+        cantidades: dict[int, int] = {}
+        for item in items:
+            if not isinstance(item, ItemConsumoStock):
+                raise DatosInvalidos("El item de consumo no es valido")
+            if (
+                isinstance(item.producto_id, bool)
+                or not isinstance(item.producto_id, int)
+                or item.producto_id <= 0
+                or isinstance(item.cantidad, bool)
+                or not isinstance(item.cantidad, int)
+                or item.cantidad <= 0
+            ):
+                raise DatosInvalidos("El producto o su cantidad no es valido")
+            if item.opciones:
+                raise ReglaDeNegocio("El consumo con personalizaciones todavia no esta soportado")
+            cantidades[item.producto_id] = cantidades.get(item.producto_id, 0) + item.cantidad
+
+        # El bloqueo de la fila del pedido serializa intentos simultaneos del
+        # mismo pedido sin cambiar su estado ni requerir una migracion.
+        if not await self.repo.bloquear_pedido(pedido_id):
+            raise NoEncontrado("El pedido no existe")
+        if await self.repo.consumo_existente(pedido_id):
+            raise PedidoYaProcesado("El pedido ya consumio stock", {"pedido_id": pedido_id})
+        if await self.repo.pedido_tiene_opciones(pedido_id):
+            raise ReglaDeNegocio("El consumo con personalizaciones todavia no esta soportado")
+
+        recetas = await self.repo.recetas(sorted(cantidades))
+        encontrados = {fila["producto_id"] for fila in recetas}
+        faltan_productos = sorted(cantidades.keys() - encontrados)
+        if faltan_productos:
+            raise NoEncontrado("Hay productos inexistentes", {"producto_ids": faltan_productos})
+        sin_receta = {fila["producto_id"] for fila in recetas if fila["ingrediente_id"] is None}
+        if sin_receta:
+            raise ReglaDeNegocio("Hay productos sin receta", {"producto_ids": sorted(sin_receta)})
+
+        requeridos: dict[int, Decimal] = {}
+        for fila in recetas:
+            ingrediente_id = fila["ingrediente_id"]
+            requeridos[ingrediente_id] = requeridos.get(ingrediente_id, Decimal("0")) + (
+                fila["cantidad_requerida"] * cantidades[fila["producto_id"]]
+            )
+
+        bloqueados = await self.repo.bloquear_ingredientes(sorted(requeridos))
+        saldos = {fila["id"]: fila for fila in bloqueados}
+        if set(requeridos) != set(saldos):
+            raise ReglaDeNegocio("La receta contiene ingredientes inexistentes")
+        faltantes = [
+            {
+                "ingrediente_id": ingrediente_id,
+                "nombre": saldos[ingrediente_id]["nombre"],
+                "cantidad_requerida": requerido,
+                "cantidad_disponible": saldos[ingrediente_id]["cantidad_actual"],
+            }
+            for ingrediente_id, requerido in sorted(requeridos.items())
+            if saldos[ingrediente_id]["cantidad_actual"] < requerido
+        ]
+        if faltantes:
+            raise StockInsuficiente(
+                "Stock insuficiente para el pedido", {"ingredientes": faltantes}
+            )
+
+        movimientos = []
+        for ingrediente_id, requerido in sorted(requeridos.items()):
+            movimiento = await self.repo.consumir(ingrediente_id, requerido, pedido_id)
+            if movimiento is None:
+                raise StockInsuficiente(
+                    "El stock cambio durante el descuento",
+                    {"ingrediente_id": ingrediente_id},
+                )
+            movimientos.append(movimiento)
+        return movimientos
 
     async def listar(
         self,

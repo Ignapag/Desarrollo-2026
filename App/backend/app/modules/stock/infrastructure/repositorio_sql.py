@@ -13,6 +13,85 @@ class RepositorioStockSQL:
     def __init__(self, uow: UnidadDeTrabajo) -> None:
         self.uow = uow
 
+    async def bloquear_pedido(self, pedido_id: int) -> bool:
+        return bool(
+            await self.uow.uno("SELECT id FROM pedido WHERE id = %s FOR UPDATE", (pedido_id,))
+        )
+
+    async def consumo_existente(self, pedido_id: int) -> bool:
+        return bool(
+            await self.uow.valor(
+                "SELECT EXISTS (SELECT 1 FROM movimiento_stock "
+                "WHERE pedido_id = %s AND tipo = 'CONSUMO')",
+                (pedido_id,),
+            )
+        )
+
+    async def pedido_tiene_opciones(self, pedido_id: int) -> bool:
+        return bool(
+            await self.uow.valor(
+                "SELECT EXISTS (SELECT 1 FROM pedido_item_opcion o "
+                "JOIN pedido_item i ON i.id = o.pedido_item_id WHERE i.pedido_id = %s)",
+                (pedido_id,),
+            )
+        )
+
+    async def recetas(self, producto_ids: list[int]) -> list[dict]:
+        return await self.uow.todos(
+            """
+            SELECT p.id AS producto_id, pi.ingrediente_id, pi.cantidad_requerida
+            FROM producto p
+            LEFT JOIN producto_ingrediente pi ON pi.producto_id = p.id
+            WHERE p.id = ANY(%s)
+            ORDER BY p.id, pi.ingrediente_id
+            """,
+            (producto_ids,),
+        )
+
+    async def bloquear_ingredientes(self, ingrediente_ids: list[int]) -> list[dict]:
+        # Una consulta por ID garantiza el orden de adquisicion de bloqueos.
+        filas = []
+        for ingrediente_id in ingrediente_ids:
+            fila = await self.uow.uno(
+                "SELECT id, nombre, cantidad_actual, umbral_minimo "
+                "FROM ingrediente WHERE id = %s FOR UPDATE",
+                (ingrediente_id,),
+            )
+            if fila is not None:
+                filas.append(fila)
+        return filas
+
+    async def consumir(self, ingrediente_id: int, cantidad: Decimal, pedido_id: int) -> dict | None:
+        fila = await self.uow.uno(
+            """
+            UPDATE ingrediente
+            SET cantidad_actual = cantidad_actual - %s
+            WHERE id = %s AND cantidad_actual >= %s
+            RETURNING *
+            """,
+            (cantidad, ingrediente_id, cantidad),
+        )
+        if fila is None:
+            return None
+        movimiento = await self.uow.uno(
+            """
+            INSERT INTO movimiento_stock
+                (ingrediente_id, tipo, cantidad, saldo_resultante, pedido_id)
+            VALUES (%s, 'CONSUMO', %s, %s, %s)
+            RETURNING id, creado_en
+            """,
+            (ingrediente_id, cantidad, fila["cantidad_actual"], pedido_id),
+        )
+        await self._sincronizar_alerta(fila)
+        return {
+            "ingrediente_id": ingrediente_id,
+            "cantidad": cantidad,
+            "saldo_resultante": fila["cantidad_actual"],
+            "pedido_id": pedido_id,
+            "movimiento_id": movimiento["id"],
+            "creado_en": movimiento["creado_en"],
+        }
+
     async def listar(
         self,
         *,
