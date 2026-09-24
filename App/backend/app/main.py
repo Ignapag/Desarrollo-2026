@@ -29,7 +29,6 @@ from app.core.errores import (
 )
 from app.modules.delivery.presentation.router import router as router_delivery
 from app.modules.pagos.presentation.router import router as router_pagos
-from app.modules.pagos.presentation.router_caja import router as router_caja
 
 logging.basicConfig(
     level=logging.DEBUG if settings.debug else logging.INFO,
@@ -81,7 +80,6 @@ app.add_exception_handler(OperationalError, manejador_base_no_disponible)
 # Los routers de cada modulo se montan aca:
 app.include_router(router_delivery)
 app.include_router(router_pagos)
-app.include_router(router_caja)
 
 
 @app.get("/api/salud", tags=["infra"])
