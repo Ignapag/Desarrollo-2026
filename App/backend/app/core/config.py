@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     # por defecto de Vite, para cuando se integre.
     origenes_permitidos: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
+    # --- Billeteras virtuales / Mercado Pago --------------------------
+    mp_access_token: str | None = None
+    mp_webhook_secret: str | None = None
+    mp_url_notificacion: str = "https://api.monuburger.local/api/pagos/webhook/mercadopago"
+    mp_url_retorno: str = "http://localhost:5173/pago/resultado"
+
     # Nota: la configuracion de JWT y cookies vive en el modulo de Usuarios y
     # Seguridad (EDT 1.8), a cargo de otro integrante.
 

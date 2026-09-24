@@ -49,6 +49,64 @@ class RegistrarPagoEfectivoEntrada(BaseModel):
     )
 
 
+class IniciarCobroDigitalEntrada(BaseModel):
+    """Datos para iniciar un cobro mediante billetera virtual (Mercado Pago, Cuenta DNI, etc.)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    pedido_id: int = Field(..., gt=0, description="ID del pedido a cobrar")
+    metodo_pago: MetodoPago = Field(
+        default=MetodoPago.MERCADO_PAGO,
+        description="Billetera virtual seleccionada (MERCADO_PAGO, CUENTA_DNI, NARANJA_X, OTRA_BILLETERA, TRANSFERENCIA)",
+    )
+    monto_a_pagar: Decimal | None = Field(
+        default=None,
+        gt=0,
+        description="Monto a imputar (si se omite, se cobra el saldo pendiente total)",
+    )
+    propina: Decimal = Field(
+        default=Decimal("0.00"),
+        ge=0,
+        description="Propina opcional",
+    )
+    payer_email: str | None = Field(
+        default=None,
+        description="Email del cliente para asociar a la preferencia",
+    )
+    registrado_por: int | None = Field(
+        default=None,
+        gt=0,
+        description="ID del usuario/empleado que genera la orden",
+    )
+
+
+class PreferenciaCobroSalida(BaseModel):
+    """Respuesta con los datos de cobro digital (Checkout y QR)."""
+
+    pago_id: int
+    pedido_id: int
+    metodo_pago: MetodoPago
+    preference_id: str
+    init_point: str
+    qr_data: str
+    monto: Decimal
+    propina: Decimal
+    estado: EstadoPago
+
+
+class WebhookMercadoPagoEntrada(BaseModel):
+    """Payload recibido en el webhook de Mercado Pago."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    action: str | None = None
+    api_version: str | None = None
+    data: dict | None = None
+    id: str | int | None = None
+    type: str | None = None
+    topic: str | None = None
+
+
 class PagoSalida(BaseModel):
     """Representación de un pago o egreso."""
 
