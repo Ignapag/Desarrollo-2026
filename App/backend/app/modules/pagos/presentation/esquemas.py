@@ -8,6 +8,7 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.modules.pagos.domain.entidades import (
+    EstadoFinancieroPedido,
     EstadoPago,
     MetodoPago,
     Pago,
@@ -115,4 +116,32 @@ class ResultadoCobroEfectivoSalida(BaseModel):
                 vuelto=res.detalle.vuelto,
                 saldo_restante=res.detalle.saldo_restante,
             ),
+        )
+
+
+class EstadoFinancieroPedidoSalida(BaseModel):
+    """Estado financiero consolidado de un pedido."""
+
+    pedido_id: int
+    numero: int
+    estado_pedido: str
+    total_pedido: Decimal
+    total_pagado: Decimal
+    saldo_pendiente: Decimal
+    esta_saldado: bool
+    cantidad_pagos: int
+    pagos: list[PagoSalida]
+
+    @classmethod
+    def desde_dominio(cls, estado: EstadoFinancieroPedido) -> EstadoFinancieroPedidoSalida:
+        return cls(
+            pedido_id=estado.pedido_id,
+            numero=estado.numero,
+            estado_pedido=estado.estado_pedido,
+            total_pedido=estado.total_pedido,
+            total_pagado=estado.total_pagado,
+            saldo_pendiente=estado.saldo_pendiente,
+            esta_saldado=estado.esta_saldado,
+            cantidad_pagos=estado.cantidad_pagos,
+            pagos=[PagoSalida.desde_dominio(p) for p in estado.pagos],
         )
