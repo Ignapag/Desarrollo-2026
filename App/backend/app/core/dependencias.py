@@ -10,7 +10,9 @@ from fastapi import Depends, Request
 from app.core.db import UnidadDeTrabajo, conexion
 from app.modules.delivery.application.servicio_delivery import ServicioDelivery
 from app.modules.delivery.infrastructure.repositorio_sql import RepositorioDeliverySQL
+from app.modules.pagos.application.servicio_caja import ServicioCaja
 from app.modules.pagos.application.servicio_pagos import ServicioPagos
+from app.modules.pagos.infrastructure.repositorio_caja_sql import RepositorioCajaSQL
 from app.modules.pagos.infrastructure.repositorio_sql import RepositorioPagosSQL
 
 
@@ -35,6 +37,13 @@ def obtener_servicio_pagos(uow: UoW) -> ServicioPagos:
 
 
 ServicioPagosDep = Annotated[ServicioPagos, Depends(obtener_servicio_pagos)]
+
+
+def obtener_servicio_caja(uow: UoW) -> ServicioCaja:
+    return ServicioCaja(uow, RepositorioCajaSQL(uow))
+
+
+ServicioCajaDep = Annotated[ServicioCaja, Depends(obtener_servicio_caja)]
 
 
 def ip_cliente(request: Request) -> str | None:

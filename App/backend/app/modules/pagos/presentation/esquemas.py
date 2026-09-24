@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.modules.pagos.domain.entidades import (
+    ConsolidadoTurno,
     EstadoFinancieroPedido,
     EstadoPago,
     MetodoPago,
     Pago,
     ResultadoCobroEfectivo,
     TipoPago,
+    TotalesMetodoPago,
+    TurnoCierre,
 )
 
 
@@ -203,3 +206,56 @@ class EstadoFinancieroPedidoSalida(BaseModel):
             cantidad_pagos=estado.cantidad_pagos,
             pagos=[PagoSalida.desde_dominio(p) for p in estado.pagos],
         )
+
+
+class TotalesMetodoPagoSalida(BaseModel):
+    """Subtotal y cantidad por método de pago."""
+
+    metodo_pago: MetodoPago
+    total: Decimal
+    cantidad: int
+
+    @classmethod
+    def desde_dominio(cls, item: TotalesMetodoPago) -> TotalesMetodoPagoSalida:
+        return cls(
+            metodo_pago=item.metodo_pago,
+            total=item.total,
+            cantidad=item.cantidad,
+        )
+
+
+class ConsolidadoTurnoSalida(BaseModel):
+    """Resumen consolidado de ingresos y egresos de un turno."""
+
+    fecha: date
+    turno: TurnoCierre
+    desde: datetime
+    hasta: datetime
+    total_efectivo: Decimal
+    total_billeteras: Decimal
+    total_devoluciones: Decimal
+    total_general: Decimal
+    total_propinas: Decimal
+    cantidad_pedidos: int
+    cantidad_pagos: int
+    pagos_pendientes_conciliacion: int
+    desglose_metodos: list[TotalesMetodoPagoSalida]
+
+    @classmethod
+    def desde_dominio(cls, c: ConsolidadoTurno) -> ConsolidadoTurnoSalida:
+        return cls(
+            fecha=c.fecha,
+            turno=c.turno,
+            desde=c.desde,
+            hasta=c.hasta,
+            total_efectivo=c.total_efectivo,
+            total_billeteras=c.total_billeteras,
+            total_devoluciones=c.total_devoluciones,
+            total_general=c.total_general,
+            total_propinas=c.total_propinas,
+            cantidad_pedidos=c.cantidad_pedidos,
+            cantidad_pagos=c.cantidad_pagos,
+            pagos_pendientes_conciliacion=c.pagos_pendientes_conciliacion,
+            desglose_metodos=[TotalesMetodoPagoSalida.desde_dominio(m) for m in c.desglose_metodos],
+        )
+
