@@ -344,4 +344,74 @@ class AprobarCierreEntrada(BaseModel):
     )
 
 
+class ConciliarPagoEntrada(BaseModel):
+    """Datos para conciliar un pago individual."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    conciliar_por: int | None = Field(
+        default=None,
+        gt=0,
+        description="ID del usuario/cajero que valida la conciliación",
+    )
+    comprobante: str | None = Field(
+        default=None,
+        description="Número de comprobante bancario o referencia externa",
+    )
+
+
+class ConciliarLoteEntrada(BaseModel):
+    """Datos para conciliar múltiples pagos en lote."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    pago_ids: list[int] = Field(
+        ...,
+        min_length=1,
+        description="Lista de IDs de pagos a conciliar",
+    )
+    conciliar_por: int | None = Field(
+        default=None,
+        gt=0,
+        description="ID del usuario que ejecuta la conciliación",
+    )
+
+
+class RegistrarDevolucionEntrada(BaseModel):
+    """Datos para registrar un egreso o devolución sobre un pedido (C-11)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    pedido_id: int = Field(..., gt=0, description="ID del pedido sobre el que se efectúa la devolución")
+    monto: Decimal = Field(..., gt=0, description="Monto a devolver/reintegrar")
+    motivo: str = Field(..., min_length=3, description="Explicación detallada del reintegro")
+    metodo_pago: MetodoPago = Field(
+        default=MetodoPago.EFECTIVO,
+        description="Medio por el cual se reintegra el dinero",
+    )
+    registrado_por: int | None = Field(
+        default=None,
+        gt=0,
+        description="ID del usuario que procesa la devolución",
+    )
+
+
+class AnularPagoEntrada(BaseModel):
+    """Datos para anular un pago pendiente."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    motivo: str = Field(..., min_length=3, description="Motivo de la anulación")
+    anulado_por: int | None = Field(default=None, gt=0, description="ID del usuario que anula")
+
+
+class ResultadoConciliacionLoteSalida(BaseModel):
+    """Resultado del procesamiento de conciliación en lote."""
+
+    conciliados: list[int]
+    fallidos: list[dict]
+    total_procesados: int
+
+
+
 

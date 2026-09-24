@@ -217,3 +217,48 @@ class RepositorioPagosSQL:
         )
         return _mapear_pago(fila) if fila else None
 
+    async def conciliar_pago(
+        self, pago_id: int, referencia_externa: str | None = None
+    ) -> Pago | None:
+        """Marca un pago como CONCILIADO fijando timestamp actual."""
+        sql = """
+            UPDATE pago
+            SET estado = 'CONCILIADO',
+                conciliado_en = now(),
+                referencia_externa = COALESCE(%s, referencia_externa)
+            WHERE id = %s AND estado = 'PENDIENTE'
+            RETURNING id, pedido_id, cierre_caja_id, tipo, metodo_pago,
+                      monto, propina, estado, referencia_externa,
+                      registrado_por, registrado_en, conciliado_en, motivo
+        """
+        fila = await self.uow.uno(sql, (referencia_externa, pago_id))
+        return _mapear_pago(fila) if fila else None
+
+    async def anular_pago(self, pago_id: int, motivo: str) -> Pago | None:
+        """Marca un pago pendiente como ANULADO indicando el motivo."""
+        sql = """
+            UPDATE pago
+            SET estado = 'ANULADO',
+                motivo = %s
+            WHERE id = %s AND estado = 'PENDIENTE'
+            RETURNING id, pedido_id, cierre_caja_id, tipo, metodo_pago,
+                      monto, propina, estado, referencia_externa,
+                      registrado_por, registrado_en, conciliado_en, motivo
+        """
+        fila = await self.uow.uno(sql, (motivo, pago_id))
+        return _mapear_pago(fila) if fila else None
+
+    async def listar_pagos_pendientes_conciliacion(self) -> list[Pago]:
+        """Recupera todos los pagos que aún se encuentran en estado PENDIENTE."""
+        sql = """
+            SELECT id, pedido_id, cierre_caja_id, tipo, metodo_pago,
+                   monto, propina, estado, referencia_externa,
+                   registrado_por, registrado_en, conciliado_en, motivo
+            FROM pago
+            WHERE estado = 'PENDIENTE'
+            ORDER BY registrado_en ASC
+        """
+        filas = await self.uow.todos(sql)
+        return [_mapear_pago(f) for f in filas]
+
+
