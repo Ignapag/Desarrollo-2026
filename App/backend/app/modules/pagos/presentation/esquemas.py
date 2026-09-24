@@ -328,3 +328,20 @@ class CierreCajaSalida(BaseModel):
         )
 
 
+class AprobarCierreEntrada(BaseModel):
+    """Datos para aprobar formalmente y bloquear un cierre de caja."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    aprobado_por: int = Field(
+        ...,
+        gt=0,
+        description="ID del dueño o supervisor que aprueba el cierre",
+    )
+    observaciones: str | None = Field(
+        default=None,
+        description="Observaciones finales de revisión y conformidad",
+    )
+
+
+

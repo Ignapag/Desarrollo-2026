@@ -146,3 +146,54 @@ class ServicioCaja:
             hasta_fecha=hasta_fecha,
             estado=estado,
         )
+
+    async def aprobar_y_bloquear_cierre(
+        self,
+        cierre_id: int,
+        aprobado_por: int,
+        observaciones: str | None = None,
+        ip_cliente: str | None = None,
+    ) -> CierreCaja:
+        """Aprueba formalmente un cierre de caja, haciéndolo inalterable (regla del alcance).
+
+        - Valida que el cierre exista.
+        - Verifica que no haya sido ya aprobado previamente.
+        - Asienta el estado APROBADO, timestamp de aprobación y usuario responsable.
+        - Registra la acción crítica en auditoría (RNF-09).
+        """
+        cierre_actual = await self.repo.obtener_cierre_por_id(cierre_id)
+        if cierre_actual is None:
+            raise NoEncontrado(f"Cierre de caja #{cierre_id} no encontrado")
+
+        if cierre_actual.es_aprobado:
+            raise ReglaDeNegocio(
+                f"El cierre de caja #{cierre_id} ya fue aprobado previamente y es inalterable"
+            )
+
+        cierre_aprobado = await self.repo.aprobar_cierre(
+            cierre_id=cierre_id,
+            aprobado_por=aprobado_por,
+            observaciones=observaciones,
+        )
+        if cierre_aprobado is None:
+            raise ReglaDeNegocio(f"No se pudo aprobar el cierre de caja #{cierre_id}")
+
+        await auditoria.registrar(
+            self.uow,
+            accion=AccionesPagos.CIERRE_APROBADO,
+            entidad="cierre_caja",
+            entidad_id=cierre_id,
+            usuario_id=aprobado_por,
+            ip=ip_cliente,
+            datos={
+                "cierre_id": cierre_id,
+                "fecha": str(cierre_aprobado.fecha),
+                "turno": cierre_aprobado.turno.value,
+                "total_general": str(cierre_aprobado.total_general),
+                "aprobado_por": aprobado_por,
+                "observaciones": observaciones,
+            },
+        )
+
+        return cierre_aprobado
+

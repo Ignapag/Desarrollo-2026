@@ -241,3 +241,30 @@ class RepositorioCajaSQL:
             ),
         )
         return [_mapear_cierre(f) for f in filas]
+
+    async def aprobar_cierre(
+        self,
+        cierre_id: int,
+        aprobado_por: int,
+        observaciones: str | None = None,
+    ) -> CierreCaja | None:
+        """Aprueba formalmente un cierre de caja, fijando timestamp y responsable.
+
+        Una vez aprobado, el trigger protege_cierre_aprobado bloquea cualquier
+        modificación posterior garantizando inalterabilidad.
+        """
+        sql = """
+            UPDATE cierre_caja
+            SET estado = 'APROBADO',
+                aprobado_por = %s,
+                aprobado_en = now(),
+                observaciones = COALESCE(%s, observaciones)
+            WHERE id = %s AND estado <> 'APROBADO'
+            RETURNING id, fecha, turno, abierto_en, cerrado_en, total_efectivo,
+                      total_billeteras, total_devoluciones, total_general,
+                      cantidad_pedidos, estado, generado_por, aprobado_por,
+                      aprobado_en, observaciones
+        """
+        fila = await self.uow.uno(sql, (aprobado_por, observaciones, cierre_id))
+        return _mapear_cierre(fila) if fila else None
+
