@@ -10,6 +10,8 @@ from fastapi import Depends, Request
 from app.core.db import UnidadDeTrabajo, conexion
 from app.modules.delivery.application.servicio_delivery import ServicioDelivery
 from app.modules.delivery.infrastructure.repositorio_sql import RepositorioDeliverySQL
+from app.modules.pagos.application.servicio_pagos import ServicioPagos
+from app.modules.pagos.infrastructure.repositorio_sql import RepositorioPagosSQL
 
 
 async def obtener_uow() -> AsyncIterator[UnidadDeTrabajo]:
@@ -26,6 +28,13 @@ def obtener_servicio_delivery(uow: UoW) -> ServicioDelivery:
 
 
 ServicioDeliveryDep = Annotated[ServicioDelivery, Depends(obtener_servicio_delivery)]
+
+
+def obtener_servicio_pagos(uow: UoW) -> ServicioPagos:
+    return ServicioPagos(uow, RepositorioPagosSQL(uow))
+
+
+ServicioPagosDep = Annotated[ServicioPagos, Depends(obtener_servicio_pagos)]
 
 
 def ip_cliente(request: Request) -> str | None:
