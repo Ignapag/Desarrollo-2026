@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Annotated
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -30,7 +31,13 @@ class Settings(BaseSettings):
     # --- CORS ---------------------------------------------------------
     # El frontend lo desarrolla otro integrante; este origen es el puerto
     # por defecto de Vite, para cuando se integre.
-    origenes_permitidos: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
+    # NoDecode: sin esto pydantic-settings intenta leer la variable de entorno
+    # como JSON y falla con la lista separada por comas del .env.example,
+    # antes de que corra _parsear_origenes.
+    origenes_permitidos: Annotated[list[str], NoDecode] = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
 
     # --- Autenticacion (EDT 1.8 - Usuarios y Seguridad) ----------------
     # JWT en cookie HttpOnly. En produccion, JWT_SECRET tiene que venir del

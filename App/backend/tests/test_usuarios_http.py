@@ -6,7 +6,11 @@ endpoint tiene declarado el alias correcto, no solo que el alias en si
 funcione.
 
 Usan los usuarios de App/db/seed.sql (contrasenia Monu2026! para todos) y
-solo pegan a endpoints de lectura: no dejan escritos nuevos en la base.
+solo pegan a endpoints de lectura. Pero el login SI escribe: registra una
+fila en auditoria y actualiza usuario.ultimo_acceso, y como pasa por el
+pool real de la app (no por una transaccion con rollback) queda commiteado.
+Por eso el fixture `_pool_de_pruebas` limpia al terminar lo que estas
+pruebas escribieron, para no ensuciar la base compartida del grupo.
 Si no hay base accesible, se saltean -igual que el resto de las pruebas
 contra la base real.
 
@@ -21,7 +25,7 @@ import httpx
 import pytest
 import pytest_asyncio
 
-from app.core.db import abrir_pool, cerrar_pool, verificar_conexion
+from app.core.db import UnidadDeTrabajo, abrir_pool, cerrar_pool, conexion, verificar_conexion
 from app.main import app
 
 CONTRASENIA_SEED = "Monu2026!"
@@ -48,8 +52,25 @@ async def _pool_de_pruebas() -> AsyncIterator[None]:
     except Exception as exc:  # pragma: no cover
         await cerrar_pool()
         pytest.skip(f"Base no accesible: {exc.__class__.__name__}")
-    yield
-    await cerrar_pool()
+
+    # Foto del estado previo, para deshacer lo que escribe el login.
+    async with conexion() as conn:
+        uow = UnidadDeTrabajo(conn)
+        ultimo_id_auditoria = await uow.valor("SELECT COALESCE(max(id), 0) FROM auditoria")
+        accesos = await uow.todos("SELECT id, ultimo_acceso FROM usuario")
+
+    try:
+        yield
+    finally:
+        async with conexion() as conn:
+            uow = UnidadDeTrabajo(conn)
+            await uow.ejecutar("DELETE FROM auditoria WHERE id > %s", (ultimo_id_auditoria,))
+            for fila in accesos:
+                await uow.ejecutar(
+                    "UPDATE usuario SET ultimo_acceso = %s WHERE id = %s",
+                    (fila["ultimo_acceso"], fila["id"]),
+                )
+        await cerrar_pool()
 
 
 @pytest_asyncio.fixture
