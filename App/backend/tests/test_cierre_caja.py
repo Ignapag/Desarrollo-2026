@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.core.errores import ReglaDeNegocio
+from app.core.errores import NoEncontrado, ReglaDeNegocio
 from app.modules.pagos.application.servicio_caja import ServicioCaja
 from app.modules.pagos.domain.entidades import (
     CierreCaja,
@@ -137,3 +137,101 @@ async def test_consolidar_turno_calculo_completo():
     assert resultado.pagos_pendientes_conciliacion == 2
     assert len(resultado.desglose_metodos) == 3
     assert resultado.desglose_metodos[0].metodo_pago == MetodoPago.MERCADO_PAGO
+
+
+@pytest.mark.asyncio
+async def test_generar_resumen_cierre_exitoso():
+    """Genera el registro formal de cierre en estado PENDIENTE_APROBACION y vincula pagos."""
+    mock_uow = AsyncMock()
+    mock_repo = AsyncMock(spec=RepositorioCajaSQL)
+
+    mock_repo.obtener_cierre_por_fecha_turno.return_value = None
+    mock_repo.consolidar_totales_turno.return_value = {
+        "total_efectivo": Decimal("30000.00"),
+        "total_billeteras": Decimal("50000.00"),
+        "total_devoluciones": Decimal("2000.00"),
+        "total_general": Decimal("78000.00"),
+        "total_propinas": Decimal("4000.00"),
+        "cantidad_pedidos": 25,
+        "cantidad_pagos": 27,
+        "pagos_pendientes_conciliacion": 0,
+    }
+
+    cierre_creado = CierreCaja(
+        id=10,
+        fecha=date(2026, 7, 15),
+        turno=TurnoCierre.NOCHE,
+        abierto_en=datetime(2026, 7, 15, 17, 0, 0),
+        cerrado_en=datetime(2026, 7, 16, 2, 0, 0),
+        total_efectivo=Decimal("30000.00"),
+        total_billeteras=Decimal("50000.00"),
+        total_devoluciones=Decimal("2000.00"),
+        total_general=Decimal("78000.00"),
+        cantidad_pedidos=25,
+        estado=EstadoCierre.PENDIENTE_APROBACION,
+        generado_por=1,
+        aprobado_por=None,
+        aprobado_en=None,
+        observaciones="Cierre turno noche normal",
+    )
+    mock_repo.crear_o_actualizar_cierre.return_value = cierre_creado
+    mock_repo.vincular_pagos_al_cierre.return_value = 27
+
+    servicio = ServicioCaja(mock_uow, mock_repo)
+    resultado = await servicio.generar_resumen_cierre(
+        fecha=date(2026, 7, 15),
+        turno=TurnoCierre.NOCHE,
+        generado_por=1,
+        observaciones="Cierre turno noche normal",
+    )
+
+    assert resultado.id == 10
+    assert resultado.estado == EstadoCierre.PENDIENTE_APROBACION
+    assert resultado.total_general == Decimal("78000.00")
+    mock_repo.vincular_pagos_al_cierre.assert_called_once()
+    mock_repo.crear_o_actualizar_cierre.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_generar_resumen_cierre_falla_si_ya_aprobado():
+    """No permite regenerar o reabrir un turno que ya fue aprobado formalmente."""
+    mock_uow = AsyncMock()
+    mock_repo = AsyncMock(spec=RepositorioCajaSQL)
+
+    cierre_aprobado = CierreCaja(
+        id=10,
+        fecha=date(2026, 7, 15),
+        turno=TurnoCierre.MEDIODIA,
+        abierto_en=datetime(2026, 7, 15, 10, 0, 0),
+        cerrado_en=datetime(2026, 7, 15, 16, 30, 0),
+        total_efectivo=Decimal("20000.00"),
+        total_billeteras=Decimal("30000.00"),
+        total_devoluciones=Decimal("0.00"),
+        total_general=Decimal("50000.00"),
+        cantidad_pedidos=15,
+        estado=EstadoCierre.APROBADO,
+        generado_por=1,
+        aprobado_por=2,
+        aprobado_en=datetime(2026, 7, 15, 17, 0, 0),
+        observaciones="Aprobado por el dueño",
+    )
+    mock_repo.obtener_cierre_por_fecha_turno.return_value = cierre_aprobado
+
+    servicio = ServicioCaja(mock_uow, mock_repo)
+    with pytest.raises(ReglaDeNegocio, match="ya fue aprobado y no puede reabrirse"):
+        await servicio.generar_resumen_cierre(
+            fecha=date(2026, 7, 15),
+            turno=TurnoCierre.MEDIODIA,
+        )
+
+
+@pytest.mark.asyncio
+async def test_obtener_cierre_no_encontrado():
+    """Lanza NoEncontrado cuando se solicita un cierre inexistente."""
+    mock_uow = AsyncMock()
+    mock_repo = AsyncMock(spec=RepositorioCajaSQL)
+    mock_repo.obtener_cierre_por_id.return_value = None
+
+    servicio = ServicioCaja(mock_uow, mock_repo)
+    with pytest.raises(NoEncontrado, match="no encontrado"):
+        await servicio.obtener_cierre(999)

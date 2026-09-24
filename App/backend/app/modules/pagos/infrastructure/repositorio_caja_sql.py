@@ -6,6 +6,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from app.core.db import UnidadDeTrabajo
+from app.core.errores import ReglaDeNegocio
 from app.modules.pagos.domain.entidades import (
     CierreCaja,
     EstadoCierre,
@@ -124,3 +125,119 @@ class RepositorioCajaSQL:
         """
         fila = await self.uow.uno(sql, (fecha, turno.value))
         return _mapear_cierre(fila) if fila else None
+
+    async def crear_o_actualizar_cierre(
+        self,
+        fecha: date,
+        turno: TurnoCierre,
+        total_efectivo: Decimal,
+        total_billeteras: Decimal,
+        total_devoluciones: Decimal,
+        total_general: Decimal,
+        cantidad_pedidos: int,
+        generado_por: int | None = None,
+        observaciones: str | None = None,
+    ) -> CierreCaja:
+        """Inserta o recalcula el resumen del cierre de caja en estado PENDIENTE_APROBACION.
+
+        Si ya existía un cierre aprobado, no permite modificación alguna.
+        """
+        sql = """
+            INSERT INTO cierre_caja (
+                fecha, turno, cerrado_en, total_efectivo, total_billeteras,
+                total_devoluciones, total_general, cantidad_pedidos,
+                estado, generado_por, observaciones
+            )
+            VALUES (%s, %s, now(), %s, %s, %s, %s, %s, 'PENDIENTE_APROBACION', %s, %s)
+            ON CONFLICT (fecha, turno) DO UPDATE
+            SET cerrado_en = now(),
+                total_efectivo = EXCLUDED.total_efectivo,
+                total_billeteras = EXCLUDED.total_billeteras,
+                total_devoluciones = EXCLUDED.total_devoluciones,
+                total_general = EXCLUDED.total_general,
+                cantidad_pedidos = EXCLUDED.cantidad_pedidos,
+                estado = 'PENDIENTE_APROBACION',
+                generado_por = COALESCE(EXCLUDED.generado_por, cierre_caja.generado_por),
+                observaciones = COALESCE(EXCLUDED.observaciones, cierre_caja.observaciones)
+            WHERE cierre_caja.estado <> 'APROBADO'
+            RETURNING id, fecha, turno, abierto_en, cerrado_en, total_efectivo,
+                      total_billeteras, total_devoluciones, total_general,
+                      cantidad_pedidos, estado, generado_por, aprobado_por,
+                      aprobado_en, observaciones
+        """
+        fila = await self.uow.uno(
+            sql,
+            (
+                fecha,
+                turno.value,
+                total_efectivo,
+                total_billeteras,
+                total_devoluciones,
+                total_general,
+                cantidad_pedidos,
+                generado_por,
+                observaciones,
+            ),
+        )
+        if fila is None:
+            raise ReglaDeNegocio(
+                f"El cierre de caja para {fecha} turno {turno.value} ya fue APROBADO y es inalterable"
+            )
+        return _mapear_cierre(fila)
+
+    async def vincular_pagos_al_cierre(
+        self, cierre_id: int, desde: datetime, hasta: datetime
+    ) -> int:
+        """Asocia en bloque todos los pagos del turno al cierre_caja_id."""
+        sql = """
+            UPDATE pago
+            SET cierre_caja_id = %s
+            WHERE registrado_en >= %s
+              AND registrado_en <= %s
+              AND estado <> 'ANULADO'
+        """
+        return await self.uow.ejecutar(sql, (cierre_id, desde, hasta))
+
+    async def obtener_cierre_por_id(self, cierre_id: int) -> CierreCaja | None:
+        """Recupera un cierre por su ID primario."""
+        sql = """
+            SELECT id, fecha, turno, abierto_en, cerrado_en, total_efectivo,
+                   total_billeteras, total_devoluciones, total_general,
+                   cantidad_pedidos, estado, generado_por, aprobado_por,
+                   aprobado_en, observaciones
+            FROM cierre_caja
+            WHERE id = %s
+        """
+        fila = await self.uow.uno(sql, (cierre_id,))
+        return _mapear_cierre(fila) if fila else None
+
+    async def listar_cierres(
+        self,
+        desde_fecha: date | None = None,
+        hasta_fecha: date | None = None,
+        estado: EstadoCierre | None = None,
+    ) -> list[CierreCaja]:
+        """Lista el historial de cierres ordenados cronológicamente."""
+        sql = """
+            SELECT id, fecha, turno, abierto_en, cerrado_en, total_efectivo,
+                   total_billeteras, total_devoluciones, total_general,
+                   cantidad_pedidos, estado, generado_por, aprobado_por,
+                   aprobado_en, observaciones
+            FROM cierre_caja
+            WHERE (%s::date IS NULL OR fecha >= %s)
+              AND (%s::date IS NULL OR fecha <= %s)
+              AND (%s::text IS NULL OR estado = %s)
+            ORDER BY fecha DESC, turno DESC
+        """
+        filas = await self.uow.todos(
+            sql,
+            (
+                desde_fecha,
+                desde_fecha,
+                hasta_fecha,
+                hasta_fecha,
+                estado.value if estado else None,
+                estado.value if estado else None,
+            ),
+        )
+        return [_mapear_cierre(f) for f in filas]

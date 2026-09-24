@@ -8,7 +8,9 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.modules.pagos.domain.entidades import (
+    CierreCaja,
     ConsolidadoTurno,
+    EstadoCierre,
     EstadoFinancieroPedido,
     EstadoPago,
     MetodoPago,
@@ -258,4 +260,71 @@ class ConsolidadoTurnoSalida(BaseModel):
             pagos_pendientes_conciliacion=c.pagos_pendientes_conciliacion,
             desglose_metodos=[TotalesMetodoPagoSalida.desde_dominio(m) for m in c.desglose_metodos],
         )
+
+
+class GenerarCierreEntrada(BaseModel):
+    """Parámetros para generar o recalcular el resumen de cierre de caja."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    fecha: date | None = Field(
+        default=None,
+        description="Fecha contable a cerrar (si se omite, se deduce automáticamente)",
+    )
+    turno: TurnoCierre | None = Field(
+        default=None,
+        description="Turno a cerrar (MEDIODIA o NOCHE; si se omite, se deduce automáticamente)",
+    )
+    observaciones: str | None = Field(
+        default=None,
+        description="Notas u observaciones del arqueo de caja",
+    )
+    generado_por: int | None = Field(
+        default=None,
+        gt=0,
+        description="ID del usuario/empleado que ejecuta el cierre",
+    )
+
+
+class CierreCajaSalida(BaseModel):
+    """Detalle del registro de cierre de caja."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    fecha: date
+    turno: TurnoCierre
+    abierto_en: datetime
+    cerrado_en: datetime | None
+    total_efectivo: Decimal
+    total_billeteras: Decimal
+    total_devoluciones: Decimal
+    total_general: Decimal
+    cantidad_pedidos: int
+    estado: EstadoCierre
+    generado_por: int | None
+    aprobado_por: int | None
+    aprobado_en: datetime | None
+    observaciones: str | None
+
+    @classmethod
+    def desde_dominio(cls, c: CierreCaja) -> CierreCajaSalida:
+        return cls(
+            id=c.id,
+            fecha=c.fecha,
+            turno=c.turno,
+            abierto_en=c.abierto_en,
+            cerrado_en=c.cerrado_en,
+            total_efectivo=c.total_efectivo,
+            total_billeteras=c.total_billeteras,
+            total_devoluciones=c.total_devoluciones,
+            total_general=c.total_general,
+            cantidad_pedidos=c.cantidad_pedidos,
+            estado=c.estado,
+            generado_por=c.generado_por,
+            aprobado_por=c.aprobado_por,
+            aprobado_en=c.aprobado_en,
+            observaciones=c.observaciones,
+        )
+
 
