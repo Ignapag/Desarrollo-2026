@@ -1,4 +1,4 @@
-﻿import { createContext, useContext, useReducer, useEffect } from 'react';
+import { createContext, useContext, useReducer, useEffect } from 'react';
 
 // ==========================================
 // TODO BACKEND (Ignacio / José): 
@@ -77,6 +77,11 @@ function dataReducer(state, action) {
         ...state,
         orders: [{ id: 1044 + state.orders.length, ...action.payload, status: 'pendiente', date: new Date().toISOString() }, ...state.orders],
         cart: []
+      }
+    case 'ADD_INVENTORY_ITEM':
+      return {
+        ...state,
+        inventory: [{ id: state.inventory.length + 1, ...action.payload }, ...state.inventory]
       }
     default:
       return state;
