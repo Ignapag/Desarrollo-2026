@@ -1,23 +1,26 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
-import { useAuth } from './context/AuthContext';
+﻿import { Routes, Route, Navigate } from 'react-router-dom';
+import { useAuth } from './auth/AuthContext';
 
 // Layouts
-import ClientLayout from './layouts/ClientLayout';
-import DashboardLayout from './layouts/DashboardLayout';
+import ClientLayout from './ordering/ClientLayout';
+import DashboardLayout from './management/DashboardLayout';
 
-// Pages
-import Login from './pages/auth/Login';
-import Register from './pages/auth/Register';
-import RecoverPassword from './pages/auth/RecoverPassword';
-import Menu from './pages/client/Menu';
-import ControlPanel from './pages/dashboard/ControlPanel';
-import Orders from './pages/dashboard/Orders';
-import Kitchen from './pages/dashboard/Kitchen';
-import Customers from './pages/dashboard/Customers';
-import Inventory from './pages/dashboard/Inventory';
-import Analytics from './pages/dashboard/Analytics';
-import AccessControl from './pages/dashboard/AccessControl';
-import DeliveryPanel from './pages/delivery/DeliveryPanel';
+// Features
+import Login from './auth/Login';
+import Register from './auth/Register';
+import RecoverPassword from './auth/RecoverPassword';
+import Menu from './ordering/Menu';
+
+import ControlPanel from './management/ControlPanel';
+import Customers from './management/Customers';
+import Analytics from './management/Analytics';
+import AccessControl from './management/AccessControl';
+
+import Orders from './fulfillment/Orders';
+import DeliveryPanel from './fulfillment/DeliveryPanel';
+
+import Kitchen from './kitchen/Kitchen';
+import Inventory from './inventory/Inventory';
 
 function ProtectedRoute({ children, allowedRoles }) {
   const { user } = useAuth();

@@ -1,5 +1,5 @@
-import { X, Minus, Plus, Trash2, CheckCircle } from 'lucide-react';
-import { useData } from '../../context/DataContext';
+﻿import { X, Minus, Plus, Trash2, CheckCircle } from 'lucide-react';
+import { useData } from '../../shared/store/DataContext';
 import { useState } from 'react';
 
 export default function CartDrawer({ isOpen, onClose }) {
