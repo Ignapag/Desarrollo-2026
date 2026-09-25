@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.core.dependencias import ServicioDeliveryDep
+from app.modules.delivery.presentation.dependencias import ServicioDeliveryDep
 from app.modules.delivery.presentation.esquemas import (
     DetalleViaje,
     PropuestaAsignacion,

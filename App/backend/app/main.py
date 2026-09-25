@@ -27,7 +27,7 @@ from app.core.errores import (
     manejador_base_no_disponible,
     manejador_error_dominio,
 )
-from app.modules.delivery.presentation.router import router as router_delivery
+from app.registro_modulos import registrar_routers
 
 logging.basicConfig(
     level=logging.DEBUG if settings.debug else logging.INFO,
@@ -76,8 +76,10 @@ app.add_exception_handler(ErrorDominio, manejador_error_dominio)  # type: ignore
 app.add_exception_handler(PoolTimeout, manejador_base_no_disponible)
 app.add_exception_handler(OperationalError, manejador_base_no_disponible)
 
-# Los routers de cada modulo se montan aca:
-app.include_router(router_delivery)
+# Cada capacidad publica sus routers en ``presentation/router*.py``. El
+# registro automatico permite integrar una rama agregando su carpeta sin que
+# todas las ramas tengan que modificar este archivo.
+modulos_registrados = registrar_routers(app)
 
 
 @app.get("/api/salud", tags=["infra"])

@@ -26,6 +26,7 @@ App/                    el sistema
 
 docs/                   documentación técnica
 ├── GUIA_EQUIPO.md      cómo trabaja el grupo: base compartida y flujo de Git
+├── ARQUITECTURA.md      estructura screaming y contrato de integración
 ├── DER.md              diagrama entidad-relación (generado del SQL)
 ├── DICCIONARIO_DATOS.md  referencia del esquema (generada del SQL)
 ├── CAMBIOS_DER.md      correcciones aplicadas al DER de la Actividad N°2
@@ -43,9 +44,10 @@ documentos/             entregables y documentación del proyecto
 
 ## Empezar a trabajar
 
-**Leé primero [docs/GUIA_EQUIPO.md](docs/GUIA_EQUIPO.md)**: explica cómo
-conectarse a la base de datos compartida, qué no hacer nunca con ella, y el
-flujo de trabajo con Git (rama propia + Pull Request).
+**Leé primero [docs/GUIA_EQUIPO.md](docs/GUIA_EQUIPO.md)** y
+**[docs/ARQUITECTURA.md](docs/ARQUITECTURA.md)**: explican cómo conectarse a
+la base compartida, el flujo de Git y dónde debe integrarse cada capacidad sin
+crear proyectos o puntos de composición duplicados.
 
 ```bash
 git clone https://github.com/Ignapag/Proyecto---Seminario-Integrador-2026.git
@@ -63,7 +65,7 @@ Backend y base de datos: ver [App/backend/README.md](App/backend/README.md).
 | Backend | Python 3.12 · FastAPI · Pydantic |
 | Base de datos | PostgreSQL 17 (Supabase) · psycopg 3 · **SQL directo, sin ORM** |
 | Autenticación | JWT en cookie HttpOnly |
-| Arquitectura | Monolito modular · Clean Architecture |
+| Arquitectura | Monolito modular · Screaming Architecture · Clean Architecture por capacidad |
 | Servicios externos | n8n · WhatsApp Cloud API · OpenStreetMap + Leaflet |
 
 ## Estado

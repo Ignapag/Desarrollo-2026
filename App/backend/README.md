@@ -68,8 +68,9 @@ App/
 │   └── seed.sql              datos de desarrollo
 ├── backend/
 │   ├── app/
-│   │   ├── core/             configuración, pool de BD, errores, dependencias
-│   │   ├── modules/          un subpaquete por módulo del sistema
+│   │   ├── core/             configuración, BD y piezas transversales
+│   │   ├── modules/          capacidades de negocio (arquitectura screaming)
+│   │   ├── registro_modulos.py  composición automática de routers
 │   │   └── main.py
 │   ├── scripts/
 │   │   ├── migrate.py        ejecutor de migraciones
@@ -118,6 +119,12 @@ PostgreSQL funciona**: todos los endpoints devuelven 503 y `/api/salud` informa
 - **Nunca editar una migración ya aplicada**: el runner detecta el cambio de
   checksum y avisa. Para cambiar el esquema, una migración nueva.
 - El dominio y la aplicación no importan FastAPI ni psycopg.
+- Cada capacidad conserva dominio, aplicación, infraestructura y presentación
+  dentro de `app/modules/<capacidad>/`.
+- Los routers `presentation/router*.py` se descubren automáticamente: no
+  agregar imports de módulos a `app/main.py`.
+- Las dependencias específicas viven en la presentación de su capacidad, no
+  en `app/core/dependencias.py`.
 - Errores de negocio: lanzar las excepciones de `app/core/errores.py`, no
   `HTTPException`.
 - En endpoints con autenticación, declarar la dependencia de rol **antes** que

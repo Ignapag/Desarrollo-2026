@@ -5,6 +5,10 @@ Grupo 19 · Seminario Integrador 2026 · Sistema de Gestión Monu Burger
 Esta guía es para los seis integrantes. La base de datos es **una sola,
 compartida en la nube**, y da soporte a todos los módulos del sistema.
 
+Antes de integrar código, leer también [ARQUITECTURA.md](ARQUITECTURA.md):
+define la estructura por capacidades, el único frontend válido y el contrato
+que evita conflictos en `main.py` y en las dependencias compartidas.
+
 **Responsable de la base:** Ignacio Pagotto. Cualquier cambio de esquema pasa
 por él.
 
@@ -210,10 +214,13 @@ app/modules/<modulo>/
 ├── domain/           entidades y reglas puras (sin FastAPI ni psycopg)
 ├── application/      casos de uso: orquestan reglas y transacciones
 ├── infrastructure/   repositorios con SQL directo
-└── presentation/     router FastAPI + esquemas Pydantic
+└── presentation/     routers, esquemas Pydantic y dependencias del módulo
 ```
 
-Y se monta en `app/main.py` con `app.include_router(...)`.
+Todo archivo `presentation/router*.py` que exporte una instancia `router` se
+monta automáticamente. **No edites `app/main.py` para agregar un módulo** y no
+coloques fábricas específicas en `app/core/dependencias.py`; así las ramas de
+distintas capacidades no compiten por los mismos archivos centrales.
 
 Al escribir endpoints con autenticación, declarar la **dependencia de rol antes
 que `UoW`** en la firma: FastAPI resuelve en orden, y así un request sin sesión

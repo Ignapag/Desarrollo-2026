@@ -8,6 +8,32 @@ on:
   pull_request:
 
 jobs:
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: App/frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: App/frontend/package-lock.json
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Estilo del codigo
+        run: npm run lint
+
+      - name: Compilar frontend
+        run: npm run build
+
   backend:
     name: Backend y base de datos
     runs-on: ubuntu-latest
