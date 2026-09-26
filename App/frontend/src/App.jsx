@@ -1,4 +1,4 @@
-﻿import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './auth/AuthContext';
 
 // Layouts
@@ -20,6 +20,7 @@ import Orders from './fulfillment/Orders';
 import DeliveryPanel from './fulfillment/DeliveryPanel';
 
 import Kitchen from './kitchen/Kitchen';
+import Catalog from './management/Catalog';
 import Inventory from './inventory/Inventory';
 
 function ProtectedRoute({ children, allowedRoles }) {
@@ -55,6 +56,7 @@ function App() {
         <Route path="/dashboard" element={<ControlPanel />} />
         <Route path="/dashboard/orders" element={<Orders />} />
         <Route path="/dashboard/kitchen" element={<Kitchen />} />
+        <Route path="/dashboard/catalog" element={<Catalog />} />
         <Route path="/dashboard/customers" element={<Customers />} />
         <Route path="/dashboard/inventory" element={<Inventory />} />
         <Route path="/dashboard/analytics" element={<Analytics />} />

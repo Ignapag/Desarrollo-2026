@@ -1,13 +1,15 @@
 ﻿import { useData } from '../shared/store/DataContext';
+import { useSearchParams } from 'react-router-dom';
+import { toast } from 'sonner';
 import { AlertTriangle, CheckCircle, Package, X, Plus, Minus } from 'lucide-react';
 import { useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
 
 export default function Inventory() {
+  const [searchParams] = useSearchParams();
+  const query = (searchParams.get('q') || '').toLowerCase();
   const { state, dispatch } = useData();
   const { inventory } = state;
   
-  const [searchParams] = useSearchParams();
   const searchQuery = searchParams.get('q')?.toLowerCase() || '';
 
   const filteredInventory = inventory.filter(item => 
@@ -19,7 +21,7 @@ export default function Inventory() {
 
   const [newItem, setNewItem] = useState({
     name: '',
-    category: 'Prote�nas',
+    category: 'Proteínas',
     stock: '',
     min: '',
   });
@@ -35,7 +37,7 @@ export default function Inventory() {
       payload: { ...newItem, stock: stockVal, min: minVal, status }
     });
 
-    setNewItem({ name: '', category: 'Prote�nas', stock: '', min: '' });
+    setNewItem({ name: '', category: 'Proteínas', stock: '', min: '' });
     setIsModalOpen(false);
   };
 
@@ -57,7 +59,7 @@ export default function Inventory() {
           onClick={() => setIsModalOpen(true)}
           className="bg-monu-dark hover:bg-black text-white px-4 py-2 rounded-xl font-bold transition flex items-center gap-2 text-sm"
         >
-          <Package className="w-4 h-4"/> A�adir Insumo
+          <Package className="w-4 h-4"/> Añadir Insumo
         </button>
       </div>
 
@@ -67,9 +69,9 @@ export default function Inventory() {
             <thead className="bg-monu-cream border-b border-monu-green/10 text-sm">
               <tr>
                 <th className="p-4 font-bold text-monu-dark">Insumo</th>
-                <th className="p-4 font-bold text-monu-dark">Categor�a</th>
+                <th className="p-4 font-bold text-monu-dark">Categoría</th>
                 <th className="p-4 font-bold text-monu-dark">Stock Actual</th>
-                <th className="p-4 font-bold text-monu-dark">Stock M�nimo</th>
+                <th className="p-4 font-bold text-monu-dark">Stock Mínimo</th>
                 <th className="p-4 font-bold text-monu-dark">Estado</th>
               </tr>
             </thead>
@@ -77,7 +79,7 @@ export default function Inventory() {
               {filteredInventory.length === 0 ? (
                 <tr>
                   <td colSpan="5" className="p-8 text-center text-monu-text/50">
-                    No se encontraron insumos que coincidan con tu b�squeda.
+                    No se encontraron insumos que coincidan con tu bsqueda.
                   </td>
                 </tr>
               ) : (
@@ -112,7 +114,7 @@ export default function Inventory() {
                         </span>
                       ) : (
                         <span className="bg-green-50 text-green-700 font-bold px-3 py-1 rounded-full text-xs flex items-center gap-1 w-max border border-green-100">
-                          <CheckCircle className="w-3 h-3" /> �ptimo
+                          <CheckCircle className="w-3 h-3" /> ÓÓptimo
                         </span>
                       )}
                     </td>
@@ -124,7 +126,7 @@ export default function Inventory() {
         </div>
       </div>
 
-      {/* Modal A�adir Insumo (Simulador) */}
+      {/* Modal Añadir Insumo (Simulador) */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl relative animate-in fade-in zoom-in duration-200">
@@ -134,7 +136,7 @@ export default function Inventory() {
             >
               <X className="w-5 h-5" />
             </button>
-            <h2 className="text-xl font-extrabold text-monu-dark mb-4">A�adir Nuevo Insumo</h2>
+            <h2 className="text-xl font-extrabold text-monu-dark mb-4">Añadir Nuevo Insumo</h2>
             <p className="text-xs text-gray-500 mb-4">
               (Simulador UI. TODO BACKEND: Enviar POST a la BD al enviar).
             </p>
@@ -152,15 +154,15 @@ export default function Inventory() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-bold text-monu-dark mb-1">Categor�a</label>
+                <label className="block text-sm font-bold text-monu-dark mb-1">Categoría</label>
                 <select 
                   value={newItem.category}
                   onChange={e => setNewItem({...newItem, category: e.target.value})}
                   className="w-full px-4 py-2 border rounded-xl focus:border-monu-green focus:outline-none"
                 >
-                  <option>Prote�nas</option>
-                  <option>Panader�a</option>
-                  <option>L�cteos</option>
+                  <option>Proteínas</option>
+                  <option>Panadería</option>
+                  <option>Lácteos</option>
                   <option>Verduras</option>
                   <option>Aderezos</option>
                   <option>Bebidas</option>
@@ -179,7 +181,7 @@ export default function Inventory() {
                   />
                 </div>
                 <div className="flex-1">
-                  <label className="block text-sm font-bold text-monu-dark mb-1">Stock M�nimo</label>
+                  <label className="block text-sm font-bold text-monu-dark mb-1">Stock Mínimo</label>
                   <input 
                     required
                     type="number" 

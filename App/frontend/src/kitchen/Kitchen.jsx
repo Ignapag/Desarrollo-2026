@@ -1,9 +1,12 @@
-﻿import { useData } from '../shared/store/DataContext';
+import { useData } from '../shared/store/DataContext';
 import { Clock, CheckCircle } from 'lucide-react';
+import { useEffect } from 'react';
 
 export default function Kitchen() {
   const { state, dispatch } = useData();
   const { orders } = state;
+
+
 
   const kitchenOrders = orders.filter(o => o.status === 'en_preparacion');
 
@@ -23,7 +26,7 @@ export default function Kitchen() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
         {kitchenOrders.length === 0 ? (
           <div className="col-span-full py-20 text-center text-monu-text/50">
-            <span className="text-5xl block mb-4">🍳</span>
+            <span className="text-5xl block mb-4">🍽️</span>
             <p className="text-lg">No hay tickets en cocina en este momento.</p>
           </div>
         ) : (

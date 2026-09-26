@@ -1,4 +1,6 @@
 ﻿import { useData } from '../shared/store/DataContext';
+import { useSearchParams } from 'react-router-dom';
+import { toast } from 'sonner';
 import { Clock, CheckCircle, PackageCheck, AlertCircle } from 'lucide-react';
 
 const STATUS_COLUMNS = [
@@ -11,6 +13,14 @@ const STATUS_COLUMNS = [
 export default function Orders() {
   const { state, dispatch } = useData();
   const { orders } = state;
+  const [searchParams] = useSearchParams();
+  const query = (searchParams.get('q') || '').toLowerCase();
+
+  const filteredOrders = state.orders.filter(o => 
+    o.id.toString().includes(query) || 
+    (o.client?.toLowerCase() || '').includes(query) || 
+    (o.address?.toLowerCase() || '').includes(query)
+  );
 
   const updateStatus = (id, newStatus) => {
     dispatch({ type: 'UPDATE_ORDER_STATUS', payload: { id, status: newStatus } });

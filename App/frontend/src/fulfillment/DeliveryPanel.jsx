@@ -1,143 +1,82 @@
-﻿import { useState } from 'react';
-import { useAuth } from '../auth/AuthContext';
-import { useData } from '../shared/store/DataContext';
-import { MapPin, Phone, CheckCircle, Navigation, Clock, LogOut } from 'lucide-react';
+﻿import { useData } from '../shared/store/DataContext';
+import { MapPin, Phone, CheckCircle, Navigation } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function DeliveryPanel() {
-  const { user, logout } = useAuth();
   const { state, dispatch } = useData();
-  const [activeTab, setActiveTab] = useState('pendientes');
+  const { orders } = state;
 
-  // Filter orders that are either ready to be picked up or currently being delivered
-  const deliveryOrders = state.orders.filter(o => ['listo', 'en_camino'].includes(o.status));
-
-  const historyOrders = state.orders.filter(o => o.status === 'entregado');
-
-  const updateStatus = (id, status) => {
-    dispatch({ type: 'UPDATE_ORDER_STATUS', payload: { id, status } });
+  const activeOrders = orders.filter(o => o.status === 'en_camino' || o.status === 'listo');
+  
+  const markAsDelivered = (id) => {
+    dispatch({ type: 'UPDATE_ORDER_STATUS', payload: { id, status: 'entregado' } });
+    toast.success(`¡Pedido #${id} entregado!`, { description: 'Buen trabajo' });
   };
 
   return (
-    <div className="min-h-screen bg-monu-cream font-sans pb-20">
-      {/* Header */}
-      <header className="bg-monu-dark text-white p-4 sticky top-0 z-20 shadow-md">
-        <div className="flex justify-between items-center mb-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-monu-green rounded-xl flex items-center justify-center font-bold">
-              {user?.name?.charAt(0) || 'R'}
-            </div>
-            <div>
-              <h2 className="font-bold">{user?.name}</h2>
-              <p className="text-xs text-white/70">Repartidor activo</p>
-            </div>
+    <div className="space-y-6 max-w-3xl mx-auto">
+      <div className="flex justify-between items-end">
+        <div>
+          <h1 className="text-3xl font-extrabold font-heading text-monu-dark mb-1">Repartidor Activo</h1>
+          <p className="text-monu-text/70">Tus pedidos asignados.</p>
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        {activeOrders.length === 0 ? (
+          <div className="py-20 text-center text-monu-text/50">
+            <span className="text-5xl block mb-4">🛵</span>
+            <p className="text-lg">No tenés pedidos asignados ahora mismo.</p>
           </div>
-          <button onClick={logout} className="p-2 hover:bg-white/10 rounded-lg">
-            <LogOut className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div className="flex bg-white/10 rounded-xl p-1">
-          <button 
-            onClick={() => setActiveTab('pendientes')}
-            className={`flex-1 py-2 font-bold text-sm rounded-lg transition ${activeTab === 'pendientes' ? 'bg-white text-monu-dark shadow' : 'text-white/80'}`}
-          >
-            Nuevos Pedidos
-          </button>
-          <button 
-            onClick={() => setActiveTab('historial')}
-            className={`flex-1 py-2 font-bold text-sm rounded-lg transition ${activeTab === 'historial' ? 'bg-white text-monu-dark shadow' : 'text-white/80'}`}
-          >
-            Entregados
-          </button>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="p-4 space-y-4">
-        {activeTab === 'pendientes' ? (
-          deliveryOrders.length === 0 ? (
-            <div className="text-center text-monu-text/60 mt-10">
-              <span className="text-4xl mb-2 block">🛵</span>
-              <p>No hay pedidos pendientes.</p>
-            </div>
-          ) : (
-            deliveryOrders.map(order => (
-              <div key={order.id} className="bg-white rounded-2xl shadow-sm border border-monu-green/10 overflow-hidden">
-                <div className={`p-4 text-white flex justify-between items-center ${order.status === 'listo' ? 'bg-monu-yellow text-monu-dark' : 'bg-monu-orange'}`}>
-                  <div className="flex items-center gap-2 font-bold">
-                    <Clock className="w-4 h-4" />
-                    <span>Hace 10 min</span>
-                  </div>
-                  <span className="font-extrabold text-lg">#{order.id}</span>
-                </div>
-
-                <div className="p-4 space-y-4">
-                  <div className="flex items-start gap-3">
-                    <MapPin className="w-5 h-5 text-monu-green mt-0.5" />
-                    <div>
-                      <p className="font-bold text-monu-dark">{order.address}</p>
-                      <p className="text-sm text-monu-text/70">{order.client}</p>
-                    </div>
-                  </div>
-                  
-                  <div className="flex gap-2">
-                    <button className="flex-1 bg-monu-cream text-monu-dark font-bold py-2.5 rounded-xl text-sm flex items-center justify-center gap-2">
-                      <Phone className="w-4 h-4" />
-                      Llamar
-                    </button>
-                    <button className="flex-1 bg-monu-cream text-monu-dark font-bold py-2.5 rounded-xl text-sm flex items-center justify-center gap-2">
-                      <Navigation className="w-4 h-4" />
-                      Ruta
-                    </button>
-                  </div>
-
-                  {order.status === 'listo' ? (
-                    <button 
-                      onClick={() => updateStatus(order.id, 'en_camino')}
-                      className="w-full bg-monu-green text-white font-bold py-3.5 rounded-xl flex items-center justify-center gap-2 shadow-md"
-                    >
-                      Tomar Pedido
-                    </button>
-                  ) : (
-                    <button 
-                      onClick={() => updateStatus(order.id, 'entregado')}
-                      className="w-full bg-monu-dark text-white font-bold py-3.5 rounded-xl flex items-center justify-center gap-2 shadow-md"
-                    >
-                      <CheckCircle className="w-5 h-5" />
-                      Marcar Entregado
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))
-          )
         ) : (
-          historyOrders.length === 0 ? (
-            <div className="text-center text-monu-text/60 mt-10">
-              <p>Historial de entregas vacío hoy.</p>
-            </div>
-          ) : (
-            historyOrders.map(order => (
-              <div key={order.id} className="bg-white rounded-2xl shadow-sm border border-monu-green/10 overflow-hidden opacity-75">
-                <div className="p-4 bg-monu-cream flex justify-between items-center text-monu-text">
-                  <div className="flex items-center gap-2 font-bold">
-                    <CheckCircle className="w-4 h-4 text-monu-green" />
-                    <span>Entregado</span>
-                  </div>
-                  <span className="font-extrabold text-lg">#{order.id}</span>
+          activeOrders.map((order, i) => (
+            <div key={order.id} className={`bg-white rounded-2xl shadow-sm overflow-hidden border-2 ${i === 0 ? 'border-monu-orange' : 'border-transparent'}`}>
+              <div className={`p-4 text-white flex justify-between items-center ${i === 0 ? 'bg-monu-orange' : 'bg-monu-green/80'}`}>
+                <div className="flex items-center gap-2 font-bold">
+                  <span>{i === 0 ? '¡Urgente!' : 'Siguiente'}</span>
                 </div>
-                <div className="p-4 flex items-start gap-3">
-                  <MapPin className="w-5 h-5 text-monu-text/40 mt-0.5" />
-                  <div>
-                    <p className="font-bold text-monu-dark line-through decoration-monu-text/30">{order.address}</p>
-                    <p className="text-sm text-monu-text/70">{order.client}</p>
-                  </div>
-                </div>
+                <span className="font-extrabold text-xl">#{order.id}</span>
               </div>
-            ))
-          )
+              
+              <div className="p-5 space-y-5">
+                <div className="flex items-start gap-3">
+                  <MapPin className="w-5 h-5 text-monu-green shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-sm font-bold text-gray-500">Dirección de entrega</p>
+                    <p className="font-extrabold text-xl text-monu-dark">{order.address}</p>
+                    <p className="font-bold text-monu-dark/70">{order.client}</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-2 border-t border-gray-100 pt-5">
+                  <a 
+                    href={`tel:${order.phone?.replace(/\D/g, '') || ''}`}
+                    className="flex-1 bg-yellow-50 hover:bg-yellow-100 text-yellow-700 font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition"
+                  >
+                    <Phone className="w-5 h-5" /> Llamar
+                  </a>
+                  <a 
+                    href={`https://maps.google.com/?q=${encodeURIComponent(order.address + ', La Plata, Buenos Aires')}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex-1 bg-blue-50 hover:bg-blue-100 text-blue-600 font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition"
+                  >
+                    <Navigation className="w-5 h-5" /> Ruta GPS
+                  </a>
+                </div>
+
+                <button 
+                  onClick={() => markAsDelivered(order.id)}
+                  className="w-full bg-monu-dark hover:bg-black text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 transition shadow-md"
+                >
+                  <CheckCircle className="w-5 h-5" />
+                  Marcar Entregado
+                </button>
+              </div>
+            </div>
+          ))
         )}
-      </main>
+      </div>
     </div>
   );
 }
