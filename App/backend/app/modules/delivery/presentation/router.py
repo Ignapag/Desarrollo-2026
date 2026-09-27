@@ -1,16 +1,18 @@
 """Endpoints del modulo de asignacion de repartidores (EDT 1.3).
 
-⚠️ PENDIENTE DE PROTECCION: el modulo de Usuarios y Seguridad (EDT 1.8) esta a
-cargo de otro integrante y todavia no existe, asi que estos endpoints no
-validan sesion ni rol. Cuando ese modulo se integre hay que agregar la guarda
-correspondiente **antes** del parametro `servicio` en cada firma:
+⚠️ PENDIENTE DE PROTECCION: el modulo de Usuarios y Seguridad (EDT 1.8) ya
+esta integrado (`app.core.dependencias.PersonalInterno` y los alias por rol
+como `SoloRepartidor`), pero estos endpoints todavia no declaran la guarda.
+Falta agregarla **antes** del parametro `servicio` en cada firma:
 
     empleado: PersonalInterno,     # <- la guarda va primero
     servicio: ServicioDeliveryDep,
 
 Segun el alcance: el Empleado marca el pedido listo para despacho, el
 Dueno/Supervisor supervisa y reasigna, y el Repartidor ve sus pedidos y
-actualiza el estado de la entrega.
+actualiza el estado de la entrega (ese ultimo caso probablemente necesite
+`SoloRepartidor` en vez de `PersonalInterno`, para que un repartidor no vea
+las entregas de otro).
 """
 
 from __future__ import annotations

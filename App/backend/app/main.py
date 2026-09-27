@@ -4,9 +4,10 @@ Monolito modular: una sola aplicacion FastAPI que monta el router de cada
 modulo. Las capas siguen Clean Architecture (presentation / application /
 domain / infrastructure) dentro de cada modulo.
 
-Alcance de este repositorio: Base de Datos (EDT 1.9.2) y Asignacion de
-Repartidores (EDT 1.3.1). Los demas modulos estan a cargo de otros
-integrantes del grupo y se integran mas adelante.
+Alcance de este repositorio: Base de Datos (EDT 1.9.2), Asignacion de
+Repartidores (EDT 1.3.1), Usuarios y Seguridad (EDT 1.8) y Notificaciones /
+Bot de WhatsApp sin la integracion n8n (EDT 1.7). Los demas modulos estan a
+cargo de otros integrantes del grupo y se integran mas adelante.
 """
 
 from __future__ import annotations
