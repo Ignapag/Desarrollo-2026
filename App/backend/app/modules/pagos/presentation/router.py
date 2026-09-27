@@ -9,14 +9,19 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Query, status
 
-from app.core.dependencias import IpCliente, ServicioPagosDep
+from app.core.dependencias import IpCliente, ServicioConciliacionDep, ServicioPagosDep
 from app.modules.pagos.presentation.esquemas import (
+    AnularPagoEntrada,
+    ConciliarLoteEntrada,
+    ConciliarPagoEntrada,
     EstadoFinancieroPedidoSalida,
     IniciarCobroDigitalEntrada,
     PagoSalida,
     PreferenciaCobroSalida,
+    RegistrarDevolucionEntrada,
     RegistrarPagoEfectivoEntrada,
     ResultadoCobroEfectivoSalida,
+    ResultadoConciliacionLoteSalida,
     WebhookMercadoPagoEntrada,
 )
 
@@ -157,6 +162,67 @@ async def listar_pagos_pedido(
 
 
 @router.get(
+    "/pendientes-conciliacion",
+    response_model=list[PagoSalida],
+    summary="Listar pagos pendientes de conciliación",
+)
+async def listar_pendientes_conciliacion(
+    servicio: ServicioConciliacionDep,
+) -> list[PagoSalida]:
+    """Recupera la lista de cobros que aún se encuentran pendientes de acreditación o arqueo."""
+    pagos = await servicio.listar_pendientes_conciliacion()
+    return [PagoSalida.desde_dominio(p) for p in pagos]
+
+
+@router.post(
+    "/conciliar-lote",
+    response_model=ResultadoConciliacionLoteSalida,
+    summary="Conciliar múltiples pagos en lote",
+)
+async def conciliar_lote(
+    datos: ConciliarLoteEntrada,
+    servicio: ServicioConciliacionDep,
+    ip: IpCliente = None,
+) -> ResultadoConciliacionLoteSalida:
+    """Concilia de forma masiva una lista de pagos pendientes (ej. arqueo diario o extracto)."""
+    resultado = await servicio.conciliar_lote(
+        pago_ids=datos.pago_ids,
+        conciliar_por=datos.conciliar_por,
+        ip_cliente=ip,
+    )
+    return ResultadoConciliacionLoteSalida(**resultado)
+
+
+@router.post(
+    "/devolucion",
+    response_model=PagoSalida,
+    status_code=status.HTTP_201_CREATED,
+    summary="Registrar egreso o devolución sobre un pedido",
+)
+async def registrar_devolucion(
+    datos: RegistrarDevolucionEntrada,
+    servicio: ServicioConciliacionDep,
+    ip: IpCliente = None,
+) -> PagoSalida:
+    """Registra una devolución o reintegro (C-11).
+
+    - Valida que el motivo esté explicitado.
+    - Verifica que el monto a devolver no supere el total neto abonado en el pedido.
+    - Asienta el pago con tipo DEVOLUCION y estado CONCILIADO.
+    - Registra el evento en auditoría.
+    """
+    devolucion = await servicio.registrar_devolucion(
+        pedido_id=datos.pedido_id,
+        monto=datos.monto,
+        motivo=datos.motivo,
+        metodo_pago=datos.metodo_pago,
+        registrado_por=datos.registrado_por,
+        ip_cliente=ip,
+    )
+    return PagoSalida.desde_dominio(devolucion)
+
+
+@router.get(
     "/{pago_id}",
     response_model=PagoSalida,
     summary="Obtener detalle de un pago",
@@ -168,3 +234,54 @@ async def obtener_pago(
     """Obtiene los datos de un pago registrado por su identificador primario."""
     pago = await servicio.obtener_pago(pago_id)
     return PagoSalida.desde_dominio(pago)
+
+
+@router.post(
+    "/{pago_id}/conciliar",
+    response_model=PagoSalida,
+    summary="Conciliar un pago individual",
+)
+async def conciliar_pago(
+    pago_id: int,
+    servicio: ServicioConciliacionDep,
+    datos: ConciliarPagoEntrada | None = None,
+    ip: IpCliente = None,
+) -> PagoSalida:
+    """Marca un pago individual como CONCILIADO.
+
+    Si el pago salda la totalidad del pedido pendiente, actualiza el pedido a CONFIRMADO.
+    """
+    conciliar_por = datos.conciliar_por if datos else None
+    comprobante = datos.comprobante if datos else None
+    pago = await servicio.conciliar_pago(
+        pago_id=pago_id,
+        conciliar_por=conciliar_por,
+        comprobante=comprobante,
+        ip_cliente=ip,
+    )
+    return PagoSalida.desde_dominio(pago)
+
+
+@router.post(
+    "/{pago_id}/anular",
+    response_model=PagoSalida,
+    summary="Anular un pago pendiente",
+)
+async def anular_pago(
+    pago_id: int,
+    datos: AnularPagoEntrada,
+    servicio: ServicioConciliacionDep,
+    ip: IpCliente = None,
+) -> PagoSalida:
+    """Anula un pago pendiente registrando el motivo de anulación y auditoría.
+
+    Los pagos ya conciliados no pueden anularse; debe registrarse una devolución.
+    """
+    pago = await servicio.anular_pago(
+        pago_id=pago_id,
+        motivo=datos.motivo,
+        anulado_por=datos.anulado_por,
+        ip_cliente=ip,
+    )
+    return PagoSalida.desde_dominio(pago)
+
