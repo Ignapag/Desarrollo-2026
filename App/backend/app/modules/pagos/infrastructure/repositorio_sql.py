@@ -38,11 +38,25 @@ class RepositorioPagosSQL:
         self.uow = uow
 
     async def obtener_pedido(self, pedido_id: int) -> dict | None:
-        """Obtiene datos esenciales del pedido para procesar el pago."""
+        """Obtiene datos esenciales del pedido para lectura (sin bloqueo)."""
         sql = """
             SELECT id, numero, cliente_id, tipo_entrega, canal, estado, total
             FROM pedido
             WHERE id = %s
+        """
+        return await self.uow.uno(sql, (pedido_id,))
+
+    async def obtener_pedido_para_actualizar(self, pedido_id: int) -> dict | None:
+        """Obtiene el pedido adquiriendo un bloqueo pesimista de fila (FOR UPDATE).
+
+        Garantiza que dos pagos o cancelaciones concurrentes sobre el mismo pedido
+        se ejecuten en serie, evitando doble cobro o carreras de estado.
+        """
+        sql = """
+            SELECT id, numero, cliente_id, tipo_entrega, canal, estado, total
+            FROM pedido
+            WHERE id = %s
+            FOR UPDATE
         """
         return await self.uow.uno(sql, (pedido_id,))
 
@@ -57,6 +71,16 @@ class RepositorioPagosSQL:
         """
         valor = await self.uow.valor(sql, (pedido_id,))
         return Decimal(str(valor)) if valor is not None else Decimal("0.00")
+
+    async def existe_pago_con_referencia(self, referencia_externa: str) -> bool:
+        """Verifica si ya existe un cobro registrado con la misma referencia externa."""
+        sql = """
+            SELECT EXISTS (
+                SELECT 1 FROM pago
+                WHERE referencia_externa = %s AND estado <> 'ANULADO'
+            )
+        """
+        return bool(await self.uow.valor(sql, (referencia_externa,)))
 
     async def registrar_pago(
         self,
@@ -102,14 +126,32 @@ class RepositorioPagosSQL:
             raise RuntimeError("No se pudo registrar el pago en la base de datos")
         return _mapear_pago(fila)
 
-    async def actualizar_estado_pedido(self, pedido_id: int, nuevo_estado: str) -> None:
-        """Actualiza el estado del pedido tras saldar el total."""
-        sql = """
-            UPDATE pedido
-            SET estado = %s
-            WHERE id = %s
-        """
-        await self.uow.ejecutar(sql, (nuevo_estado, pedido_id))
+    async def cambiar_estado_pedido(
+        self,
+        pedido_id: int,
+        estado: str,
+        *,
+        usuario_id: int | None = None,
+        observacion: str | None = None,
+    ) -> None:
+        """Cambia el estado del pedido y registra el historial en pedido_estado_historial (RF-01)."""
+        anterior = await self.uow.valor("SELECT estado FROM pedido WHERE id = %s", (pedido_id,))
+
+        marca = {
+            "CONFIRMADO": ", confirmado_en = now()",
+            "ENTREGADO": ", entregado_en = now()",
+        }.get(estado, "")
+        await self.uow.ejecutar(
+            f"UPDATE pedido SET estado = %s {marca} WHERE id = %s", (estado, pedido_id)
+        )
+        await self.uow.ejecutar(
+            """
+            INSERT INTO pedido_estado_historial
+                (pedido_id, estado_anterior, estado_nuevo, usuario_id, observacion)
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            (pedido_id, anterior, estado, usuario_id, observacion),
+        )
 
     async def obtener_pago_por_id(self, pago_id: int) -> Pago | None:
         """Busca un pago por su identificador primario."""

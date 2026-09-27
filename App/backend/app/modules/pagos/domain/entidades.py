@@ -45,6 +45,15 @@ class EstadoCierre(StrEnum):
     APROBADO = "APROBADO"
 
 
+class AccionesPagos:
+    """Constantes de acciones para la auditoría (RNF-09)."""
+
+    PAGO_REGISTRADO = "PAGO_REGISTRADO"
+    PAGO_CONCILIADO = "PAGO_CONCILIADO"
+    PAGO_ANULADO = "PAGO_ANULADO"
+    DEVOLUCION_REGISTRADA = "DEVOLUCION_REGISTRADA"
+
+
 @dataclass(slots=True, frozen=True)
 class Pago:
     """Entidad que representa un pago o devolución registrado en el sistema."""
@@ -71,6 +80,25 @@ class Pago:
     def es_conciliado(self) -> bool:
         return self.estado == EstadoPago.CONCILIADO
 
+    def validar_inmutabilidad(
+        self,
+        nuevo_monto: Decimal,
+        nuevo_metodo: MetodoPago,
+        nueva_propina: Decimal,
+        nuevo_pedido_id: int,
+    ) -> None:
+        """Protección del alcance: un pago conciliado es inalterable en sus atributos críticos."""
+        if self.es_conciliado:
+            if (
+                self.monto != nuevo_monto
+                or self.metodo_pago != nuevo_metodo
+                or self.propina != nueva_propina
+                or self.pedido_id != nuevo_pedido_id
+            ):
+                raise ReglaDeNegocio(
+                    f"No se puede modificar un pago ya conciliado (pago #{self.id})"
+                )
+
 
 @dataclass(slots=True, frozen=True)
 class DetalleCobroEfectivo:
@@ -90,6 +118,21 @@ class ResultadoCobroEfectivo:
 
     pago: Pago
     detalle: DetalleCobroEfectivo
+
+
+@dataclass(slots=True, frozen=True)
+class EstadoFinancieroPedido:
+    """Resumen consolidado de la situación de pagos de un pedido."""
+
+    pedido_id: int
+    numero: int
+    estado_pedido: str
+    total_pedido: Decimal
+    total_pagado: Decimal
+    saldo_pendiente: Decimal
+    esta_saldado: bool
+    cantidad_pagos: int
+    pagos: list[Pago]
 
 
 def calcular_cobro_efectivo(
@@ -142,4 +185,37 @@ def calcular_cobro_efectivo(
         monto_recibido=monto_recibido,
         vuelto=vuelto,
         saldo_restante=nuevo_saldo,
+    )
+
+
+def calcular_estado_financiero(
+    pedido_id: int,
+    numero: int,
+    estado_pedido: str,
+    total_pedido: Decimal,
+    pagos: list[Pago],
+) -> EstadoFinancieroPedido:
+    """Calcula el balance y estado financiero de un pedido en base a sus pagos registrados."""
+    total_cobros = sum(
+        (p.monto for p in pagos if p.es_cobro and p.estado != EstadoPago.ANULADO),
+        Decimal("0.00"),
+    )
+    total_devoluciones = sum(
+        (p.monto for p in pagos if not p.es_cobro and p.estado != EstadoPago.ANULADO),
+        Decimal("0.00"),
+    )
+    total_neto = total_cobros - total_devoluciones
+    saldo_pendiente = max(Decimal("0.00"), total_pedido - total_neto)
+    esta_saldado = (saldo_pendiente == Decimal("0.00")) and (total_neto >= total_pedido)
+
+    return EstadoFinancieroPedido(
+        pedido_id=pedido_id,
+        numero=numero,
+        estado_pedido=estado_pedido,
+        total_pedido=total_pedido,
+        total_pagado=total_neto,
+        saldo_pendiente=saldo_pendiente,
+        esta_saldado=esta_saldado,
+        cantidad_pagos=len(pagos),
+        pagos=pagos,
     )
