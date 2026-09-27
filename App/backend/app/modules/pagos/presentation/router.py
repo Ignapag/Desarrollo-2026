@@ -1,4 +1,4 @@
-"""Endpoints de la API para el módulo de pagos y validación financiera.
+"""Endpoints de la API para el módulo de pagos, cobro digital y webhooks.
 
 ⚠️ PENDIENTE DE PROTECCIÓN: Al igual que en delivery, la guarda de autenticación
 y rol del módulo de Usuarios y Seguridad (EDT 1.8) se agregará antes del parámetro
@@ -7,14 +7,17 @@ y rol del módulo de Usuarios y Seguridad (EDT 1.8) se agregará antes del pará
 
 from __future__ import annotations
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Query, status
 
 from app.core.dependencias import IpCliente, ServicioPagosDep
 from app.modules.pagos.presentation.esquemas import (
     EstadoFinancieroPedidoSalida,
+    IniciarCobroDigitalEntrada,
     PagoSalida,
+    PreferenciaCobroSalida,
     RegistrarPagoEfectivoEntrada,
     ResultadoCobroEfectivoSalida,
+    WebhookMercadoPagoEntrada,
 )
 
 router = APIRouter(prefix="/api/pagos", tags=["pagos"])
@@ -49,6 +52,80 @@ async def registrar_pago_efectivo(
         ip_cliente=ip,
     )
     return ResultadoCobroEfectivoSalida.desde_dominio(resultado)
+
+
+@router.post(
+    "/billetera/iniciar",
+    response_model=PreferenciaCobroSalida,
+    status_code=status.HTTP_201_CREATED,
+    summary="Iniciar cobro digital (Mercado Pago / Billeteras)",
+)
+async def iniciar_cobro_digital(
+    datos: IniciarCobroDigitalEntrada,
+    servicio: ServicioPagosDep,
+    ip: IpCliente = None,
+) -> PreferenciaCobroSalida:
+    """Genera la orden de cobro digital (Checkout / QR dinámico de Mercado Pago o billeteras).
+
+    - Asienta un pago PENDIENTE vinculado a la preferencia generada.
+    - Devuelve el init_point para redirección web y el payload qr_data para pago con QR.
+    """
+    resultado = await servicio.iniciar_cobro_digital(
+        pedido_id=datos.pedido_id,
+        metodo_pago=datos.metodo_pago,
+        monto_a_pagar=datos.monto_a_pagar,
+        propina=datos.propina,
+        payer_email=datos.payer_email,
+        registrado_por=datos.registrado_por,
+        ip_cliente=ip,
+    )
+    return PreferenciaCobroSalida(
+        pago_id=resultado.pago.id,
+        pedido_id=resultado.pago.pedido_id,
+        metodo_pago=resultado.pago.metodo_pago,
+        preference_id=resultado.preferencia.preference_id,
+        init_point=resultado.preferencia.init_point,
+        qr_data=resultado.preferencia.qr_data,
+        monto=resultado.pago.monto,
+        propina=resultado.pago.propina,
+        estado=resultado.pago.estado,
+    )
+
+
+@router.post(
+    "/webhook/mercadopago",
+    summary="Receptor de notificaciones de pago (Webhook IPN)",
+    status_code=status.HTTP_200_OK,
+)
+async def webhook_mercadopago(
+    servicio: ServicioPagosDep,
+    payload: WebhookMercadoPagoEntrada | None = None,
+    topic: str | None = Query(default=None),
+    id: str | None = Query(default=None),
+    ip: IpCliente = None,
+) -> dict:
+    """Receptor oficial de webhooks e IPN de Mercado Pago.
+
+    - Procesa eventos de tipo 'payment' de forma idempotente.
+    - Si el pago fue acreditado ('approved'), actualiza el pago a CONCILIADO y confirma el pedido.
+    - Si el pago fue rechazado, lo marca como ANULADO con su motivo.
+    """
+    # Mercado Pago envía el ID a través del query param o dentro de data.id del body
+    payment_id = id
+    if not payment_id and payload:
+        if payload.data and "id" in payload.data:
+            payment_id = str(payload.data["id"])
+        elif payload.id:
+            payment_id = str(payload.id)
+
+    if not payment_id:
+        return {"status": "ignorado", "motivo": "No se recibió identificador de recurso de pago"}
+
+    return await servicio.procesar_webhook_mercadopago(
+        payment_id=payment_id,
+        topic=topic or (payload.type if payload else None),
+        ip_cliente=ip,
+    )
 
 
 @router.get(

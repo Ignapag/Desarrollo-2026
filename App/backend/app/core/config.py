@@ -46,6 +46,12 @@ class Settings(BaseSettings):
     jwt_exp_minutos: int = 480  # 8 horas: una jornada de trabajo
     cookie_sesion: str = "monu_session"
 
+    # --- Billeteras virtuales / Mercado Pago --------------------------
+    mp_access_token: str | None = None
+    mp_webhook_secret: str | None = None
+    mp_url_notificacion: str = "https://api.monuburger.local/api/pagos/webhook/mercadopago"
+    mp_url_retorno: str = "http://localhost:5173/pago/resultado"
+
     @field_validator("origenes_permitidos", mode="before")
     @classmethod
     def _parsear_origenes(cls, valor: object) -> object:

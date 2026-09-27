@@ -177,3 +177,43 @@ class RepositorioPagosSQL:
         """
         filas = await self.uow.todos(sql, (pedido_id,))
         return [_mapear_pago(f) for f in filas]
+
+    async def obtener_pago_por_referencia(self, referencia_externa: str) -> Pago | None:
+        """Busca un pago por su referencia externa (preference_id o payment_id)."""
+        sql = """
+            SELECT id, pedido_id, cierre_caja_id, tipo, metodo_pago,
+                   monto, propina, estado, referencia_externa,
+                   registrado_por, registrado_en, conciliado_en, motivo
+            FROM pago
+            WHERE referencia_externa = %s
+        """
+        fila = await self.uow.uno(sql, (referencia_externa,))
+        return _mapear_pago(fila) if fila else None
+
+    async def actualizar_pago_por_referencia(
+        self,
+        referencia_externa: str,
+        nuevo_estado: EstadoPago,
+        *,
+        conciliado_en: datetime | None = None,
+        motivo: str | None = None,
+        nueva_referencia: str | None = None,
+    ) -> Pago | None:
+        """Actualiza el estado y opcionalmente el motivo o id definitivo de cobro."""
+        sql = """
+            UPDATE pago
+            SET estado = %s,
+                conciliado_en = %s,
+                motivo = COALESCE(%s, motivo),
+                referencia_externa = COALESCE(%s, referencia_externa)
+            WHERE referencia_externa = %s
+            RETURNING id, pedido_id, cierre_caja_id, tipo, metodo_pago,
+                      monto, propina, estado, referencia_externa,
+                      registrado_por, registrado_en, conciliado_en, motivo
+        """
+        fila = await self.uow.uno(
+            sql,
+            (nuevo_estado.value, conciliado_en, motivo, nueva_referencia, referencia_externa),
+        )
+        return _mapear_pago(fila) if fila else None
+
