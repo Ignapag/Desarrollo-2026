@@ -1,74 +1,80 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { apiFetch } from '../shared/api/http';
 
 const AuthContext = createContext(null);
 
+const ROLE_DESTINATION = {
+  ADMINISTRADOR: '/dashboard',
+  DUENIO: '/dashboard',
+  EMPLEADO: '/dashboard',
+  REPARTIDOR: '/delivery',
+  CLIENTE: '/menu',
+};
+
+function mapUser(data) {
+  const role = ['ADMINISTRADOR', 'DUENIO', 'EMPLEADO'].includes(data.rol)
+    ? 'admin'
+    : data.rol.toLowerCase();
+  return {
+    id: data.id,
+    username: data.username,
+    role,
+    backendRole: data.rol,
+    name: `${data.nombre} ${data.apellido}`.trim(),
+  };
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
-  // Cargar sesión guardada si existe
   useEffect(() => {
-    const savedUser = localStorage.getItem('monu_session');
-    if (savedUser) setUser(JSON.parse(savedUser));
+    let active = true;
+    apiFetch('/api/auth/me')
+      .then((data) => {
+        if (active) setUser(mapUser(data));
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
-  const login = (email, password) => {
-    // Si es admin o repartidor
-    if (email.includes('admin') || email.includes('empleado')) {
-      const u = { email, role: 'admin', name: 'Administrador' };
-      setUser(u);
-      localStorage.setItem('monu_session', JSON.stringify(u));
-      navigate('/dashboard');
-      return;
-    } 
-    if (email.includes('repartidor')) {
-      const u = { email, role: 'repartidor', name: 'Repartidor Juan' };
-      setUser(u);
-      localStorage.setItem('monu_session', JSON.stringify(u));
-      navigate('/delivery');
-      return;
-    }
-
-    // Si es cliente, buscar en la BD local de clientes
-    const users = JSON.parse(localStorage.getItem('monu_users') || '[]');
-    const existingUser = users.find(u => u.email === email && u.password === password);
-    
-    if (existingUser) {
-      const u = { email, role: 'cliente', name: existingUser.name };
-      setUser(u);
-      localStorage.setItem('monu_session', JSON.stringify(u));
-      navigate('/menu');
+  const login = async (username, password) => {
+    try {
+      const data = await apiFetch('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ username, password }),
+      });
+      const authenticated = mapUser(data);
+      setUser(authenticated);
+      navigate(ROLE_DESTINATION[data.rol] || '/menu');
       return { success: true };
-    } else {
-      return { error: "Correo o contraseña incorrectos." };
+    } catch (error) {
+      return { error: error.message };
     }
   };
 
-  const register = (name, email, password) => {
-    const users = JSON.parse(localStorage.getItem('monu_users') || '[]');
-    if (users.find(u => u.email === email)) {
-      return { error: "Este correo ya está registrado." };
-    }
-    users.push({ name, email, password });
-    localStorage.setItem('monu_users', JSON.stringify(users));
-    
-    // Auto login
-    const u = { email, role: 'cliente', name };
-    setUser(u);
-    localStorage.setItem('monu_session', JSON.stringify(u));
-    navigate('/menu');
-    return { success: true };
-  };
+  const register = async () => ({
+    error: 'El alta publica de clientes aun no esta habilitada. Solicitala al administrador.',
+  });
 
-  const logout = () => {
-    setUser(null);
-    localStorage.removeItem('monu_session');
-    navigate('/login');
+  const logout = async () => {
+    try {
+      await apiFetch('/api/auth/logout', { method: 'POST' });
+    } finally {
+      setUser(null);
+      navigate('/login');
+    }
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, register, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
       {children}
     </AuthContext.Provider>
   );

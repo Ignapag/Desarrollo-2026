@@ -9,24 +9,38 @@ interface RegistrarPedidoInput {
     metodoPago: MetodoPago;
 }
 
-let contadorPedidosMock = 1041;
-
-// TODO backend: reemplazar el cuerpo de esta función por un POST a la API
-// de FastAPI (ej. POST /pedidos) cuando esté disponible. La firma
-// (parámetros de entrada y el Pedido que devuelve) ya sigue la forma de
-// "Datos del pedido" de CU_PED_02, así que el resto de la app no debería
-// necesitar cambios cuando se conecte el backend real.
 export async function registrarPedido(input: RegistrarPedidoInput): Promise<Pedido> {
-    await new Promise((resolve) => setTimeout(resolve, 700));
-
-    contadorPedidosMock += 1;
-    const ahora = new Date().toISOString();
-
+    const zona = input.entrega.zona === "Punta Lara hasta Hospital Municipal"
+        ? "Punta Lara"
+        : input.entrega.zona;
+    const response = await fetch("/api/pedidos", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            tipo_entrega: "DELIVERY",
+            direccion_nueva: {
+                calle: input.entrega.direccionOriginal,
+                numero: "S/N",
+                localidad: zona,
+                referencia: input.entrega.puntoEncuentro ?? null,
+            },
+            items: input.items.map((item) => ({
+                producto_id: Number(item.producto.id),
+                cantidad: item.cantidad,
+            })),
+        }),
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => null);
+        throw new Error(error?.mensaje ?? "No se pudo registrar el pedido");
+    }
+    const creado: { numero: number; creado_en: string; estado: string } = await response.json();
     return {
-    numeroPedido: contadorPedidosMock,
-    fechaHora: ahora,
-    estado: "Pendiente",
-    historial: [{ estado: "Pendiente", fechaHora: ahora }],
-    ...input,
+        numeroPedido: creado.numero,
+        fechaHora: creado.creado_en,
+        estado: "PENDIENTE",
+        historial: [{ estado: "PENDIENTE", fechaHora: creado.creado_en }],
+        ...input,
     };
-}   
+}

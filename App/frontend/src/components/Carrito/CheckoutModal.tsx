@@ -12,7 +12,7 @@ interface CheckoutModalProps {
     onCerrar: () => void;
 }
 
-const METODOS_PAGO: MetodoPago[] = ["Efectivo", "Mercado Pago", "Cuenta DNI", "Naranja X"];
+const METODOS_PAGO: MetodoPago[] = ["EFECTIVO", "MERCADO_PAGO", "CUENTA_DNI", "NARANJA_X"];
 
 const PUNTO_ENCUENTRO_SUGERIDO = "Kiosco Don Pepe, esquina 12 y 60";
 

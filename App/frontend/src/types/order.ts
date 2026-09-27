@@ -1,7 +1,7 @@
 // src/types/order.ts
 import type { CarritoItem } from "./cart";
 
-export type MetodoPago = "Efectivo" | "Mercado Pago" | "Cuenta DNI" | "Naranja X";
+export type MetodoPago = "EFECTIVO" | "MERCADO_PAGO" | "CUENTA_DNI" | "NARANJA_X";
 
 export type ZonaResultado =
     | "Ensenada"
@@ -12,7 +12,14 @@ export type ZonaResultado =
 // Secuencia de estados operativos según CU_PED_04 (Pendiente -> En preparación
 // -> Listo son los que gestiona el módulo de Pedidos; En camino y Entregado
 // los administra Delivery).
-export type EstadoPedido = "Pendiente" | "En preparación" | "Listo" | "En camino" | "Entregado";
+export type EstadoPedido =
+    | "PENDIENTE"
+    | "CONFIRMADO"
+    | "EN_PREPARACION"
+    | "LISTO"
+    | "EN_CAMINO"
+    | "ENTREGADO"
+    | "CANCELADO";
 
 export interface HistorialEstado {
     estado: EstadoPedido;

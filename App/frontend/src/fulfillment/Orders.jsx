@@ -11,8 +11,7 @@ const STATUS_COLUMNS = [
 ];
 
 export default function Orders() {
-  const { state, dispatch } = useData();
-  const { orders } = state;
+  const { state, changeOrderStatus } = useData();
   const [searchParams] = useSearchParams();
   const query = (searchParams.get('q') || '').toLowerCase();
 
@@ -22,8 +21,13 @@ export default function Orders() {
     (o.address?.toLowerCase() || '').includes(query)
   );
 
-  const updateStatus = (id, newStatus) => {
-    dispatch({ type: 'UPDATE_ORDER_STATUS', payload: { id, status: newStatus } });
+  const updateStatus = async (id, newStatus) => {
+    try {
+      await changeOrderStatus(id, newStatus);
+      toast.success('Estado actualizado');
+    } catch (error) {
+      toast.error('No se pudo actualizar el pedido', { description: error.message });
+    }
   };
 
   return (
@@ -42,12 +46,12 @@ export default function Orders() {
                 {col.title}
               </div>
               <span className="bg-white/50 px-2.5 py-0.5 rounded-full text-sm">
-                {orders.filter(o => o.status === col.id).length}
+                {filteredOrders.filter(o => o.status === col.id).length}
               </span>
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {orders.filter(o => o.status === col.id).map(order => (
+              {filteredOrders.filter(o => o.status === col.id).map(order => (
                 <div key={order.id} className="bg-white p-4 rounded-xl border border-monu-green/10 shadow-sm hover:shadow-md transition">
                   <div className="flex justify-between items-center mb-3">
                     <span className="font-extrabold text-monu-dark">#{order.id}</span>

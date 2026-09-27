@@ -7,8 +7,6 @@ import DashboardLayout from './management/DashboardLayout';
 
 // Features
 import Login from './auth/Login';
-import Register from './auth/Register';
-import RecoverPassword from './auth/RecoverPassword';
 import Menu from './ordering/Menu';
 
 import ControlPanel from './management/ControlPanel';
@@ -24,7 +22,8 @@ import Catalog from './management/Catalog';
 import Inventory from './inventory/Inventory';
 
 function ProtectedRoute({ children, allowedRoles }) {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
+  if (loading) return <div className="min-h-screen bg-monu-cream" aria-busy="true" />;
   
   if (!user) return <Navigate to="/login" replace />;
   if (allowedRoles && !allowedRoles.includes(user.role)) {
@@ -43,8 +42,8 @@ function App() {
       {/* Public / Auth */}
       <Route path="/" element={<Navigate to="/login" replace />} />
       <Route path="/login" element={<Login />} />
-      <Route path="/register" element={<Register />} />
-      <Route path="/recover-password" element={<RecoverPassword />} />
+      <Route path="/register" element={<Navigate to="/login" replace />} />
+      <Route path="/recover-password" element={<Navigate to="/login" replace />} />
 
       {/* Client Routes */}
       <Route element={<ProtectedRoute allowedRoles={['cliente', 'admin']}><ClientLayout /></ProtectedRoute>}>

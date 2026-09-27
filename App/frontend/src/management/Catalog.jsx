@@ -2,16 +2,17 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Plus, Trash2, Edit2, Check, X, Image as ImageIcon } from 'lucide-react';
+import { Plus, Trash2, Check, Image as ImageIcon } from 'lucide-react';
 
 export default function Catalog() {
   const [searchParams] = useSearchParams();
   const query = (searchParams.get('q') || '').toLowerCase();
-  const { state, dispatch } = useData();
+  const { state, createProduct, deactivateProduct } = useData();
   const [isAdding, setIsAdding] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
   const [newItem, setNewItem] = useState({ 
-    name: '', category: 'Nuestras Burgers', price: '', description: '', image: null 
+    name: '', category: 'Hamburguesas', price: '', description: '', image: null,
+    ingredientId: '', ingredientQuantity: '1',
   });
 
   const categories = [...new Set(state.catalog.map(p => p.category))];
@@ -27,22 +28,37 @@ export default function Catalog() {
     }
   };
 
-  const handleAdd = () => {
-    if (!newItem.name || !newItem.price) return;
-    
-    toast.success('Producto agregado', { description: newItem.name });
-    dispatch({ 
-      type: 'ADD_CATALOG_ITEM', 
-      payload: {
-        name: newItem.name,
-        description: newItem.description,
-        category: newItem.category,
+  const handleAdd = async () => {
+    if (!newItem.name || !newItem.price || !newItem.ingredientId) {
+      return toast.error('Completá nombre, precio e ingrediente base');
+    }
+    const category = state.catalog.find((product) => product.category === newItem.category);
+    if (!category) return toast.error('Seleccioná una categoría existente');
+    try {
+      await createProduct({
+        ...newItem,
+        categoryId: category.categoryId,
         price: Number(newItem.price),
-        image: newItem.image
-      }
-    });
-    setNewItem({ name: '', category: 'Nuestras Burgers', price: '', description: '', image: null });
-    setIsAdding(false);
+      });
+      toast.success('Producto agregado', { description: newItem.name });
+      setNewItem({
+        name: '', category: categories[0] || '', price: '', description: '', image: null,
+        ingredientId: '', ingredientQuantity: '1',
+      });
+      setIsAdding(false);
+    } catch (error) {
+      toast.error('No se pudo agregar el producto', { description: error.message });
+    }
+  };
+
+  const handleDelete = async (id) => {
+    try {
+      await deactivateProduct(id);
+      toast.info('Producto desactivado');
+      setDeletingId(null);
+    } catch (error) {
+      toast.error('No se pudo desactivar el producto', { description: error.message });
+    }
   };
 
   return (
@@ -89,6 +105,17 @@ export default function Catalog() {
             <div className="md:col-span-2 lg:col-span-4">
               <label className="block text-xs font-bold text-gray-500 mb-1">Ingredientes / Descripción</label>
               <input type="text" value={newItem.description} onChange={e => setNewItem({...newItem, description: e.target.value})} className="w-full border rounded-lg px-3 py-2 font-bold focus:outline-monu-green" placeholder="Ej: Carne, cheddar, bacon y salsa monu." />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-xs font-bold text-gray-500 mb-1">Ingrediente base</label>
+              <select value={newItem.ingredientId} onChange={e => setNewItem({...newItem, ingredientId: e.target.value})} className="w-full border rounded-lg px-3 py-2 font-bold focus:outline-monu-green">
+                <option value="">Seleccioná un ingrediente...</option>
+                {state.inventory.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </select>
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-xs font-bold text-gray-500 mb-1">Cantidad por unidad</label>
+              <input type="number" min="0.001" step="0.001" value={newItem.ingredientQuantity} onChange={e => setNewItem({...newItem, ingredientQuantity: e.target.value})} className="w-full border rounded-lg px-3 py-2 font-bold focus:outline-monu-green" />
             </div>
           </div>
           <div className="flex justify-end gap-2 mt-2 border-t pt-4">
@@ -137,7 +164,7 @@ export default function Catalog() {
                     <div className="flex flex-col gap-1 items-end">
                       <span className="text-xs font-bold text-red-500">¿Seguro?</span>
                       <div className="flex gap-1">
-                        <button onClick={() => { dispatch({ type: 'DELETE_CATALOG_ITEM', payload: product.id }); toast.info('Producto eliminado'); }} className="text-xs font-bold bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded transition">Sí</button>
+                        <button onClick={() => handleDelete(product.id)} className="text-xs font-bold bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded transition">Sí</button>
                         <button onClick={() => setDeletingId(null)} className="text-xs font-bold bg-gray-200 hover:bg-gray-300 text-monu-dark px-2 py-1 rounded transition">No</button>
                       </div>
                     </div>

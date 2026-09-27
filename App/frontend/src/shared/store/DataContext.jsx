@@ -1,10 +1,12 @@
 ﻿import { createContext, useContext, useReducer, useEffect } from 'react';
 
+import { useState } from 'react';
+import { useAuth } from '../../auth/AuthContext';
+import { apiFetch } from '../api/http';
+
 // ==========================================
-// TODO BACKEND (Ignacio / José): 
-// Este `initialState` es 100% de prueba para que Emilio diseñe las pantallas.
-// En producción, estos arreglos deben arrancar vacíos ([]) y llenarse 
-// haciendo `fetch()` a su API usando un `useEffect` en el DataProvider.
+// Datos de demostracion mientras la API carga o si el backend esta fuera de linea.
+// Una respuesta exitosa reemplaza catalogo, pedidos e inventario.
 // ==========================================
 const initialState = {
   catalog: [
@@ -95,12 +97,52 @@ const initialState = {
   ]
 };
 
+function mapProduct(product) {
+  return {
+    id: product.id,
+    categoryId: product.categoria_id,
+    name: product.nombre,
+    description: product.descripcion || '',
+    category: product.categoria,
+    price: Number(product.precio_base),
+    image: product.imagen_url,
+    active: product.activo,
+    available: product.disponible,
+  };
+}
+
+function mapOrder(order) {
+  return {
+    id: order.id,
+    number: order.numero,
+    client: order.cliente,
+    address: order.tipo_entrega === 'RETIRO' ? 'Retiro en local' : 'Delivery',
+    status: order.estado.toLowerCase(),
+    total: Number(order.total),
+    items: order.items.map((item) => `${item.cantidad}x ${item.nombre_producto}`),
+    date: order.creado_en,
+  };
+}
+
+function mapInventory(item) {
+  return {
+    id: item.id,
+    name: item.nombre,
+    category: item.unidad_medida,
+    stock: Number(item.cantidad_actual),
+    min: Number(item.umbral_minimo),
+    status: item.nivel === 'NORMAL' ? 'estable' : 'critico',
+  };
+}
+
 function dataReducer(state, action) {
   switch (action.type) {
     case 'SYNC_ORDERS':
       return { ...state, orders: action.payload };
     case 'SYNC_CATALOG':
       return { ...state, catalog: action.payload };
+    case 'SYNC_INVENTORY':
+      return { ...state, inventory: action.payload };
     case 'ADD_TO_CART': {
       const existingIndex = state.cart.findIndex(item => item.id === action.payload.id);
       if (existingIndex >= 0) {
@@ -130,12 +172,6 @@ function dataReducer(state, action) {
     case 'CLEAR_CART':
       return { ...state, cart: [] };
     
-    // ==========================================
-    // TODO BACKEND:
-    // Estas acciones (UPDATE_ORDER_STATUS y PLACE_ORDER) actualmente actualizan el estado local de React.
-    // Antes de despachar esto al `dataReducer`, el front debería hacer un `fetch('/api/orders', { method: 'POST' })`
-    // y solo actualizar este estado si el backend respondió OK.
-    // ==========================================
     case 'UPDATE_ORDER_STATUS':
       return {
         ...state,
@@ -146,11 +182,11 @@ function dataReducer(state, action) {
     case 'PLACE_ORDER':
       return {
         ...state,
-        orders: [{ id: 1044 + state.orders.length, ...action.payload, status: 'pendiente', date: new Date().toISOString() }, ...state.orders],
+        orders: [action.payload, ...state.orders],
         cart: []
       }
     case 'ADD_CATALOG_ITEM':
-      return { ...state, catalog: [{ id: state.catalog.length + 1, ...action.payload }, ...state.catalog] };
+      return { ...state, catalog: [action.payload, ...state.catalog] };
     case 'DELETE_CATALOG_ITEM':
       return { ...state, catalog: state.catalog.filter(p => p.id !== action.payload) };
     case 'ADD_INVENTORY_ITEM':
@@ -180,55 +216,135 @@ function dataReducer(state, action) {
 const DataContext = createContext(null);
 
 export function DataProvider({ children }) {
-  // Sync orders with localStorage
-  const getInitialState = () => {
+  const [state, dispatch] = useReducer(dataReducer, initialState);
+  const [loading, setLoading] = useState(false);
+  const { user } = useAuth();
+
+  const refreshData = async () => {
+    setLoading(true);
     try {
-      const savedOrders = localStorage.getItem('monu_orders');
-      const savedCatalog = localStorage.getItem('monu_catalog');
-      let st = { ...initialState };
-      if (savedOrders) st.orders = JSON.parse(savedOrders);
-      if (savedCatalog) {
-        let cat = JSON.parse(savedCatalog);
-        cat = cat.map(p => (p.name.includes('T') && p.name.includes('pica')) ? { ...p, image: '/menu/LaTipicaBurger.jpg' } : p);
-        st.catalog = cat;
+      const products = await apiFetch('/api/productos');
+      dispatch({ type: 'SYNC_CATALOG', payload: products.map(mapProduct) });
+      if (user) {
+        const orders = await apiFetch('/api/pedidos');
+        dispatch({ type: 'SYNC_ORDERS', payload: orders.map(mapOrder) });
       }
-      return st;
-    } catch(e) {}
-    return initialState;
+      if (user?.role === 'admin') {
+        const inventory = await apiFetch('/api/stock/ingredientes?activo=true');
+        dispatch({ type: 'SYNC_INVENTORY', payload: inventory.map(mapInventory) });
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const [state, dispatch] = useReducer(dataReducer, getInitialState());
-
-  // Listen to cross-tab updates
   useEffect(() => {
-    const handleStorage = (e) => {
-      if (e.key === 'monu_orders') {
-        dispatch({ type: 'SYNC_ORDERS', payload: JSON.parse(e.newValue || '[]') });
-      }
-      if (e.key === 'monu_catalog') {
-        dispatch({ type: 'SYNC_CATALOG', payload: JSON.parse(e.newValue || '[]') });
-      }
-    };
-    window.addEventListener('storage', handleStorage);
-    return () => window.removeEventListener('storage', handleStorage);
-  }, []);
+    refreshData().catch(() => undefined);
+  }, [user?.id]);
 
-  // Save to localStorage when orders change
-  useEffect(() => {
-    localStorage.setItem('monu_orders', JSON.stringify(state.orders));
-  }, [state.orders]);
+  const createProduct = async (payload) => {
+    const created = await apiFetch('/api/productos', {
+      method: 'POST',
+      body: JSON.stringify({
+        categoria_id: payload.categoryId,
+        nombre: payload.name,
+        descripcion: payload.description,
+        precio_base: payload.price,
+        imagen_url: payload.image,
+        ingredientes: [{
+          ingrediente_id: Number(payload.ingredientId),
+          cantidad_requerida: Number(payload.ingredientQuantity),
+          es_base: true,
+        }],
+      }),
+    });
+    const product = mapProduct(created);
+    dispatch({ type: 'ADD_CATALOG_ITEM', payload: product });
+    return product;
+  };
 
-  useEffect(() => {
-    localStorage.setItem('monu_catalog', JSON.stringify(state.catalog));
-  }, [state.catalog]);
+  const deactivateProduct = async (id) => {
+    await apiFetch(`/api/productos/${id}/estado`, {
+      method: 'PATCH',
+      body: JSON.stringify({ activo: false }),
+    });
+    dispatch({ type: 'DELETE_CATALOG_ITEM', payload: id });
+  };
 
-  // Ejemplo para el backend de cómo se deberían cargar los datos al inicio
-  // useEffect(() => {
-  //   fetch('/api/orders').then(res => res.json()).then(data => dispatch({ type: 'SET_ORDERS', payload: data }))
-  // }, []);
+  const changeOrderStatus = async (id, status) => {
+    const updated = await apiFetch(`/api/pedidos/${id}/estado`, {
+      method: 'PATCH',
+      body: JSON.stringify({ estado: status.toUpperCase() }),
+    });
+    const order = mapOrder(updated);
+    dispatch({ type: 'UPDATE_ORDER_STATUS', payload: { id, status: order.status } });
+    return order;
+  };
+
+  const placeOrder = async ({ address, zone, items }) => {
+    const created = await apiFetch('/api/pedidos', {
+      method: 'POST',
+      body: JSON.stringify({
+        tipo_entrega: 'DELIVERY',
+        direccion_nueva: {
+          calle: address,
+          numero: 'S/N',
+          localidad: zone,
+        },
+        items: items.map((item) => ({
+          producto_id: Number(String(item.id).split('-')[0]),
+          cantidad: item.quantity,
+          aclaraciones: item.notes || null,
+        })),
+      }),
+    });
+    const order = mapOrder(created);
+    dispatch({ type: 'PLACE_ORDER', payload: order });
+    return created;
+  };
+
+  const startDigitalPayment = async (order) => apiFetch('/api/pagos/billetera/iniciar', {
+    method: 'POST',
+    body: JSON.stringify({ pedido_id: order.id, metodo_pago: 'MERCADO_PAGO' }),
+  });
+
+  const createIngredient = async (payload) => {
+    const created = await apiFetch('/api/stock/ingredientes', {
+      method: 'POST',
+      body: JSON.stringify({
+        nombre: payload.name,
+        unidad_medida: payload.unit,
+        cantidad_actual: Number(payload.stock),
+        umbral_minimo: Number(payload.min),
+      }),
+    });
+    const item = mapInventory(created);
+    dispatch({ type: 'ADD_INVENTORY_ITEM', payload: item });
+    return item;
+  };
+
+  const replenishIngredient = async (id, quantity = 1) => {
+    await apiFetch(`/api/stock/ingredientes/${id}/reposiciones`, {
+      method: 'POST',
+      body: JSON.stringify({ cantidad: quantity, origen: 'PANEL_WEB' }),
+    });
+    dispatch({ type: 'UPDATE_INVENTORY_STOCK', payload: { id, delta: quantity } });
+  };
 
   return (
-    <DataContext.Provider value={{ state, dispatch }}>
+    <DataContext.Provider value={{
+      state,
+      dispatch,
+      loading,
+      refreshData,
+      createProduct,
+      deactivateProduct,
+      changeOrderStatus,
+      placeOrder,
+      startDigitalPayment,
+      createIngredient,
+      replenishIngredient,
+    }}>
       {children}
     </DataContext.Provider>
   );

@@ -1,17 +1,22 @@
 import { useData } from '../shared/store/DataContext';
 import { Clock, CheckCircle } from 'lucide-react';
-import { useEffect } from 'react';
+import { toast } from 'sonner';
 
 export default function Kitchen() {
-  const { state, dispatch } = useData();
+  const { state, changeOrderStatus } = useData();
   const { orders } = state;
 
 
 
   const kitchenOrders = orders.filter(o => o.status === 'en_preparacion');
 
-  const markReady = (id) => {
-    dispatch({ type: 'UPDATE_ORDER_STATUS', payload: { id, status: 'listo' } });
+  const markReady = async (id) => {
+    try {
+      await changeOrderStatus(id, 'listo');
+      toast.success('Pedido listo para envío');
+    } catch (error) {
+      toast.error('No se pudo actualizar el pedido', { description: error.message });
+    }
   };
 
   return (

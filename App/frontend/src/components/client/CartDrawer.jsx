@@ -1,13 +1,13 @@
 ﻿import { useState } from 'react';
 import { useAuth } from '../../auth/AuthContext';
 import { useData } from '../../shared/store/DataContext';
-import { Trash2, CreditCard, ChevronRight, CheckCircle } from 'lucide-react';
+import { Trash2, CreditCard, ChevronRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
 export default function CartDrawer({ isOpen, onClose }) {
   const { user } = useAuth();
-  const { state, dispatch } = useData();
+  const { state, dispatch, placeOrder, startDigitalPayment } = useData();
   const { cart } = state;
   const navigate = useNavigate();
   
@@ -28,26 +28,24 @@ export default function CartDrawer({ isOpen, onClose }) {
 
   const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
-  const placeOrder = () => {
+  const submitOrder = async () => {
     if (cart.length === 0 || !address || !phone) return;
     setIsPayingMP(true);
-    
-    setTimeout(() => {
-      dispatch({ 
-        type: 'PLACE_ORDER', 
-        payload: { 
-          client: user?.name || 'Cliente sin cuenta', 
-          address: `${address}, ${zone}`, 
-          phone: phone,
-          total, 
-          items: cart.map(i => `${i.quantity}x ${i.name} ${i.notes ? '(' + i.notes + ')' : ''}`) 
-        } 
-      });
+    try {
+      if (!user || user.role !== 'cliente') {
+        throw new Error('Iniciá sesión como cliente para confirmar el pedido');
+      }
+      const order = await placeOrder({ address, zone, items: cart });
+      await startDigitalPayment(order);
       setIsPayingMP(false);
-      toast.success('¡Pedido Confirmado!', { description: 'Tu pedido ya entró a la cocina. ¡Preparate para disfrutar!' });
+      toast.success('¡Pedido registrado!', { description: 'El pago quedó pendiente en Mercado Pago.' });
       onClose();
       navigate('/menu');
-    }, 2000); // MP sim
+    } catch (error) {
+      toast.error('No se pudo confirmar el pedido', { description: error.message });
+    } finally {
+      setIsPayingMP(false);
+    }
   };
 
   return (
@@ -154,7 +152,7 @@ export default function CartDrawer({ isOpen, onClose }) {
             </div>
 
             <button 
-              onClick={placeOrder}
+              onClick={submitOrder}
               disabled={cart.length === 0 || isPayingMP || !address || !phone || !zone}
               className="w-full bg-[#009EE3] hover:bg-[#0088C4] disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold py-4 rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95"
             >
