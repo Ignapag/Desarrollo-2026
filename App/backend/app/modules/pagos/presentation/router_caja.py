@@ -14,6 +14,7 @@ from fastapi import APIRouter, Query, status
 from app.core.dependencias import IpCliente, ServicioCajaDep
 from app.modules.pagos.domain.entidades import EstadoCierre, TurnoCierre
 from app.modules.pagos.presentation.esquemas import (
+    AprobarCierreEntrada,
     CierreCajaSalida,
     ConsolidadoTurnoSalida,
     GenerarCierreEntrada,
@@ -114,3 +115,25 @@ async def obtener_cierre(
     """Recupera el detalle completo de un cierre de caja por su identificador primario."""
     cierre = await servicio.obtener_cierre(cierre_id)
     return CierreCajaSalida.desde_dominio(cierre)
+
+
+@router.post(
+    "/cierres/{cierre_id}/aprobar",
+    response_model=CierreCajaSalida,
+    summary="Aprobar y bloquear formalmente un cierre de caja",
+)
+async def aprobar_cierre(
+    cierre_id: int,
+    datos: AprobarCierreEntrada,
+    servicio: ServicioCajaDep,
+    ip: IpCliente = None,
+) -> CierreCajaSalida:
+    """Aprueba un cierre de caja pendiente, cambiando su estado a APROBADO e inalterable (RF del alcance)."""
+    cierre = await servicio.aprobar_y_bloquear_cierre(
+        cierre_id=cierre_id,
+        aprobado_por=datos.aprobado_por,
+        observaciones=datos.observaciones,
+        ip_cliente=ip,
+    )
+    return CierreCajaSalida.desde_dominio(cierre)
+

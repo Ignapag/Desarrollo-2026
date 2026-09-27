@@ -235,3 +235,99 @@ async def test_obtener_cierre_no_encontrado():
     servicio = ServicioCaja(mock_uow, mock_repo)
     with pytest.raises(NoEncontrado, match="no encontrado"):
         await servicio.obtener_cierre(999)
+
+
+@pytest.mark.asyncio
+async def test_aprobar_y_bloquear_cierre_exitoso():
+    """Aprueba un cierre pendiente fijando timestamp y responsable."""
+    mock_uow = AsyncMock()
+    mock_repo = AsyncMock(spec=RepositorioCajaSQL)
+
+    cierre_pendiente = CierreCaja(
+        id=5,
+        fecha=date(2026, 7, 15),
+        turno=TurnoCierre.NOCHE,
+        abierto_en=datetime(2026, 7, 15, 17, 0, 0),
+        cerrado_en=datetime(2026, 7, 16, 2, 0, 0),
+        total_efectivo=Decimal("40000.00"),
+        total_billeteras=Decimal("60000.00"),
+        total_devoluciones=Decimal("0.00"),
+        total_general=Decimal("100000.00"),
+        cantidad_pedidos=30,
+        estado=EstadoCierre.PENDIENTE_APROBACION,
+        generado_por=1,
+        aprobado_por=None,
+        aprobado_en=None,
+        observaciones=None,
+    )
+    cierre_aprobado = CierreCaja(
+        id=5,
+        fecha=date(2026, 7, 15),
+        turno=TurnoCierre.NOCHE,
+        abierto_en=datetime(2026, 7, 15, 17, 0, 0),
+        cerrado_en=datetime(2026, 7, 16, 2, 0, 0),
+        total_efectivo=Decimal("40000.00"),
+        total_billeteras=Decimal("60000.00"),
+        total_devoluciones=Decimal("0.00"),
+        total_general=Decimal("100000.00"),
+        cantidad_pedidos=30,
+        estado=EstadoCierre.APROBADO,
+        generado_por=1,
+        aprobado_por=2,
+        aprobado_en=datetime(2026, 7, 16, 2, 30, 0),
+        observaciones="Cierre aprobado sin discrepancias",
+    )
+
+    mock_repo.obtener_cierre_por_id.return_value = cierre_pendiente
+    mock_repo.aprobar_cierre.return_value = cierre_aprobado
+
+    servicio = ServicioCaja(mock_uow, mock_repo)
+    resultado = await servicio.aprobar_y_bloquear_cierre(
+        cierre_id=5,
+        aprobado_por=2,
+        observaciones="Cierre aprobado sin discrepancias",
+    )
+
+    assert resultado.id == 5
+    assert resultado.estado == EstadoCierre.APROBADO
+    assert resultado.aprobado_por == 2
+    assert resultado.es_aprobado
+    mock_repo.aprobar_cierre.assert_called_once_with(
+        cierre_id=5,
+        aprobado_por=2,
+        observaciones="Cierre aprobado sin discrepancias",
+    )
+
+
+@pytest.mark.asyncio
+async def test_aprobar_cierre_ya_aprobado_falla():
+    """No permite volver a aprobar un cierre que ya se encuentra en estado APROBADO."""
+    mock_uow = AsyncMock()
+    mock_repo = AsyncMock(spec=RepositorioCajaSQL)
+
+    cierre_ya_aprobado = CierreCaja(
+        id=5,
+        fecha=date(2026, 7, 15),
+        turno=TurnoCierre.NOCHE,
+        abierto_en=datetime(2026, 7, 15, 17, 0, 0),
+        cerrado_en=datetime(2026, 7, 16, 2, 0, 0),
+        total_efectivo=Decimal("40000.00"),
+        total_billeteras=Decimal("60000.00"),
+        total_devoluciones=Decimal("0.00"),
+        total_general=Decimal("100000.00"),
+        cantidad_pedidos=30,
+        estado=EstadoCierre.APROBADO,
+        generado_por=1,
+        aprobado_por=2,
+        aprobado_en=datetime(2026, 7, 16, 2, 30, 0),
+        observaciones=None,
+    )
+    mock_repo.obtener_cierre_por_id.return_value = cierre_ya_aprobado
+
+    servicio = ServicioCaja(mock_uow, mock_repo)
+    with pytest.raises(ReglaDeNegocio, match="ya fue aprobado previamente y es inalterable"):
+        await servicio.aprobar_y_bloquear_cierre(
+            cierre_id=5,
+            aprobado_por=2,
+        )
+
