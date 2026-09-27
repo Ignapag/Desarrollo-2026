@@ -150,7 +150,7 @@ class ServicioPagos:
         saldo_pendiente = max(Decimal("0.00"), total_pedido - total_pagado)
 
         if saldo_pendiente == Decimal("0.00"):
-            raise ReglaDeNegocio(f"El pedido #{pedido['numero']} ya se encuentra saldado en su totalidad")
+            raise ReglaDeNegocio(f"El pedido #{pedido['numero']} ya se encuentra totalmente saldado")
 
         monto_cobrar = monto_a_pagar if monto_a_pagar is not None else saldo_pendiente
         if monto_cobrar <= Decimal("0.00"):

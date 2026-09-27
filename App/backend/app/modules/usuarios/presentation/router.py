@@ -18,14 +18,13 @@ from fastapi import APIRouter, Query, Response
 
 from app.core import auditoria
 from app.core.config import settings
-from app.core.dependencias import (
+from app.core.dependencias import IpCliente, UoW
+from app.modules.usuarios.presentation.dependencias import (
     AdministradorODuenio,
-    IpCliente,
     ServicioAuthDep,
     ServicioUsuariosDep,
     Sesion,
     SoloAdministrador,
-    UoW,
 )
 from app.core.errores import NoEncontrado
 from app.modules.usuarios.application.servicio_usuarios import FiltrosUsuario

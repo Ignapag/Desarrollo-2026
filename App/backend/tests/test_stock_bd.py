@@ -11,7 +11,7 @@ from app.modules.stock.application.servicio_stock import ServicioStock
 from app.modules.stock.domain.entidades import DatosIngrediente
 from app.modules.stock.infrastructure.repositorio_sql import RepositorioStockSQL
 
-pytest_plugins = ("tests.test_delivery_bd",)  # reutiliza su fixture transaccional
+from tests.test_delivery_bd import uow as uow  # reutiliza su fixture transaccional
 
 
 @pytest.mark.asyncio

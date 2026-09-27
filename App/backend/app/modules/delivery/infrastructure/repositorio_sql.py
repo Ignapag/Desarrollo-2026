@@ -226,36 +226,53 @@ class RepositorioDeliverySQL:
         )
 
     async def cambiar_estado_viaje(self, viaje_id: int, estado: str) -> None:
-        campo = {
-            "EN_RUTA": ", salida_en = now()",
-            "FINALIZADO": ", retorno_en = now()",
-        }.get(estado, "")
+        if estado == "EN_RUTA":
+            await self.uow.ejecutar(
+                "UPDATE viaje SET estado = %s, salida_en = now() WHERE id = %s",
+                (estado, viaje_id),
+            )
+            return
+        if estado == "FINALIZADO":
+            await self.uow.ejecutar(
+                "UPDATE viaje SET estado = %s, retorno_en = now() WHERE id = %s",
+                (estado, viaje_id),
+            )
+            return
         await self.uow.ejecutar(
-            f"UPDATE viaje SET estado = %s {campo} WHERE id = %s", (estado, viaje_id)
+            "UPDATE viaje SET estado = %s WHERE id = %s", (estado, viaje_id)
         )
 
     async def cambiar_estado_envios_del_viaje(self, viaje_id: int, estado: str) -> list[int]:
-        campo = {
-            "EN_CAMINO": ", en_camino_en = now()",
-            "ENTREGADO": ", entregado_en = now()",
-        }.get(estado, "")
-        filas = await self.uow.todos(
-            f"""
-            UPDATE envio SET estado = %s {campo}
+        if estado == "EN_CAMINO":
+            sql = """
+            UPDATE envio SET estado = %s, en_camino_en = now()
             WHERE viaje_id = %s AND estado <> 'ENTREGADO'
             RETURNING pedido_id
-            """,
-            (estado, viaje_id),
-        )
+            """
+        elif estado == "ENTREGADO":
+            sql = """
+            UPDATE envio SET estado = %s, entregado_en = now()
+            WHERE viaje_id = %s AND estado <> 'ENTREGADO'
+            RETURNING pedido_id
+            """
+        else:
+            sql = """
+            UPDATE envio SET estado = %s
+            WHERE viaje_id = %s AND estado <> 'ENTREGADO'
+            RETURNING pedido_id
+            """
+        filas = await self.uow.todos(sql, (estado, viaje_id))
         return [f["pedido_id"] for f in filas]
 
     async def cambiar_estado_envio(self, envio_id: int, estado: str) -> None:
-        campo = {
-            "EN_CAMINO": ", en_camino_en = now()",
-            "ENTREGADO": ", entregado_en = now()",
-        }.get(estado, "")
+        if estado == "EN_CAMINO":
+            sql = "UPDATE envio SET estado = %s, en_camino_en = now() WHERE id = %s"
+        elif estado == "ENTREGADO":
+            sql = "UPDATE envio SET estado = %s, entregado_en = now() WHERE id = %s"
+        else:
+            sql = "UPDATE envio SET estado = %s WHERE id = %s"
         await self.uow.ejecutar(
-            f"UPDATE envio SET estado = %s {campo} WHERE id = %s", (estado, envio_id)
+            sql, (estado, envio_id)
         )
 
     async def quedan_envios_pendientes(self, viaje_id: int) -> bool:
@@ -283,11 +300,12 @@ class RepositorioDeliverySQL:
         """
         anterior = await self.uow.valor("SELECT estado FROM pedido WHERE id = %s", (pedido_id,))
 
-        marca = {
-            "ENTREGADO": ", entregado_en = now()",
-        }.get(estado, "")
+        if estado == "ENTREGADO":
+            sql = "UPDATE pedido SET estado = %s, entregado_en = now() WHERE id = %s"
+        else:
+            sql = "UPDATE pedido SET estado = %s WHERE id = %s"
         await self.uow.ejecutar(
-            f"UPDATE pedido SET estado = %s {marca} WHERE id = %s", (estado, pedido_id)
+            sql, (estado, pedido_id)
         )
         await self.uow.ejecutar(
             """

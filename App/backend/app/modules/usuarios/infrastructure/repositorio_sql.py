@@ -4,12 +4,6 @@ from __future__ import annotations
 
 from app.core.db import UnidadDeTrabajo
 
-CAMPOS_USUARIO = """
-    id, nombre, apellido, username, email, telefono, rol, estado,
-    fecha_alta, actualizado_en, ultimo_acceso
-"""
-
-
 class RepositorioUsuariosSQL:
     def __init__(self, uow: UnidadDeTrabajo) -> None:
         self.uow = uow
@@ -19,13 +13,22 @@ class RepositorioUsuariosSQL:
     async def por_username(self, username: str) -> dict | None:
         """Incluye password_hash: solo lo usa el login, nunca se expone."""
         return await self.uow.uno(
-            f"SELECT {CAMPOS_USUARIO}, password_hash FROM usuario WHERE username = %s",
+            """
+            SELECT id, nombre, apellido, username, email, telefono, rol, estado,
+                   fecha_alta, actualizado_en, ultimo_acceso, password_hash
+            FROM usuario WHERE username = %s
+            """,
             (username,),
         )
 
     async def por_id(self, usuario_id: int) -> dict | None:
         return await self.uow.uno(
-            f"SELECT {CAMPOS_USUARIO} FROM usuario WHERE id = %s", (usuario_id,)
+            """
+            SELECT id, nombre, apellido, username, email, telefono, rol, estado,
+                   fecha_alta, actualizado_en, ultimo_acceso
+            FROM usuario WHERE id = %s
+            """,
+            (usuario_id,),
         )
 
     async def existe_username(self, username: str, *, excluir_id: int | None = None) -> bool:
@@ -52,29 +55,19 @@ class RepositorioUsuariosSQL:
         estado: str | None,
     ) -> list[dict]:
         """CU_USR_02: filtros combinables, todos opcionales."""
-        condiciones: list[str] = []
-        parametros: list[object] = []
-
-        if nombre:
-            condiciones.append("nombre ILIKE %s")
-            parametros.append(f"%{nombre}%")
-        if apellido:
-            condiciones.append("apellido ILIKE %s")
-            parametros.append(f"%{apellido}%")
-        if username:
-            condiciones.append("username ILIKE %s")
-            parametros.append(f"%{username}%")
-        if rol:
-            condiciones.append("rol = %s")
-            parametros.append(rol)
-        if estado:
-            condiciones.append("estado = %s")
-            parametros.append(estado)
-
-        where = f"WHERE {' AND '.join(condiciones)}" if condiciones else ""
         return await self.uow.todos(
-            f"SELECT {CAMPOS_USUARIO} FROM usuario {where} ORDER BY apellido, nombre",
-            parametros,
+            """
+            SELECT id, nombre, apellido, username, email, telefono, rol, estado,
+                   fecha_alta, actualizado_en, ultimo_acceso
+            FROM usuario
+            WHERE (%s::text IS NULL OR nombre ILIKE '%%' || %s || '%%')
+              AND (%s::text IS NULL OR apellido ILIKE '%%' || %s || '%%')
+              AND (%s::text IS NULL OR username ILIKE '%%' || %s || '%%')
+              AND (%s::text IS NULL OR rol = %s)
+              AND (%s::text IS NULL OR estado = %s)
+            ORDER BY apellido, nombre
+            """,
+            (nombre, nombre, apellido, apellido, username, username, rol, rol, estado, estado),
         )
 
     # ------------------------------ escrituras --------------------------

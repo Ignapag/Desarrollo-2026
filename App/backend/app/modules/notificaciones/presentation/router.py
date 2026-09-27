@@ -12,7 +12,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.core.dependencias import AdministradorODuenio, PersonalInterno, ServicioNotificacionesDep
+from app.modules.notificaciones.presentation.dependencias import ServicioNotificacionesDep
+from app.modules.usuarios.presentation.dependencias import AdministradorODuenio, PersonalInterno
 from app.modules.notificaciones.presentation.esquemas import (
     ModificarPlantillaEntrada,
     NotificacionSalida,

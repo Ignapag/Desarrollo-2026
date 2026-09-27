@@ -50,16 +50,11 @@ class RepositorioReportesSQL:
         incluir_montos: bool,
     ) -> list[dict]:
         # Ambas variantes son SQL fijo; el Administrador ni siquiera consulta montos.
-        monto = ", SUM(pi.subtotal) AS monto_total" if incluir_montos else ""
-        return await self.uow.todos(
-            """
+        sql_sin_montos = """
             SELECT date_trunc(%s, p.confirmado_en AT TIME ZONE %s)::date AS periodo,
                    pr.id AS producto_id, pr.nombre AS producto,
                    c.nombre AS categoria, SUM(pi.cantidad) AS cantidad_vendida,
                    COUNT(DISTINCT p.id) AS cantidad_pedidos
-            """
-            + monto
-            + """
             FROM pedido_item pi
             JOIN pedido p ON p.id = pi.pedido_id
             JOIN producto pr ON pr.id = pi.producto_id
@@ -67,10 +62,29 @@ class RepositorioReportesSQL:
             WHERE p.estado = ANY(%s) AND p.confirmado_en IS NOT NULL
               AND (p.confirmado_en AT TIME ZONE %s)::date >= %s
               AND (p.confirmado_en AT TIME ZONE %s)::date <= %s
-              AND (%s IS NULL OR c.id = %s)
-              AND (%s IS NULL OR pr.id = %s)
+              AND (%s::bigint IS NULL OR c.id = %s)
+              AND (%s::bigint IS NULL OR pr.id = %s)
             GROUP BY periodo, pr.id, pr.nombre, c.nombre
-            """,
+        """
+        sql_con_montos = """
+            SELECT date_trunc(%s, p.confirmado_en AT TIME ZONE %s)::date AS periodo,
+                   pr.id AS producto_id, pr.nombre AS producto,
+                   c.nombre AS categoria, SUM(pi.cantidad) AS cantidad_vendida,
+                   COUNT(DISTINCT p.id) AS cantidad_pedidos,
+                   SUM(pi.subtotal) AS monto_total
+            FROM pedido_item pi
+            JOIN pedido p ON p.id = pi.pedido_id
+            JOIN producto pr ON pr.id = pi.producto_id
+            JOIN categoria c ON c.id = pr.categoria_id
+            WHERE p.estado = ANY(%s) AND p.confirmado_en IS NOT NULL
+              AND (p.confirmado_en AT TIME ZONE %s)::date >= %s
+              AND (p.confirmado_en AT TIME ZONE %s)::date <= %s
+              AND (%s::bigint IS NULL OR c.id = %s)
+              AND (%s::bigint IS NULL OR pr.id = %s)
+            GROUP BY periodo, pr.id, pr.nombre, c.nombre
+        """
+        return await self.uow.todos(
+            sql_con_montos if incluir_montos else sql_sin_montos,
             (
                 agrupacion_sql,
                 ZONA_NEGOCIO,
@@ -122,8 +136,8 @@ class RepositorioReportesSQL:
             WHERE p.estado = ANY(%s) AND p.confirmado_en IS NOT NULL
               AND (p.confirmado_en AT TIME ZONE %s)::date >= %s
               AND (p.confirmado_en AT TIME ZONE %s)::date <= %s
-              AND (%s IS NULL OR pr.categoria_id = %s)
-              AND (%s IS NULL OR pr.id = %s)
+              AND (%s::bigint IS NULL OR pr.categoria_id = %s)
+              AND (%s::bigint IS NULL OR pr.id = %s)
             GROUP BY pr.id, pr.nombre, pc.costo_insumos
             ORDER BY pr.nombre, pr.id
             """,

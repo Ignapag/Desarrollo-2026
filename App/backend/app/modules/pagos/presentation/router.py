@@ -1,15 +1,11 @@
-"""Endpoints de la API para el módulo de pagos, cobro digital y webhooks.
-
-⚠️ PENDIENTE DE PROTECCIÓN: Al igual que en delivery, la guarda de autenticación
-y rol del módulo de Usuarios y Seguridad (EDT 1.8) se agregará antes del parámetro
-`servicio` cuando esté integrada.
-"""
+"""Endpoints protegidos de pagos, cobro digital, conciliacion y webhooks."""
 
 from __future__ import annotations
 
 from fastapi import APIRouter, Query, status
 
-from app.core.dependencias import IpCliente, ServicioConciliacionDep, ServicioPagosDep
+from app.core.dependencias import IpCliente
+from app.modules.pagos.presentation.dependencias import ServicioConciliacionDep, ServicioPagosDep
 from app.modules.pagos.presentation.esquemas import (
     AnularPagoEntrada,
     ConciliarLoteEntrada,
@@ -24,6 +20,7 @@ from app.modules.pagos.presentation.esquemas import (
     ResultadoConciliacionLoteSalida,
     WebhookMercadoPagoEntrada,
 )
+from app.modules.usuarios.presentation.dependencias import PersonalInterno, Sesion
 
 router = APIRouter(prefix="/api/pagos", tags=["pagos"])
 
@@ -36,6 +33,7 @@ router = APIRouter(prefix="/api/pagos", tags=["pagos"])
 )
 async def registrar_pago_efectivo(
     datos: RegistrarPagoEfectivoEntrada,
+    sesion: PersonalInterno,
     servicio: ServicioPagosDep,
     ip: IpCliente = None,
 ) -> ResultadoCobroEfectivoSalida:
@@ -53,7 +51,7 @@ async def registrar_pago_efectivo(
         monto_a_pagar=datos.monto_a_pagar,
         propina=datos.propina,
         conciliar_inmediato=datos.conciliar_inmediato,
-        registrado_por=datos.registrado_por,
+        registrado_por=datos.registrado_por or sesion.usuario_id,
         ip_cliente=ip,
     )
     return ResultadoCobroEfectivoSalida.desde_dominio(resultado)
@@ -67,6 +65,7 @@ async def registrar_pago_efectivo(
 )
 async def iniciar_cobro_digital(
     datos: IniciarCobroDigitalEntrada,
+    sesion: Sesion,
     servicio: ServicioPagosDep,
     ip: IpCliente = None,
 ) -> PreferenciaCobroSalida:
@@ -81,7 +80,7 @@ async def iniciar_cobro_digital(
         monto_a_pagar=datos.monto_a_pagar,
         propina=datos.propina,
         payer_email=datos.payer_email,
-        registrado_por=datos.registrado_por,
+        registrado_por=datos.registrado_por or sesion.usuario_id,
         ip_cliente=ip,
     )
     return PreferenciaCobroSalida(
@@ -140,6 +139,7 @@ async def webhook_mercadopago(
 )
 async def estado_financiero_pedido(
     pedido_id: int,
+    _sesion: Sesion,
     servicio: ServicioPagosDep,
 ) -> EstadoFinancieroPedidoSalida:
     """Retorna el balance de pagos, saldo pendiente, detalle de pagos y si el pedido está saldado."""
@@ -154,6 +154,7 @@ async def estado_financiero_pedido(
 )
 async def listar_pagos_pedido(
     pedido_id: int,
+    _sesion: Sesion,
     servicio: ServicioPagosDep,
 ) -> list[PagoSalida]:
     """Retorna el historial completo de pagos y egresos/devoluciones asociados a un pedido."""
@@ -167,6 +168,7 @@ async def listar_pagos_pedido(
     summary="Listar pagos pendientes de conciliación",
 )
 async def listar_pendientes_conciliacion(
+    _sesion: PersonalInterno,
     servicio: ServicioConciliacionDep,
 ) -> list[PagoSalida]:
     """Recupera la lista de cobros que aún se encuentran pendientes de acreditación o arqueo."""
@@ -181,13 +183,14 @@ async def listar_pendientes_conciliacion(
 )
 async def conciliar_lote(
     datos: ConciliarLoteEntrada,
+    sesion: PersonalInterno,
     servicio: ServicioConciliacionDep,
     ip: IpCliente = None,
 ) -> ResultadoConciliacionLoteSalida:
     """Concilia de forma masiva una lista de pagos pendientes (ej. arqueo diario o extracto)."""
     resultado = await servicio.conciliar_lote(
         pago_ids=datos.pago_ids,
-        conciliar_por=datos.conciliar_por,
+        conciliar_por=datos.conciliar_por or sesion.usuario_id,
         ip_cliente=ip,
     )
     return ResultadoConciliacionLoteSalida(**resultado)
@@ -201,6 +204,7 @@ async def conciliar_lote(
 )
 async def registrar_devolucion(
     datos: RegistrarDevolucionEntrada,
+    sesion: PersonalInterno,
     servicio: ServicioConciliacionDep,
     ip: IpCliente = None,
 ) -> PagoSalida:
@@ -216,7 +220,7 @@ async def registrar_devolucion(
         monto=datos.monto,
         motivo=datos.motivo,
         metodo_pago=datos.metodo_pago,
-        registrado_por=datos.registrado_por,
+        registrado_por=datos.registrado_por or sesion.usuario_id,
         ip_cliente=ip,
     )
     return PagoSalida.desde_dominio(devolucion)
@@ -229,6 +233,7 @@ async def registrar_devolucion(
 )
 async def obtener_pago(
     pago_id: int,
+    _sesion: Sesion,
     servicio: ServicioPagosDep,
 ) -> PagoSalida:
     """Obtiene los datos de un pago registrado por su identificador primario."""
@@ -243,6 +248,7 @@ async def obtener_pago(
 )
 async def conciliar_pago(
     pago_id: int,
+    sesion: PersonalInterno,
     servicio: ServicioConciliacionDep,
     datos: ConciliarPagoEntrada | None = None,
     ip: IpCliente = None,
@@ -251,7 +257,7 @@ async def conciliar_pago(
 
     Si el pago salda la totalidad del pedido pendiente, actualiza el pedido a CONFIRMADO.
     """
-    conciliar_por = datos.conciliar_por if datos else None
+    conciliar_por = datos.conciliar_por if datos and datos.conciliar_por else sesion.usuario_id
     comprobante = datos.comprobante if datos else None
     pago = await servicio.conciliar_pago(
         pago_id=pago_id,
@@ -270,6 +276,7 @@ async def conciliar_pago(
 async def anular_pago(
     pago_id: int,
     datos: AnularPagoEntrada,
+    sesion: PersonalInterno,
     servicio: ServicioConciliacionDep,
     ip: IpCliente = None,
 ) -> PagoSalida:
@@ -280,7 +287,7 @@ async def anular_pago(
     pago = await servicio.anular_pago(
         pago_id=pago_id,
         motivo=datos.motivo,
-        anulado_por=datos.anulado_por,
+        anulado_por=datos.anulado_por or sesion.usuario_id,
         ip_cliente=ip,
     )
     return PagoSalida.desde_dominio(pago)

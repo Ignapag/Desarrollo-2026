@@ -137,12 +137,14 @@ class RepositorioPagosSQL:
         """Cambia el estado del pedido y registra el historial en pedido_estado_historial (RF-01)."""
         anterior = await self.uow.valor("SELECT estado FROM pedido WHERE id = %s", (pedido_id,))
 
-        marca = {
-            "CONFIRMADO": ", confirmado_en = now()",
-            "ENTREGADO": ", entregado_en = now()",
-        }.get(estado, "")
+        if estado == "CONFIRMADO":
+            sql = "UPDATE pedido SET estado = %s, confirmado_en = now() WHERE id = %s"
+        elif estado == "ENTREGADO":
+            sql = "UPDATE pedido SET estado = %s, entregado_en = now() WHERE id = %s"
+        else:
+            sql = "UPDATE pedido SET estado = %s WHERE id = %s"
         await self.uow.ejecutar(
-            f"UPDATE pedido SET estado = %s {marca} WHERE id = %s", (estado, pedido_id)
+            sql, (estado, pedido_id)
         )
         await self.uow.ejecutar(
             """

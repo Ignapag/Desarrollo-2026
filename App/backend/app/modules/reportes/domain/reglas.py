@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from app.core.errores import DatosInvalidos, SinPermiso
+from app.errores import DatosInvalidos, SinPermiso
 
 # Una venta es un pedido confirmado que no esta cancelado. El periodo se toma
 # de pedido.confirmado_en, nunca de pedido.creado_en.

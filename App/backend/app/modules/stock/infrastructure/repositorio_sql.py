@@ -118,18 +118,23 @@ class RepositorioStockSQL:
                 FROM ingrediente i
                 LEFT JOIN usuario u ON u.id = i.responsable_id
             ) inventario
-            WHERE (%s IS NULL OR nombre ILIKE '%%' || %s || '%%')
-              AND (%s IS NULL OR responsable_id = %s)
-              AND (%s IS NULL OR activo = %s)
-              AND (%s IS NULL OR nivel = %s)
+            WHERE (%s::text IS NULL OR nombre ILIKE '%%' || %s || '%%')
+              AND (%s::bigint IS NULL OR responsable_id = %s)
+              AND (%s::boolean IS NULL OR activo = %s)
+              AND (%s::text IS NULL OR nivel = %s)
             ORDER BY nombre
             """,
             (nombre, nombre, responsable_id, responsable_id, activo, activo, nivel, nivel),
         )
 
     async def ingrediente(self, ingrediente_id: int, *, bloquear: bool = False) -> dict | None:
+        if bloquear:
+            return await self.uow.uno(
+                "SELECT * FROM ingrediente WHERE id = %s FOR UPDATE",
+                (ingrediente_id,),
+            )
         return await self.uow.uno(
-            "SELECT * FROM ingrediente WHERE id = %s" + (" FOR UPDATE" if bloquear else ""),
+            "SELECT * FROM ingrediente WHERE id = %s",
             (ingrediente_id,),
         )
 
@@ -137,7 +142,7 @@ class RepositorioStockSQL:
         return bool(
             await self.uow.valor(
                 "SELECT EXISTS (SELECT 1 FROM ingrediente "
-                "WHERE lower(nombre) = lower(%s) AND (%s IS NULL OR id <> %s))",
+                "WHERE lower(nombre) = lower(%s) AND (%s::bigint IS NULL OR id <> %s))",
                 (nombre, excepto_id, excepto_id),
             )
         )
@@ -260,10 +265,10 @@ class RepositorioStockSQL:
                    m.pedido_id, m.motivo
             FROM movimiento_stock m
             LEFT JOIN usuario u ON u.id = m.usuario_id
-            WHERE (%s IS NULL OR m.ingrediente_id = %s)
-              AND (%s IS NULL OR m.creado_en >= %s)
-              AND (%s IS NULL OR m.creado_en < %s + INTERVAL '1 day')
-              AND (%s IS NULL OR m.tipo = %s)
+            WHERE (%s::bigint IS NULL OR m.ingrediente_id = %s)
+              AND (%s::date IS NULL OR m.creado_en >= %s::date)
+              AND (%s::date IS NULL OR m.creado_en < %s::date + INTERVAL '1 day')
+              AND (%s::text IS NULL OR m.tipo = %s)
             ORDER BY m.creado_en DESC, m.id DESC
             """,
             (ingrediente_id, ingrediente_id, desde, desde, hasta, hasta, tipo, tipo),

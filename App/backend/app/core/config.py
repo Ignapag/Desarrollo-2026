@@ -52,6 +52,18 @@ class Settings(BaseSettings):
     mp_url_notificacion: str = "https://api.monuburger.local/api/pagos/webhook/mercadopago"
     mp_url_retorno: str = "http://localhost:5173/pago/resultado"
 
+    @field_validator("debug", mode="before")
+    @classmethod
+    def _parsear_debug(cls, valor: object) -> object:
+        """Tolera los nombres de modo que usan Vite y otros toolchains."""
+        if isinstance(valor, str):
+            normalizado = valor.strip().lower()
+            if normalizado in {"release", "production", "prod"}:
+                return False
+            if normalizado in {"development", "dev"}:
+                return True
+        return valor
+
     @field_validator("origenes_permitidos", mode="before")
     @classmethod
     def _parsear_origenes(cls, valor: object) -> object:

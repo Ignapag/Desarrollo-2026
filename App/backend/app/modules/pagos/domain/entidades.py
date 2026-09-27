@@ -11,7 +11,7 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from enum import StrEnum
 
-from app.core.errores import DatosInvalidos, ReglaDeNegocio
+from app.errores import DatosInvalidos, ReglaDeNegocio
 
 
 class TipoPago(StrEnum):

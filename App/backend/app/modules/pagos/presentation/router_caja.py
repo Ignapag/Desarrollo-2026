@@ -1,9 +1,4 @@
-"""Endpoints de la API para arqueo, consolidación y cierres de caja.
-
-⚠️ PENDIENTE DE PROTECCIÓN: Al igual que en delivery, la guarda de autenticación
-y rol del módulo de Usuarios y Seguridad (EDT 1.8) se agregará antes del parámetro
-`servicio` cuando esté integrada (Rol: DUEÑO / ADMINISTRADOR / EMPLEADO).
-"""
+"""Endpoints protegidos para arqueo, consolidacion y cierres de caja."""
 
 from __future__ import annotations
 
@@ -11,13 +6,18 @@ from datetime import date
 
 from fastapi import APIRouter, Query, status
 
-from app.core.dependencias import IpCliente, ServicioCajaDep
+from app.core.dependencias import IpCliente
+from app.modules.pagos.presentation.dependencias import ServicioCajaDep
 from app.modules.pagos.domain.entidades import EstadoCierre, TurnoCierre
 from app.modules.pagos.presentation.esquemas import (
     AprobarCierreEntrada,
     CierreCajaSalida,
     ConsolidadoTurnoSalida,
     GenerarCierreEntrada,
+)
+from app.modules.usuarios.presentation.dependencias import (
+    AdministradorODuenio,
+    PersonalInterno,
 )
 
 router = APIRouter(prefix="/api/caja", tags=["caja"])
@@ -29,6 +29,7 @@ router = APIRouter(prefix="/api/caja", tags=["caja"])
     summary="Consolidar ingresos del turno activo actual",
 )
 async def consolidar_turno_actual(
+    _sesion: PersonalInterno,
     servicio: ServicioCajaDep,
 ) -> ConsolidadoTurnoSalida:
     """Calcula y consolida en tiempo real los ingresos, egresos y desglose por método
@@ -45,9 +46,10 @@ async def consolidar_turno_actual(
     summary="Consolidar ingresos de una fecha y turno específico",
 )
 async def consolidar_turno_especifico(
+    _sesion: PersonalInterno,
+    servicio: ServicioCajaDep,
     fecha: date = Query(..., description="Fecha contable del turno (YYYY-MM-DD)"),
     turno: TurnoCierre = Query(..., description="Turno a consolidar (MEDIODIA o NOCHE)"),
-    servicio: ServicioCajaDep = None,  # type: ignore[assignment]
 ) -> ConsolidadoTurnoSalida:
     """Devuelve los acumulados y desglose de cobros para una fecha y turno determinados."""
     consolidado = await servicio.consolidar_turno(fecha=fecha, turno=turno)
@@ -61,6 +63,7 @@ async def consolidar_turno_especifico(
     summary="Generar resumen de cierre de caja (automatizado o manual)",
 )
 async def generar_cierre(
+    sesion: PersonalInterno,
     servicio: ServicioCajaDep,
     datos: GenerarCierreEntrada | None = None,
     ip: IpCliente = None,
@@ -76,7 +79,7 @@ async def generar_cierre(
     cierre = await servicio.generar_resumen_cierre(
         fecha=entrada.fecha,
         turno=entrada.turno,
-        generado_por=entrada.generado_por,
+        generado_por=entrada.generado_por or sesion.usuario_id,
         observaciones=entrada.observaciones,
         ip_cliente=ip,
     )
@@ -89,6 +92,7 @@ async def generar_cierre(
     summary="Listar cierres de caja",
 )
 async def listar_cierres(
+    _sesion: PersonalInterno,
     servicio: ServicioCajaDep,
     desde: date | None = Query(default=None, description="Filtrar desde fecha"),
     hasta: date | None = Query(default=None, description="Filtrar hasta fecha"),
@@ -110,6 +114,7 @@ async def listar_cierres(
 )
 async def obtener_cierre(
     cierre_id: int,
+    _sesion: PersonalInterno,
     servicio: ServicioCajaDep,
 ) -> CierreCajaSalida:
     """Recupera el detalle completo de un cierre de caja por su identificador primario."""
@@ -125,13 +130,14 @@ async def obtener_cierre(
 async def aprobar_cierre(
     cierre_id: int,
     datos: AprobarCierreEntrada,
+    sesion: AdministradorODuenio,
     servicio: ServicioCajaDep,
     ip: IpCliente = None,
 ) -> CierreCajaSalida:
     """Aprueba un cierre de caja pendiente, cambiando su estado a APROBADO e inalterable (RF del alcance)."""
     cierre = await servicio.aprobar_y_bloquear_cierre(
         cierre_id=cierre_id,
-        aprobado_por=datos.aprobado_por,
+        aprobado_por=datos.aprobado_por or sesion.usuario_id,
         observaciones=datos.observaciones,
         ip_cliente=ip,
     )
