@@ -16,6 +16,8 @@ from app.modules.delivery.infrastructure.repositorio_sql import RepositorioDeliv
 from app.modules.notificaciones.application.servicio_notificaciones import ServicioNotificaciones
 from app.modules.notificaciones.infrastructure.enviadores import EnviadorSimulado
 from app.modules.notificaciones.infrastructure.repositorio_sql import RepositorioNotificacionesSQL
+from app.modules.pagos.application.servicio_pagos import ServicioPagos
+from app.modules.pagos.infrastructure.repositorio_sql import RepositorioPagosSQL
 from app.modules.usuarios.application.servicio_auth import ServicioAuth
 from app.modules.usuarios.application.servicio_usuarios import ServicioUsuarios
 from app.modules.usuarios.domain.entidades import ROLES_PERSONAL_INTERNO, ClaimsSesion, Rol
@@ -63,6 +65,13 @@ def obtener_servicio_notificaciones(uow: UoW) -> ServicioNotificaciones:
 ServicioNotificacionesDep = Annotated[
     ServicioNotificaciones, Depends(obtener_servicio_notificaciones)
 ]
+
+
+def obtener_servicio_pagos(uow: UoW) -> ServicioPagos:
+    return ServicioPagos(uow, RepositorioPagosSQL(uow))
+
+
+ServicioPagosDep = Annotated[ServicioPagos, Depends(obtener_servicio_pagos)]
 
 
 def ip_cliente(request: Request) -> str | None:
