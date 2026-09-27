@@ -16,7 +16,9 @@ from app.modules.delivery.infrastructure.repositorio_sql import RepositorioDeliv
 from app.modules.notificaciones.application.servicio_notificaciones import ServicioNotificaciones
 from app.modules.notificaciones.infrastructure.enviadores import EnviadorSimulado
 from app.modules.notificaciones.infrastructure.repositorio_sql import RepositorioNotificacionesSQL
+from app.modules.pagos.application.servicio_caja import ServicioCaja
 from app.modules.pagos.application.servicio_pagos import ServicioPagos
+from app.modules.pagos.infrastructure.repositorio_caja_sql import RepositorioCajaSQL
 from app.modules.pagos.infrastructure.repositorio_sql import RepositorioPagosSQL
 from app.modules.usuarios.application.servicio_auth import ServicioAuth
 from app.modules.usuarios.application.servicio_usuarios import ServicioUsuarios
@@ -72,6 +74,13 @@ def obtener_servicio_pagos(uow: UoW) -> ServicioPagos:
 
 
 ServicioPagosDep = Annotated[ServicioPagos, Depends(obtener_servicio_pagos)]
+
+
+def obtener_servicio_caja(uow: UoW) -> ServicioCaja:
+    return ServicioCaja(uow, RepositorioCajaSQL(uow))
+
+
+ServicioCajaDep = Annotated[ServicioCaja, Depends(obtener_servicio_caja)]
 
 
 def ip_cliente(request: Request) -> str | None:

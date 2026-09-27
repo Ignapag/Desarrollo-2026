@@ -7,7 +7,7 @@ sin dependencias de infraestructura ni frameworks.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from enum import StrEnum
 
@@ -52,6 +52,8 @@ class AccionesPagos:
     PAGO_CONCILIADO = "PAGO_CONCILIADO"
     PAGO_ANULADO = "PAGO_ANULADO"
     DEVOLUCION_REGISTRADA = "DEVOLUCION_REGISTRADA"
+    CIERRE_GENERADO = "CIERRE_GENERADO"
+    CIERRE_APROBADO = "CIERRE_APROBADO"
 
 
 @dataclass(slots=True, frozen=True)
@@ -135,6 +137,66 @@ class EstadoFinancieroPedido:
     pagos: list[Pago]
 
 
+@dataclass(slots=True, frozen=True)
+class TotalesMetodoPago:
+    """Acumulados y conteo de pagos por cada método."""
+
+    metodo_pago: MetodoPago
+    total: Decimal
+    cantidad: int
+
+
+@dataclass(slots=True, frozen=True)
+class ConsolidadoTurno:
+    """Totales consolidados de ingresos y egresos de un turno."""
+
+    fecha: date
+    turno: TurnoCierre
+    desde: datetime
+    hasta: datetime
+    total_efectivo: Decimal
+    total_billeteras: Decimal
+    total_devoluciones: Decimal
+    total_general: Decimal
+    total_propinas: Decimal
+    cantidad_pedidos: int
+    cantidad_pagos: int
+    pagos_pendientes_conciliacion: int
+    desglose_metodos: list[TotalesMetodoPago]
+
+
+@dataclass(slots=True, frozen=True)
+class CierreCaja:
+    """Entidad que representa el cierre formal de caja de un turno."""
+
+    id: int
+    fecha: date
+    turno: TurnoCierre
+    abierto_en: datetime
+    cerrado_en: datetime | None
+    total_efectivo: Decimal
+    total_billeteras: Decimal
+    total_devoluciones: Decimal
+    total_general: Decimal
+    cantidad_pedidos: int
+    estado: EstadoCierre
+    generado_por: int | None
+    aprobado_por: int | None
+    aprobado_en: datetime | None
+    observaciones: str | None
+
+    @property
+    def es_aprobado(self) -> bool:
+        return self.estado == EstadoCierre.APROBADO
+
+    def validar_inmutabilidad(self) -> None:
+        """Garantiza la regla de negocio del alcance: un cierre aprobado es inalterable."""
+        if self.es_aprobado:
+            raise ReglaDeNegocio(
+                f"El cierre de caja #{self.id} ya fue aprobado y es inalterable"
+            )
+
+
 def calcular_cobro_efectivo(
     total_pedido: Decimal,
     total_ya_pagado: Decimal,
@@ -142,14 +204,7 @@ def calcular_cobro_efectivo(
     monto_a_pagar: Decimal | None = None,
     propina: Decimal = Decimal("0.00"),
 ) -> DetalleCobroEfectivo:
-    """Calcula el cobro en efectivo, validando importes y vuelto.
-
-    - total_pedido: monto total del pedido.
-    - total_ya_pagado: acumulado de pagos previos no anulados.
-    - monto_recibido: dinero físico entregado por el cliente.
-    - monto_a_pagar: monto específico a imputar (si es None, imputa el saldo pendiente).
-    - propina: dinero adicional para el personal o repartidor.
-    """
+    """Calcula el cobro en efectivo, validando importes y vuelto."""
     if propina < Decimal("0.00"):
         raise DatosInvalidos("La propina no puede ser negativa")
 
@@ -157,7 +212,6 @@ def calcular_cobro_efectivo(
     if saldo_pendiente == Decimal("0.00"):
         raise ReglaDeNegocio("El pedido ya se encuentra totalmente saldado")
 
-    # Si no se especifica cuánto se cobra, se cobra el saldo pendiente completo
     a_cobrar = monto_a_pagar if monto_a_pagar is not None else saldo_pendiente
 
     if a_cobrar <= Decimal("0.00"):
@@ -219,3 +273,47 @@ def calcular_estado_financiero(
         cantidad_pagos=len(pagos),
         pagos=pagos,
     )
+
+
+def determinar_turno_y_ventana(
+    momento: datetime | None = None,
+) -> tuple[TurnoCierre, date, datetime, datetime]:
+    """Determina el turno, fecha contable y rango de tiempo [desde, hasta].
+
+    Reglas de horarios de Monu Burger:
+    - Turno MEDIODIA: 10:00 a 16:59:59 del mismo día.
+    - Turno NOCHE: 17:00 a 04:59:59 del día siguiente.
+      Si el momento actual es de madrugada (00:00 a 04:59), la fecha contable
+      corresponde al día anterior.
+    """
+    if momento is None:
+        momento = datetime.now()
+
+    if momento.hour < 5:
+        fecha_caja = momento.date() - timedelta(days=1)
+        turno = TurnoCierre.NOCHE
+        desde = datetime.combine(fecha_caja, time(17, 0, 0), tzinfo=momento.tzinfo)
+        hasta = datetime.combine(momento.date(), time(4, 59, 59), tzinfo=momento.tzinfo)
+    elif momento.hour < 17:
+        fecha_caja = momento.date()
+        turno = TurnoCierre.MEDIODIA
+        desde = datetime.combine(fecha_caja, time(10, 0, 0), tzinfo=momento.tzinfo)
+        hasta = datetime.combine(fecha_caja, time(16, 59, 59), tzinfo=momento.tzinfo)
+    else:
+        fecha_caja = momento.date()
+        turno = TurnoCierre.NOCHE
+        desde = datetime.combine(fecha_caja, time(17, 0, 0), tzinfo=momento.tzinfo)
+        hasta = datetime.combine(fecha_caja + timedelta(days=1), time(4, 59, 59), tzinfo=momento.tzinfo)
+
+    return turno, fecha_caja, desde, hasta
+
+
+def ventana_para_turno(fecha: date, turno: TurnoCierre) -> tuple[datetime, datetime]:
+    """Calcula el rango [desde, hasta] para una fecha y turno específicos."""
+    if turno == TurnoCierre.MEDIODIA:
+        desde = datetime.combine(fecha, time(10, 0, 0))
+        hasta = datetime.combine(fecha, time(16, 59, 59))
+    else:
+        desde = datetime.combine(fecha, time(17, 0, 0))
+        hasta = datetime.combine(fecha + timedelta(days=1), time(4, 59, 59))
+    return desde, hasta
