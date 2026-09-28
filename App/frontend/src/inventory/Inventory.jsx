@@ -17,6 +17,7 @@ export default function Inventory() {
   );
 
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   const [newItem, setNewItem] = useState({
     name: '',
@@ -27,6 +28,7 @@ export default function Inventory() {
 
   const handleAddItem = async (e) => {
     e.preventDefault();
+    setIsSaving(true);
     try {
       await createIngredient(newItem);
       toast.success('Insumo agregado');
@@ -34,6 +36,8 @@ export default function Inventory() {
       setIsModalOpen(false);
     } catch (error) {
       toast.error('No se pudo agregar el insumo', { description: error.message });
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -130,7 +134,7 @@ export default function Inventory() {
               <X className="w-5 h-5" />
             </button>
             <h2 className="text-xl font-extrabold text-monu-dark mb-4">Añadir Nuevo Insumo</h2>
-            <form onSubmit={handleAddItem} className="space-y-4">
+            <form onSubmit={handleAddItem} className="space-y-4" aria-busy={isSaving}>
               <div>
                 <label className="block text-sm font-bold text-monu-dark mb-1">Nombre</label>
                 <input 
@@ -180,9 +184,10 @@ export default function Inventory() {
               </div>
               <button 
                 type="submit" 
-                className="w-full bg-monu-green text-white font-bold py-3 rounded-xl hover:bg-[#002b22] transition mt-2"
+                disabled={isSaving}
+                className="w-full bg-monu-green text-white font-bold py-3 rounded-xl hover:bg-[#002b22] transition mt-2 disabled:cursor-wait disabled:opacity-70"
               >
-                Guardar Insumo
+                {isSaving ? 'Guardando…' : 'Guardar Insumo'}
               </button>
             </form>
           </div>

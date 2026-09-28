@@ -329,11 +329,18 @@ export function DataProvider({ children }) {
   };
 
   const replenishIngredient = async (id, quantity = 1) => {
-    await apiFetch(`/api/stock/ingredientes/${id}/reposiciones`, {
-      method: 'POST',
-      body: JSON.stringify({ cantidad: quantity, origen: 'PANEL_WEB' }),
-    });
+    // Actualizacion optimista: Render y Supabase estan en regiones distintas,
+    // pero el operador debe ver el cambio apenas toca el boton.
     dispatch({ type: 'UPDATE_INVENTORY_STOCK', payload: { id, delta: quantity } });
+    try {
+      await apiFetch(`/api/stock/ingredientes/${id}/reposiciones`, {
+        method: 'POST',
+        body: JSON.stringify({ cantidad: quantity, origen: 'PANEL_WEB' }),
+      });
+    } catch (error) {
+      dispatch({ type: 'UPDATE_INVENTORY_STOCK', payload: { id, delta: -quantity } });
+      throw error;
+    }
   };
 
   return (
