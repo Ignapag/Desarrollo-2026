@@ -12,7 +12,7 @@ class RepositorioProductosSQL:
         return await self.uow.todos(
             """
             SELECT p.id, p.categoria_id, c.nombre AS categoria, p.nombre,
-                   p.descripcion, p.precio_base, p.imagen_url, p.activo,
+                   p.descripcion, p.precio_base, p.imagen_url, p.variantes, p.activo,
                    pd.disponible
             FROM producto p
             JOIN categoria c ON c.id = p.categoria_id
@@ -86,7 +86,7 @@ class RepositorioProductosSQL:
         return await self.uow.uno(
             """
             SELECT p.id, p.categoria_id, c.nombre AS categoria, p.nombre,
-                   p.descripcion, p.precio_base, p.imagen_url, p.activo,
+                   p.descripcion, p.precio_base, p.imagen_url, p.variantes, p.activo,
                    pd.disponible
             FROM producto p
             JOIN categoria c ON c.id = p.categoria_id
@@ -109,7 +109,7 @@ class RepositorioProductosSQL:
         return await self.uow.uno(
             """
             SELECT p.id, p.categoria_id, c.nombre AS categoria, p.nombre,
-                   p.descripcion, p.precio_base, p.imagen_url, p.activo,
+                   p.descripcion, p.precio_base, p.imagen_url, p.variantes, p.activo,
                    pd.disponible
             FROM producto p
             JOIN categoria c ON c.id = p.categoria_id

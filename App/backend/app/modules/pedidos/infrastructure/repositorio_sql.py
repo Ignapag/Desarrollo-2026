@@ -65,7 +65,7 @@ class RepositorioPedidosSQL:
     async def productos(self, ids: list[int]) -> list[dict]:
         return await self.uow.todos(
             """
-            SELECT p.id, p.nombre, p.precio_base,
+            SELECT p.id, p.nombre, p.precio_base, p.variantes,
                    p.activo AND pd.disponible AS disponible
             FROM producto p
             JOIN producto_disponible pd ON pd.producto_id = p.id

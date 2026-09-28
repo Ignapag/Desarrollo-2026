@@ -14,6 +14,7 @@ class ItemPedidoEntrada(BaseModel):
 
     producto_id: int = Field(gt=0)
     cantidad: int = Field(gt=0, le=50)
+    variante: str | None = Field(default=None, min_length=1, max_length=60)
     aclaraciones: str | None = Field(default=None, max_length=500)
 
 

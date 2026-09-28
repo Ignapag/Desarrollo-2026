@@ -106,6 +106,10 @@ function mapProduct(product) {
     category: product.categoria,
     price: Number(product.precio_base),
     image: product.imagen_url,
+    variants: (product.variantes || []).map((variant) => ({
+      name: variant.nombre,
+      price: Number(variant.precio),
+    })),
     active: product.activo,
     available: product.disponible,
   };
@@ -294,6 +298,7 @@ export function DataProvider({ children }) {
         items: items.map((item) => ({
           producto_id: Number(String(item.id).split('-')[0]),
           cantidad: item.quantity,
+          variante: item.variant || null,
           aclaraciones: item.notes || null,
         })),
       }),

@@ -26,6 +26,11 @@ class ProductoCrear(BaseModel):
     ingredientes: list[IngredienteProductoEntrada] = Field(min_length=1)
 
 
+class VarianteProductoSalida(BaseModel):
+    nombre: str
+    precio: Decimal
+
+
 class ProductoSalida(BaseModel):
     id: int
     categoria_id: int
@@ -34,6 +39,7 @@ class ProductoSalida(BaseModel):
     descripcion: str | None
     precio_base: Decimal
     imagen_url: str | None
+    variantes: list[VarianteProductoSalida] = Field(default_factory=list)
     activo: bool
     disponible: bool
 

@@ -21,6 +21,7 @@ function ProductCard({ product, addToCart }) {
       id: `${product.id}-${product.variants[selectedVariantIndex].name}`,
       name: `${product.name} (${product.variants[selectedVariantIndex].name})`,
       price: product.variants[selectedVariantIndex].price,
+      variant: product.variants[selectedVariantIndex].name,
     } : { ...product };
 
     if (notes.trim()) {

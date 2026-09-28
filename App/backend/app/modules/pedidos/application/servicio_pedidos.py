@@ -14,6 +14,7 @@ class ItemNuevoPedido:
     producto_id: int
     cantidad: int
     aclaraciones: str | None = None
+    variante: str | None = None
 
 
 class RepositorioPedidos(Protocol):
@@ -66,22 +67,26 @@ class ServicioPedidos:
                 direccion_id = await self.repo.crear_direccion(cliente_id, direccion_nueva)
                 if direccion_id is None:
                     raise DatosInvalidos("La zona indicada no existe o esta inactiva")
-            if direccion_id is None or not await self.repo.direccion_valida(cliente_id, direccion_id):
+            if direccion_id is None or not await self.repo.direccion_valida(
+                cliente_id, direccion_id
+            ):
                 raise DatosInvalidos("La direccion no pertenece al cliente o esta inactiva")
         if not items:
             raise DatosInvalidos("El pedido debe contener al menos un producto")
 
-        cantidades: dict[int, int] = {}
-        aclaraciones: dict[int, str | None] = {}
+        cantidades: dict[tuple[int, str | None], int] = {}
+        aclaraciones: dict[tuple[int, str | None], str | None] = {}
         for item in items:
             if item.producto_id <= 0 or item.cantidad <= 0:
                 raise DatosInvalidos("El producto o su cantidad no son validos")
-            cantidades[item.producto_id] = cantidades.get(item.producto_id, 0) + item.cantidad
-            aclaraciones[item.producto_id] = item.aclaraciones
+            clave = (item.producto_id, item.variante)
+            cantidades[clave] = cantidades.get(clave, 0) + item.cantidad
+            aclaraciones[clave] = item.aclaraciones
 
-        productos = await self.repo.productos(sorted(cantidades))
+        ids_solicitados = sorted({producto_id for producto_id, _ in cantidades})
+        productos = await self.repo.productos(ids_solicitados)
         por_id = {fila["id"]: fila for fila in productos}
-        faltantes = sorted(set(cantidades) - set(por_id))
+        faltantes = sorted(set(ids_solicitados) - set(por_id))
         if faltantes:
             raise NoEncontrado("Hay productos inexistentes", {"producto_ids": faltantes})
         no_disponibles = sorted(pid for pid, fila in por_id.items() if not fila["disponible"])
@@ -90,16 +95,33 @@ class ServicioPedidos:
                 "Hay productos sin stock o inactivos", {"producto_ids": no_disponibles}
             )
 
-        items_snapshot = [
-            {
-                "producto_id": producto_id,
-                "nombre_producto": por_id[producto_id]["nombre"],
-                "cantidad": cantidad,
-                "precio_unitario": por_id[producto_id]["precio_base"],
-                "aclaraciones": aclaraciones[producto_id],
-            }
-            for producto_id, cantidad in cantidades.items()
-        ]
+        items_snapshot: list[dict] = []
+        for (producto_id, variante), cantidad in cantidades.items():
+            producto = por_id[producto_id]
+            variantes = producto.get("variantes") or []
+            precio = producto["precio_base"]
+            nombre = producto["nombre"]
+            if variantes:
+                seleccionada = next(
+                    (item for item in variantes if item["nombre"] == variante), None
+                )
+                if seleccionada is None:
+                    raise DatosInvalidos(
+                        f"Debe seleccionar una variante valida para {producto['nombre']}"
+                    )
+                precio = seleccionada["precio"]
+                nombre = f"{nombre} ({seleccionada['nombre']})"
+            elif variante is not None:
+                raise DatosInvalidos(f"El producto {producto['nombre']} no tiene variantes")
+            items_snapshot.append(
+                {
+                    "producto_id": producto_id,
+                    "nombre_producto": nombre,
+                    "cantidad": cantidad,
+                    "precio_unitario": precio,
+                    "aclaraciones": aclaraciones[(producto_id, variante)],
+                }
+            )
         return await self.repo.crear(
             cliente_id=cliente_id,
             tipo_entrega=tipo_entrega,
