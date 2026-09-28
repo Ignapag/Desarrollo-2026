@@ -41,6 +41,11 @@ from app.modules.usuarios.presentation.esquemas import (
 router = APIRouter(tags=["usuarios"])
 
 
+def _samesite_cookie() -> str:
+    """Permite la cookie cross-site solo bajo HTTPS en produccion."""
+    return "none" if settings.es_produccion else "lax"
+
+
 # ------------------------------ CU_USR_01: autenticacion -------------------
 
 @router.post("/api/auth/login", response_model=SesionSalida)
@@ -53,7 +58,8 @@ async def iniciar_sesion(
         value=sesion.token,
         httponly=True,
         secure=settings.es_produccion,
-        samesite="lax",
+        samesite=_samesite_cookie(),
+        path="/",
         max_age=settings.jwt_exp_minutos * 60,
     )
     return SesionSalida(
@@ -67,7 +73,13 @@ async def iniciar_sesion(
 
 @router.post("/api/auth/logout")
 async def cerrar_sesion(respuesta: Response) -> dict:
-    respuesta.delete_cookie(settings.cookie_sesion)
+    respuesta.delete_cookie(
+        settings.cookie_sesion,
+        path="/",
+        httponly=True,
+        secure=settings.es_produccion,
+        samesite=_samesite_cookie(),
+    )
     return {"cerrada": True}
 
 
