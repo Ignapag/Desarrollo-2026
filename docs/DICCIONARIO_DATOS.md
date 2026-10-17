@@ -54,7 +54,9 @@ columnas, tipos, obligatoriedad, relaciones y valores permitidos.
 
 **Whatsapp mensajes amigables** — sin tablas nuevas
 
-Total: **34 tablas**.
+**Whatsapp contexto chat** — [`whatsapp_sesion`](#whatsapp_sesion)
+
+Total: **35 tablas**.
 
 ---
 
@@ -664,3 +666,18 @@ _Derivaciones a personal: visibles en la bandeja hasta que un empleado las resue
 ## 017_whatsapp_mensajes_amigables — Whatsapp mensajes amigables
 
 **Funciones:** `whatsapp_evento_estado`
+
+## 018_whatsapp_contexto_chat — Whatsapp contexto chat
+
+### whatsapp_sesion
+
+_Foco y pregunta de selección por remitente; no almacena credenciales ni historial de IA._
+
+| Columna | Tipo | Obligatoria | Notas |
+|---------|------|-------------|-------|
+| `telefono` | TEXT | Sí | PK |
+| `referencia_hash` | TEXT | No | FK → `whatsapp_borrador.referencia_hash` |
+| `solicitud_id` | TEXT | No | FK → `whatsapp_entrada.id` |
+| `opciones` | JSONB | Sí | default `'[]'::jsonb` |
+| `version` | INT | Sí | default `1` |
+| `expira_en` | TIMESTAMPTZ | Sí | default `now() + interval '30 minutes'` |

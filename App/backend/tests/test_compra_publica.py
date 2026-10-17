@@ -100,10 +100,11 @@ async def test_recompra_dos_activos_y_ajeno_no_reclama_ni_modifica(uow):
     b = await fila(uow, segundo)
     assert a["cliente_id"] == b["cliente_id"]
     assert a["pedido_id"] != b["pedido_id"]
+    await uow.ejecutar("DELETE FROM whatsapp_sesion WHERE telefono=%s", (TELEFONO,))
     respuesta = await enviar(servicio, "publico-ambiguo", TELEFONO, "estado")
-    assert "referencia" in respuesta.lower()
+    assert "cuál" in respuesta.lower()
     respuesta = await enviar(servicio, "publico-ajeno", OTRO, primero["mensaje"])
-    assert "referencia" in respuesta.lower()
+    assert "resumen" in respuesta.lower()
     assert (await fila(uow, primero))["telefono"] == TELEFONO
     assert await uow.valor(
         "SELECT count(*) FROM whatsapp_cambio WHERE pedido_id=%s", (a["pedido_id"],)
