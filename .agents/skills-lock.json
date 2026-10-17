@@ -1,0 +1,520 @@
+{
+  "schema_version": 1,
+  "installed_on": "2026-10-17",
+  "source": {
+    "project": "RivalFut",
+    "local_path": "E:/RIVAL FUT",
+    "directory": ".codex/skills",
+    "commit": "e218175452cc78b5e5b777707de9b7e32f61e0b8",
+    "snapshot": "local working tree; file hashes are authoritative"
+  },
+  "destination": ".agents/skills",
+  "skills": [
+    {
+      "name": "architecture-blueprint-generator",
+      "adaptations": [],
+      "files": [
+        {
+          "path": "SKILL.md",
+          "source_sha256": "ecc38c382c764dd31343b63cb9e52103361759b53c95e643b17e1e9db95ca366",
+          "installed_sha256": "ecc38c382c764dd31343b63cb9e52103361759b53c95e643b17e1e9db95ca366"
+        }
+      ]
+    },
+    {
+      "name": "changelog-automation",
+      "adaptations": [],
+      "files": [
+        {
+          "path": "references/details.md",
+          "source_sha256": "bb85b108b101f76ec02cd678e34e83181148a2bb49e240f23131c51288c76c32",
+          "installed_sha256": "bb85b108b101f76ec02cd678e34e83181148a2bb49e240f23131c51288c76c32"
+        },
+        {
+          "path": "SKILL.md",
+          "source_sha256": "b9748be2063023ba754d47ab9e727bcfa053041fd6f83c524eb8ae4a257cb6a1",
+          "installed_sha256": "b9748be2063023ba754d47ab9e727bcfa053041fd6f83c524eb8ae4a257cb6a1"
+        }
+      ]
+    },
+    {
+      "name": "codebase-design",
+      "adaptations": [],
+      "files": [
+        {
+          "path": "agents/openai.yaml",
+          "source_sha256": "edebc9e4fcfe102114012575eaa9600b9b5fd08c311664f389c36e7bc717740f",
+          "installed_sha256": "edebc9e4fcfe102114012575eaa9600b9b5fd08c311664f389c36e7bc717740f"
+        },
+        {
+          "path": "DEEPENING.md",
+          "source_sha256": "f3dd099ce99289bd213914d8ee3e2429b78309c3957ca4583f7659551b1d53c1",
+          "installed_sha256": "f3dd099ce99289bd213914d8ee3e2429b78309c3957ca4583f7659551b1d53c1"
+        },
+        {
+          "path": "DESIGN-IT-TWICE.md",
+          "source_sha256": "52b52e75655a27aea59c6966b410bac82448968ad46ef1ebb9f07c274e3ae010",
+          "installed_sha256": "52b52e75655a27aea59c6966b410bac82448968ad46ef1ebb9f07c274e3ae010"
+        },
+        {
+          "path": "SKILL.md",
+          "source_sha256": "2c20617f87ec8af6a434859f381b2f061a69b530444e74eb39e78bb016a6d1e2",
+          "installed_sha256": "2c20617f87ec8af6a434859f381b2f061a69b530444e74eb39e78bb016a6d1e2"
+        }
+      ]
+    },
+    {
+      "name": "create-agentsmd",
+      "adaptations": [],
+      "files": [
+        {
+          "path": "SKILL.md",
+          "source_sha256": "97b71d3f7c5e30e9f1740fcd7a45d4bf107b7887947cfd3ab92ac99dee294855",
+          "installed_sha256": "97b71d3f7c5e30e9f1740fcd7a45d4bf107b7887947cfd3ab92ac99dee294855"
+        }
+      ]
+    },
+    {
+      "name": "find-skills",
+      "adaptations": [],
+      "files": [
+        {
+          "path": "SKILL.md",
+          "source_sha256": "c00eeea0e13e74fe4a9d84ba0a8542205a1b736d65f13134fe1a6647eb14976f",
+          "installed_sha256": "c00eeea0e13e74fe4a9d84ba0a8542205a1b736d65f13134fe1a6647eb14976f"
+        }
+      ]
+    },
+    {
+      "name": "improve-codebase-architecture",
+      "adaptations": [
+        "Removed unsupported disable-model-invocation frontmatter; preserved explicit-only policy in agents/openai.yaml."
+      ],
+      "files": [
+        {
+          "path": "agents/openai.yaml",
+          "source_sha256": "c8cb20f68ebf0edb4e497bc11ae5fcaa196004e661cd189015b04f4109ced7f1",
+          "installed_sha256": "c8cb20f68ebf0edb4e497bc11ae5fcaa196004e661cd189015b04f4109ced7f1"
+        },
+        {
+          "path": "HTML-REPORT.md",
+          "source_sha256": "581e8bb5a521e46bbda8ca7e19b15948bed882187108092ebb90c62513b77528",
+          "installed_sha256": "581e8bb5a521e46bbda8ca7e19b15948bed882187108092ebb90c62513b77528"
+        },
+        {
+          "path": "SKILL.md",
+          "source_sha256": "552240a5ab5cec6b67c15dd1ad6e9f6962b1bca6ce870059a8c2713760c20392",
+          "installed_sha256": "1f6664846902422979074367d0dae86667d39bd17c9e5cbf32226377be9749f3"
+        }
+      ]
+    },
+    {
+      "name": "ln-54-codebase-auditor",
+      "adaptations": [],
+      "files": [
+        {
+          "path": "SKILL.md",
+          "source_sha256": "4e872d9a8af5cb040f38cdfffab5d58a02ee536a226215b5b4cbe340a2e509a2",
+          "installed_sha256": "4e872d9a8af5cb040f38cdfffab5d58a02ee536a226215b5b4cbe340a2e509a2"
+        }
+      ]
+    },
+    {
+      "name": "prompt",
+      "adaptations": [
+        "Adapted project name and domain risks to Monu Burger in SKILL.md and UI metadata."
+      ],
+      "files": [
+        {
+          "path": "agents/openai.yaml",
+          "source_sha256": "77fd39f2c9045dedb835aa9ee66e6be354e5692b69d1195e37919eb08e6bded4",
+          "installed_sha256": "e1fb1052fd6bd8be6959c2e630c130ea0f6036afcc49138e8d5dbaea2622b630"
+        },
+        {
+          "path": "SKILL.md",
+          "source_sha256": "dfb6bca9b205f452940039360daf3c825248603a2a5549a84ae1634a9a93c488",
+          "installed_sha256": "41793ff299312fefe647d29a35f4be8b8409ef945d56e6696972da358442b556"
+        }
+      ]
+    },
+    {
+      "name": "ui-ux-pro-max",
+      "installed_on": "2026-10-17",
+      "source": {
+        "type": "local-skill",
+        "local_path": "C:/Users/pagot/.codex/skills/ui-ux-pro-max",
+        "snapshot": "installed global skill; file hashes are authoritative"
+      },
+      "adaptations": [
+        "Normalizacion de espacios al final de linea en scripts/design_system.py al versionar la copia local; sin cambios de comportamiento."
+      ],
+      "files": [
+        {
+          "path": "data/app-interface.csv",
+          "source_sha256": "331e7cf2c0b222d80c566c5f255c63cb339f65bfd02e471a720f28e4864a9f08",
+          "installed_sha256": "331e7cf2c0b222d80c566c5f255c63cb339f65bfd02e471a720f28e4864a9f08"
+        },
+        {
+          "path": "data/catalog-summary.json",
+          "source_sha256": "a257ccd1f85ff5e59f566a069d4c8ba91c90db3f88fc6bc7323a1cb4e9e37421",
+          "installed_sha256": "a257ccd1f85ff5e59f566a069d4c8ba91c90db3f88fc6bc7323a1cb4e9e37421"
+        },
+        {
+          "path": "data/charts.csv",
+          "source_sha256": "4115cf1120680f2cedef0676cb648f30c7ef4699e2a947535d4113e71ed3b12a",
+          "installed_sha256": "4115cf1120680f2cedef0676cb648f30c7ef4699e2a947535d4113e71ed3b12a"
+        },
+        {
+          "path": "data/colors.csv",
+          "source_sha256": "8162429222bce22df62b564085946a30d07cc9722c58d0a3a494bd0d1d00841c",
+          "installed_sha256": "8162429222bce22df62b564085946a30d07cc9722c58d0a3a494bd0d1d00841c"
+        },
+        {
+          "path": "data/data-provenance.json",
+          "source_sha256": "e82fb33ed49375a300e93d9c11ccd1c1493c999e84ee7ee295e527634786e2e0",
+          "installed_sha256": "e82fb33ed49375a300e93d9c11ccd1c1493c999e84ee7ee295e527634786e2e0"
+        },
+        {
+          "path": "data/google-font-licenses.json",
+          "source_sha256": "35688523f2955795caa1a47c53b83099e60c1708461476f9cc3a050cf3b0148a",
+          "installed_sha256": "35688523f2955795caa1a47c53b83099e60c1708461476f9cc3a050cf3b0148a"
+        },
+        {
+          "path": "data/google-fonts.csv",
+          "source_sha256": "1c8c3b2ea1faf6a1012da463756def8b3889db33f2226f0343bb4daa80307d03",
+          "installed_sha256": "1c8c3b2ea1faf6a1012da463756def8b3889db33f2226f0343bb4daa80307d03"
+        },
+        {
+          "path": "data/icons.csv",
+          "source_sha256": "50816c6012030178195a16ee481ebf58b47bd985d70e8ec58886cc83f6eddafc",
+          "installed_sha256": "50816c6012030178195a16ee481ebf58b47bd985d70e8ec58886cc83f6eddafc"
+        },
+        {
+          "path": "data/landing.csv",
+          "source_sha256": "9a2edd3bb676c2a58f00ade7a062e285222d4297bfd847c8d5b056f0dbbf52d0",
+          "installed_sha256": "9a2edd3bb676c2a58f00ade7a062e285222d4297bfd847c8d5b056f0dbbf52d0"
+        },
+        {
+          "path": "data/motion.csv",
+          "source_sha256": "381affe8df8ea1f66fbbda2598827f9f54299107bbe6a1b4e9b68f6b62091ceb",
+          "installed_sha256": "381affe8df8ea1f66fbbda2598827f9f54299107bbe6a1b4e9b68f6b62091ceb"
+        },
+        {
+          "path": "data/phosphor-icons-upstream.json",
+          "source_sha256": "2399325233b277b5c97a80e6a5e8941154f5d057beee4e7613db87c87d700236",
+          "installed_sha256": "2399325233b277b5c97a80e6a5e8941154f5d057beee4e7613db87c87d700236"
+        },
+        {
+          "path": "data/products.csv",
+          "source_sha256": "42473f75e8dde5987bdf89ce55d8c168091b80a356cae691dd60247d80720b70",
+          "installed_sha256": "42473f75e8dde5987bdf89ce55d8c168091b80a356cae691dd60247d80720b70"
+        },
+        {
+          "path": "data/react-performance.csv",
+          "source_sha256": "3d925802539abac5afeb63ae8aa1960b7229ad271b3a47caed40ab2d97ad0734",
+          "installed_sha256": "3d925802539abac5afeb63ae8aa1960b7229ad271b3a47caed40ab2d97ad0734"
+        },
+        {
+          "path": "data/stacks/angular.csv",
+          "source_sha256": "704be83f2bad30c7e6de01afb113ffa01e0c458762f48b7102f31ba2367b5553",
+          "installed_sha256": "704be83f2bad30c7e6de01afb113ffa01e0c458762f48b7102f31ba2367b5553"
+        },
+        {
+          "path": "data/stacks/astro.csv",
+          "source_sha256": "2c2f55fadaafc05e04cc321c8194a1a28b656e6757fe2ba316f41b16428299c6",
+          "installed_sha256": "2c2f55fadaafc05e04cc321c8194a1a28b656e6757fe2ba316f41b16428299c6"
+        },
+        {
+          "path": "data/stacks/avalonia.csv",
+          "source_sha256": "442fca14675a020683473e7e49f08abb27b9df0765c80efe54aef61f1a4ac258",
+          "installed_sha256": "442fca14675a020683473e7e49f08abb27b9df0765c80efe54aef61f1a4ac258"
+        },
+        {
+          "path": "data/stacks/flutter.csv",
+          "source_sha256": "64dba0ac17349f28bce517a0f5f48c54d9ed2e487ec0c0258303463b382f41a0",
+          "installed_sha256": "64dba0ac17349f28bce517a0f5f48c54d9ed2e487ec0c0258303463b382f41a0"
+        },
+        {
+          "path": "data/stacks/html-tailwind.csv",
+          "source_sha256": "d05a581d20af57b8ca0104a6d31d90a07c437d500662a96c3029fc2f9a4678ee",
+          "installed_sha256": "d05a581d20af57b8ca0104a6d31d90a07c437d500662a96c3029fc2f9a4678ee"
+        },
+        {
+          "path": "data/stacks/javafx.csv",
+          "source_sha256": "2e819b8d5abdd23ad4dae0991650fdb57af497aabd68b37463aa9c442944c869",
+          "installed_sha256": "2e819b8d5abdd23ad4dae0991650fdb57af497aabd68b37463aa9c442944c869"
+        },
+        {
+          "path": "data/stacks/jetpack-compose.csv",
+          "source_sha256": "699de218b286948eaec7d15767b6e1350ee299167e49bf476d82e3ff58724e0a",
+          "installed_sha256": "699de218b286948eaec7d15767b6e1350ee299167e49bf476d82e3ff58724e0a"
+        },
+        {
+          "path": "data/stacks/laravel.csv",
+          "source_sha256": "854ea4daa5fc61292d22235ad33b49ba3fe22423c3de8d3cb03758ffed3b59f9",
+          "installed_sha256": "854ea4daa5fc61292d22235ad33b49ba3fe22423c3de8d3cb03758ffed3b59f9"
+        },
+        {
+          "path": "data/stacks/nextjs.csv",
+          "source_sha256": "ecd2c27b2ea0127d203ae726060efcdd7335b5e83f96b99e4f3befbbfeebd5a4",
+          "installed_sha256": "ecd2c27b2ea0127d203ae726060efcdd7335b5e83f96b99e4f3befbbfeebd5a4"
+        },
+        {
+          "path": "data/stacks/nuxt-ui.csv",
+          "source_sha256": "c36ee8470926b4a0748d241363c71664c9969c2edbc62f7f72de0db73880fac6",
+          "installed_sha256": "c36ee8470926b4a0748d241363c71664c9969c2edbc62f7f72de0db73880fac6"
+        },
+        {
+          "path": "data/stacks/nuxtjs.csv",
+          "source_sha256": "3d9b54ed2d151bd9c86e9e5609b8a6f88a00c4c52fa601a30af96c49b2c4d176",
+          "installed_sha256": "3d9b54ed2d151bd9c86e9e5609b8a6f88a00c4c52fa601a30af96c49b2c4d176"
+        },
+        {
+          "path": "data/stacks/react-native.csv",
+          "source_sha256": "ba31dd9c0c04da6bc02a74448bf121f9c0728ae5ba3b4d47b487778b0a1135b5",
+          "installed_sha256": "ba31dd9c0c04da6bc02a74448bf121f9c0728ae5ba3b4d47b487778b0a1135b5"
+        },
+        {
+          "path": "data/stacks/react.csv",
+          "source_sha256": "2d2b9c198e875106a30f7ee68341a9ee0033cad60a7e130cf23152783e08aeda",
+          "installed_sha256": "2d2b9c198e875106a30f7ee68341a9ee0033cad60a7e130cf23152783e08aeda"
+        },
+        {
+          "path": "data/stacks/shadcn.csv",
+          "source_sha256": "e56cfde5b74907836ac3582a4779d5b7f3d206a702ab81b8669a1b668c3eeb51",
+          "installed_sha256": "e56cfde5b74907836ac3582a4779d5b7f3d206a702ab81b8669a1b668c3eeb51"
+        },
+        {
+          "path": "data/stacks/svelte.csv",
+          "source_sha256": "f6e379ba802941ba26b01d4ffbe3cd39120f2587659a1d93851c707f66bc13db",
+          "installed_sha256": "f6e379ba802941ba26b01d4ffbe3cd39120f2587659a1d93851c707f66bc13db"
+        },
+        {
+          "path": "data/stacks/swiftui.csv",
+          "source_sha256": "bdd9231ff3ad658f4e7c063e1eb49df2fd09ac8d90631a86df899b39833b9623",
+          "installed_sha256": "bdd9231ff3ad658f4e7c063e1eb49df2fd09ac8d90631a86df899b39833b9623"
+        },
+        {
+          "path": "data/stacks/threejs.csv",
+          "source_sha256": "97542e0ba34915a0ff7578be20e1619495df47c95c8c1c39b83e3785e1de771f",
+          "installed_sha256": "97542e0ba34915a0ff7578be20e1619495df47c95c8c1c39b83e3785e1de771f"
+        },
+        {
+          "path": "data/stacks/uno.csv",
+          "source_sha256": "a0474363e4225b5367214d5675fd3e075f137026f9500f0d04357882ef4f6d48",
+          "installed_sha256": "a0474363e4225b5367214d5675fd3e075f137026f9500f0d04357882ef4f6d48"
+        },
+        {
+          "path": "data/stacks/uwp.csv",
+          "source_sha256": "c409f08c1fbba1f1029f1acaa554e7b4471cc85517a5751c9f2e62465badcd5c",
+          "installed_sha256": "c409f08c1fbba1f1029f1acaa554e7b4471cc85517a5751c9f2e62465badcd5c"
+        },
+        {
+          "path": "data/stacks/vue.csv",
+          "source_sha256": "b655f1ebb9dff2652d15981f31b1784c8a6d4759efd2815a14f3088257569f95",
+          "installed_sha256": "b655f1ebb9dff2652d15981f31b1784c8a6d4759efd2815a14f3088257569f95"
+        },
+        {
+          "path": "data/stacks/winui.csv",
+          "source_sha256": "e676dc1c13ee6c205c40b0746f1335150a346c7a49a0616d2545bc3d2c930c85",
+          "installed_sha256": "e676dc1c13ee6c205c40b0746f1335150a346c7a49a0616d2545bc3d2c930c85"
+        },
+        {
+          "path": "data/stacks/wpf.csv",
+          "source_sha256": "9781a9950b20333637b30a02e498b7efca21b618a3eeb8665836f3ac6e974da7",
+          "installed_sha256": "9781a9950b20333637b30a02e498b7efca21b618a3eeb8665836f3ac6e974da7"
+        },
+        {
+          "path": "data/styles.csv",
+          "source_sha256": "a93a4d9d7025856575d7b7583bda020be9043013432c5af7c58af9dbdfb206b7",
+          "installed_sha256": "a93a4d9d7025856575d7b7583bda020be9043013432c5af7c58af9dbdfb206b7"
+        },
+        {
+          "path": "data/typography.csv",
+          "source_sha256": "321fc446e89024488ebae96dda93efc4d2307bd8bddb240857ad51364f6782c8",
+          "installed_sha256": "321fc446e89024488ebae96dda93efc4d2307bd8bddb240857ad51364f6782c8"
+        },
+        {
+          "path": "data/ui-reasoning.csv",
+          "source_sha256": "f0774dd741cecdad5eec842034bd6d5e9ea50e9f220a1910069748daa0bb8e9a",
+          "installed_sha256": "f0774dd741cecdad5eec842034bd6d5e9ea50e9f220a1910069748daa0bb8e9a"
+        },
+        {
+          "path": "data/ux-guidelines.csv",
+          "source_sha256": "ff81ec613f70ba9fc3fcce52dbe4ae35d44b2079dbe6dc066d2d6e38c28facd5",
+          "installed_sha256": "ff81ec613f70ba9fc3fcce52dbe4ae35d44b2079dbe6dc066d2d6e38c28facd5"
+        },
+        {
+          "path": "references/pro-rules.md",
+          "source_sha256": "d28442d61c310b49c054a4ea736f89fb3008beebdbbc38c4b3a540b8f7fadf23",
+          "installed_sha256": "d28442d61c310b49c054a4ea736f89fb3008beebdbbc38c4b3a540b8f7fadf23"
+        },
+        {
+          "path": "references/quick-reference.md",
+          "source_sha256": "0609bc7c89dacb40472465d8fc14257b56b2c43439660fc8d6fa3b8c022e1876",
+          "installed_sha256": "0609bc7c89dacb40472465d8fc14257b56b2c43439660fc8d6fa3b8c022e1876"
+        },
+        {
+          "path": "scripts/core.py",
+          "source_sha256": "e544826963efefce3c59b65e18d83d92a5baf571f05458025bf1fa9021eced42",
+          "installed_sha256": "e544826963efefce3c59b65e18d83d92a5baf571f05458025bf1fa9021eced42"
+        },
+        {
+          "path": "scripts/design_system.py",
+          "source_sha256": "6a94743c3362c9c7e6d1450b94f4014d9ea752e7b4e151f6f0bdb217e0544bf7",
+          "installed_sha256": "1f7bad0452306feeec549ad32cff3d2183e48a8f08876da7b5971c2d5e23b790"
+        },
+        {
+          "path": "scripts/reasoning_contract.py",
+          "source_sha256": "b8bac1af82aa280d3e06f00aabaeac4337e632996b07fed874e2b6ee6e9c5913",
+          "installed_sha256": "b8bac1af82aa280d3e06f00aabaeac4337e632996b07fed874e2b6ee6e9c5913"
+        },
+        {
+          "path": "scripts/search.py",
+          "source_sha256": "d54e648fe0ec2932cac66684220cc17be4bd4b4eba1d23d3195d509d398db374",
+          "installed_sha256": "d54e648fe0ec2932cac66684220cc17be4bd4b4eba1d23d3195d509d398db374"
+        },
+        {
+          "path": "scripts/tests/fixtures/catalogs/google-api.json",
+          "source_sha256": "22d8dc81a7d6827b7e8b64b53e7d184210fb9759e8e294e0d5133c81cc460176",
+          "installed_sha256": "22d8dc81a7d6827b7e8b64b53e7d184210fb9759e8e294e0d5133c81cc460176"
+        },
+        {
+          "path": "scripts/tests/fixtures/catalogs/google-catalog.json",
+          "source_sha256": "c608ad5c4084ebc50a4bbbfb69ea2456c01fd5519c457e18410fffd250ae948f",
+          "installed_sha256": "c608ad5c4084ebc50a4bbbfb69ea2456c01fd5519c457e18410fffd250ae948f"
+        },
+        {
+          "path": "scripts/tests/fixtures/catalogs/google-existing.csv",
+          "source_sha256": "4e0761b839dc6b2187a370e82eddc0aed8a7ff10c09e28dd814bb3656dac595b",
+          "installed_sha256": "4e0761b839dc6b2187a370e82eddc0aed8a7ff10c09e28dd814bb3656dac595b"
+        },
+        {
+          "path": "scripts/tests/fixtures/catalogs/google-metadata.json",
+          "source_sha256": "30bffc29ae348416a2de2f9c6c418e768e4578f136b0f4bac5d2f70124f2e9ba",
+          "installed_sha256": "30bffc29ae348416a2de2f9c6c418e768e4578f136b0f4bac5d2f70124f2e9ba"
+        },
+        {
+          "path": "scripts/tests/fixtures/catalogs/google-overrides.json",
+          "source_sha256": "6243a48a4619986768c4628e2d0c98ff195beba71ba9be5df8f0c52fc6d90c0b",
+          "installed_sha256": "6243a48a4619986768c4628e2d0c98ff195beba71ba9be5df8f0c52fc6d90c0b"
+        },
+        {
+          "path": "scripts/tests/fixtures/catalogs/icons-curated.csv",
+          "source_sha256": "68362c9a700c13b96f000784a0198c1c7e117a7088a01c85744e44233038fe9d",
+          "installed_sha256": "68362c9a700c13b96f000784a0198c1c7e117a7088a01c85744e44233038fe9d"
+        },
+        {
+          "path": "scripts/tests/fixtures/catalogs/phosphor-core.json",
+          "source_sha256": "ae4d0bb076240824e1b643c2270d1f8cc0952a69502ec1e622b7dedd85b930bb",
+          "installed_sha256": "ae4d0bb076240824e1b643c2270d1f8cc0952a69502ec1e622b7dedd85b930bb"
+        },
+        {
+          "path": "scripts/tests/fixtures/catalogs/phosphor-package.json",
+          "source_sha256": "500588c757d6de03e3d7e69b27a8b8b1f88ccf6bb0333e4c1e9b0d6a4f112475",
+          "installed_sha256": "500588c757d6de03e3d7e69b27a8b8b1f88ccf6bb0333e4c1e9b0d6a4f112475"
+        },
+        {
+          "path": "scripts/tests/fixtures/catalogs/phosphor-react-exports.json",
+          "source_sha256": "d79f2ee0afdbc2f87776733e145df3538a16a25d7c2fba0056bb48295dad0ded",
+          "installed_sha256": "d79f2ee0afdbc2f87776733e145df3538a16a25d7c2fba0056bb48295dad0ded"
+        },
+        {
+          "path": "scripts/tests/fixtures/catalogs/phosphor-react-package.json",
+          "source_sha256": "1c57a1d76bcc0cdd3632d4c18b9c0e79576b4591df39831c9607e5d0eb4f2cec",
+          "installed_sha256": "1c57a1d76bcc0cdd3632d4c18b9c0e79576b4591df39831c9607e5d0eb4f2cec"
+        },
+        {
+          "path": "scripts/tests/fixtures/relevance-baseline.json",
+          "source_sha256": "38398452985116e74e31bd6bccca0f4decd1bbfe4eebc1ac99f7a1836baaf77f",
+          "installed_sha256": "38398452985116e74e31bd6bccca0f4decd1bbfe4eebc1ac99f7a1836baaf77f"
+        },
+        {
+          "path": "scripts/tests/fixtures/relevance-cases.json",
+          "source_sha256": "e77d36eebbf6ddc2860946a02cdb659351da6c09f2688f1ed30939a418099646",
+          "installed_sha256": "e77d36eebbf6ddc2860946a02cdb659351da6c09f2688f1ed30939a418099646"
+        },
+        {
+          "path": "scripts/tests/fixtures/relevance-thresholds.json",
+          "source_sha256": "9d738e11c6b82fecc8d0946e7b38515518ded5ed3294a7eb19a021c4edb5b57d",
+          "installed_sha256": "9d738e11c6b82fecc8d0946e7b38515518ded5ed3294a7eb19a021c4edb5b57d"
+        },
+        {
+          "path": "scripts/tests/test_catalog_refresh.py",
+          "source_sha256": "3e2ca5d12702318f641ae62d0c14f22a3bcc84d84e79b863c0e947d475604adb",
+          "installed_sha256": "3e2ca5d12702318f641ae62d0c14f22a3bcc84d84e79b863c0e947d475604adb"
+        },
+        {
+          "path": "scripts/tests/test_catalog_summary_line_endings.py",
+          "source_sha256": "fa6ff09f0ec2c99013588c77397f5082dddebe8f467e94c5f8378ec9595f4989",
+          "installed_sha256": "fa6ff09f0ec2c99013588c77397f5082dddebe8f467e94c5f8378ec9595f4989"
+        },
+        {
+          "path": "scripts/tests/test_core.py",
+          "source_sha256": "3527fe2f4b852f69f07c17ddc0d615d9a6e025c924e45a33985579a94a8d2118",
+          "installed_sha256": "3527fe2f4b852f69f07c17ddc0d615d9a6e025c924e45a33985579a94a8d2118"
+        },
+        {
+          "path": "scripts/tests/test_core_data_quality.py",
+          "source_sha256": "3ffc6b4905c9ea26d7ac4527ab154d153584231aee71b2ae4bd017977fa09cc5",
+          "installed_sha256": "3ffc6b4905c9ea26d7ac4527ab154d153584231aee71b2ae4bd017977fa09cc5"
+        },
+        {
+          "path": "scripts/tests/test_data_contracts.py",
+          "source_sha256": "0360d6e10080c0bca214f2b0bbad582ba50702a542ce21013351aca54938df3a",
+          "installed_sha256": "0360d6e10080c0bca214f2b0bbad582ba50702a542ce21013351aca54938df3a"
+        },
+        {
+          "path": "scripts/tests/test_design_system_mode.py",
+          "source_sha256": "517ba1ba6195c94811126d1162139c51aff77fc68c3e320c7bb6c1e89e76bc9b",
+          "installed_sha256": "517ba1ba6195c94811126d1162139c51aff77fc68c3e320c7bb6c1e89e76bc9b"
+        },
+        {
+          "path": "scripts/tests/test_design_system_stack.py",
+          "source_sha256": "83d09ffe8cfbf7b265f362129f061dfe8e5e167ce5db43adaead197cabc9ca38",
+          "installed_sha256": "83d09ffe8cfbf7b265f362129f061dfe8e5e167ce5db43adaead197cabc9ca38"
+        },
+        {
+          "path": "scripts/tests/test_native_desktop_stack_freshness.py",
+          "source_sha256": "904f90bc6d364763673fa6067d98a4227d535760fa8b6d26abe22208176997ca",
+          "installed_sha256": "904f90bc6d364763673fa6067d98a4227d535760fa8b6d26abe22208176997ca"
+        },
+        {
+          "path": "scripts/tests/test_relevance_evaluator.py",
+          "source_sha256": "2fe56a4d6fe5fff15ff592274b0eeaba925146cefea6c0fa29d8f1b77c9aca1f",
+          "installed_sha256": "2fe56a4d6fe5fff15ff592274b0eeaba925146cefea6c0fa29d8f1b77c9aca1f"
+        },
+        {
+          "path": "scripts/tests/test_skill_script_paths.py",
+          "source_sha256": "7cec24b94be771bc60bc84f8993e614bb16d4047930e1dd3d3bed91628311d44",
+          "installed_sha256": "7cec24b94be771bc60bc84f8993e614bb16d4047930e1dd3d3bed91628311d44"
+        },
+        {
+          "path": "scripts/tests/test_style_taxonomy.py",
+          "source_sha256": "cd14d0092e8a454d213aa104b53e4e70ba698491fa00fde9fdec5ca8a3d70011",
+          "installed_sha256": "cd14d0092e8a454d213aa104b53e4e70ba698491fa00fde9fdec5ca8a3d70011"
+        },
+        {
+          "path": "scripts/tests/test_text_layout_resilience.py",
+          "source_sha256": "b51d32ee8a15505b87cb81957fb2d1b385e041e8beb4463c311d236bfd29ebd4",
+          "installed_sha256": "b51d32ee8a15505b87cb81957fb2d1b385e041e8beb4463c311d236bfd29ebd4"
+        },
+        {
+          "path": "scripts/tests/test_web_stack_freshness.py",
+          "source_sha256": "becc5fa40e7516613d4e9930f226aa483e3796090c17cb16542c93d1927e680d",
+          "installed_sha256": "becc5fa40e7516613d4e9930f226aa483e3796090c17cb16542c93d1927e680d"
+        },
+        {
+          "path": "scripts/validate_data.py",
+          "source_sha256": "a599aa256049cf30954d1f164721b99e453eb7e4cb8241bcab2d5573e6cf58b8",
+          "installed_sha256": "a599aa256049cf30954d1f164721b99e453eb7e4cb8241bcab2d5573e6cf58b8"
+        },
+        {
+          "path": "SKILL.md",
+          "source_sha256": "ea087c341bfb5b23195c7302027268ede86da802554c18a5c4896a6017b439f9",
+          "installed_sha256": "ea087c341bfb5b23195c7302027268ede86da802554c18a5c4896a6017b439f9"
+        }
+      ]
+    }
+  ]
+}

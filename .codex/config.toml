@@ -1,0 +1,4 @@
+# Configuración del proyecto. El modelo, esfuerzo y permisos se heredan de la sesión.
+[agents]
+enabled = true
+max_concurrent_threads_per_session = 3

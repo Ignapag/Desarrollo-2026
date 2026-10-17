@@ -1,0 +1,3 @@
+interface:
+  display_name: "Prompt"
+  short_description: "Redacta prompts de Monu Burger según alcance y riesgo"

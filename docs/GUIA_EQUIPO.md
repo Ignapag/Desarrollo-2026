@@ -123,14 +123,17 @@ Hay integración continua configurada (`.github/workflows/ci.yml`). En cada
 push a `main` y en **cada Pull Request**, GitHub levanta una máquina y corre:
 
 1. `ruff` sobre el backend
-2. Las 8 migraciones **sobre un PostgreSQL vacío**, más el seed
-3. Las 68 pruebas
+2. Todas las migraciones **sobre un PostgreSQL vacío**, más el seed
+3. La suite completa de `pytest`
 4. Un chequeo de que el diccionario de datos y el DER estén al día con el SQL
 
 Si algo falla, el PR muestra una cruz roja y no conviene mergearlo.
 
 El PostgreSQL de CI es descartable y vive dos minutos: **no toca la base
-compartida**, así que las pruebas no pueden ensuciarla. Y como las migraciones
+compartida**, así que las pruebas no pueden ensuciarla. En tu máquina, con el
+`.env` apuntando a la base compartida, las pruebas que escriben en la base se
+**omiten** a propósito; para correrlas usá una base local descartable
+([DESARROLLO.md](DESARROLLO.md)). Y como las migraciones
 se aplican desde cero, se detectan los errores que en una base ya migrada no
 se ven — justo antes de que alguien los aplique sobre la base del grupo.
 
@@ -202,7 +205,7 @@ Correlos después de cada migración nueva.
 - Montos en `NUMERIC(12,2)` y cantidades en `NUMERIC(12,3)`: en Python llegan
   como `Decimal`. No los conviertas a `float` para hacer cuentas de dinero.
 - Fechas en `TIMESTAMPTZ`.
-- Errores de negocio: usar las excepciones de `app/core/errores.py`, no
+- Errores de negocio: usar las excepciones de `app/errores.py`, no
   `HTTPException`.
 
 ## 7. Estructura de un módulo

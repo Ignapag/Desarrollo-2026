@@ -5,6 +5,10 @@ Parte del **Sistema de Gestión Monu Burger** — Grupo 19, Seminario Integrador
 Contiene la base de datos centralizada del sistema y la API que la consume.
 El frontend vive en [`App/frontend/`](../frontend).
 
+Agentes: leer [AGENTS.md](AGENTS.md). Setup y verificaciones actuales en
+[DESARROLLO.md](../../docs/DESARROLLO.md); arquitectura y código limpio en el
+[índice técnico](../../docs/README.md).
+
 **Responsable:** Ignacio Pagotto (base de datos y asignación de repartidores).
 
 ## Documentación
@@ -13,14 +17,14 @@ El frontend vive en [`App/frontend/`](../frontend).
 |-----------|----------|
 | **[GUIA_EQUIPO.md](../../docs/GUIA_EQUIPO.md)** | Cómo conectarse a la base compartida y cómo pedir cambios de esquema. **Leer antes de empezar.** |
 | **[docs/DER.md](../../docs/DER.md)** | Diagrama entidad-relación del esquema implementado. Generado del SQL, se renderiza en GitHub. |
-| **[docs/DICCIONARIO_DATOS.md](../../docs/DICCIONARIO_DATOS.md)** | Las 27 tablas con columnas, tipos, relaciones y valores permitidos. Generado del SQL. |
-| **[docs/CAMBIOS_DER.md](../../docs/CAMBIOS_DER.md)** | Las 12 correcciones aplicadas al DER entregado en la Actividad N°2, y por qué. |
+| **[docs/DICCIONARIO_DATOS.md](../../docs/DICCIONARIO_DATOS.md)** | Tablas con columnas, tipos, relaciones y valores permitidos. Generado del SQL. |
+| **[docs/CAMBIOS_DER.md](../../docs/CAMBIOS_DER.md)** | Correcciones aplicadas al DER entregado en la Actividad N°2, y por qué. |
 
 ## Stack
 
 | Capa | Tecnología |
 |------|-----------|
-| Base de datos | PostgreSQL 16 · psycopg 3 · **SQL directo, sin ORM** |
+| Base de datos | PostgreSQL 16 en local/CI; base compartida en Supabase · psycopg 3 · **SQL directo, sin ORM** |
 | Backend | Python 3.12 · FastAPI · Pydantic |
 | Arquitectura | Monolito modular · Clean Architecture |
 | Administración de BD | DBeaver Community |
@@ -118,15 +122,16 @@ PostgreSQL funciona**: todos los endpoints devuelven 503 y `/api/salud` informa
 - Toda consulta SQL va parametrizada (`%s`). Nunca interpolar valores.
 - **Nunca editar una migración ya aplicada**: el runner detecta el cambio de
   checksum y avisa. Para cambiar el esquema, una migración nueva.
-- El dominio y la aplicación no importan FastAPI ni psycopg.
+- El dominio y la aplicación no importan FastAPI, Pydantic ni psycopg
+  (`tests/test_arquitectura.py` lo comprueba).
 - Cada capacidad conserva dominio, aplicación, infraestructura y presentación
   dentro de `app/modules/<capacidad>/`.
 - Los routers `presentation/router*.py` se descubren automáticamente: no
   agregar imports de módulos a `app/main.py`.
 - Las dependencias específicas viven en la presentación de su capacidad, no
   en `app/core/dependencias.py`.
-- Errores de negocio: lanzar las excepciones de `app/core/errores.py`, no
-  `HTTPException`.
+- Errores de negocio: lanzar las excepciones de `app/errores.py`, no
+  `HTTPException`. `app/core/errores.py` solo las traduce a HTTP.
 - En endpoints con autenticación, declarar la dependencia de rol **antes** que
   `UoW` en la firma: FastAPI resuelve en orden, y así un request sin sesión se
   rechaza sin pedir conexión a la base.
@@ -135,18 +140,20 @@ PostgreSQL funciona**: todos los endpoints devuelven 503 y `/api/salud` informa
 
 | Módulo | Estado |
 |--------|--------|
-| Base de datos (esquema completo) | ✅ aplicado en Supabase · 27 tablas, 3 vistas, 5 funciones, 3 triggers, 47 FKs |
-| Pruebas | ✅ 68 pruebas (41 contra la base real) |
-| Asignación de repartidores | ✅ agrupación, asignación automática y ciclo de entrega |
-| Usuarios y seguridad | ✅ login, hash de contraseñas, roles, auditoría · 65 pruebas (43 contra la base real) |
-| Notificaciones / Bot de WhatsApp | 🔨 plantillas y encolado listos · falta la integración con WhatsApp Cloud API / n8n |
-| Pedidos · Menú · Stock · Pagos · Reportes | ⬜ a cargo del resto del grupo |
+| Base de datos | Diez migraciones SQL versionadas y seed; comprobar el destino y su estado antes de aplicar. |
+| Pruebas | Suite pytest de dominio, servicios, arquitectura, repositorios y HTTP. Requiere base descartable para los casos SQL/HTTP. |
+| Asignación de repartidores | Agrupación, asignación y ciclo de entrega integrados. |
+| Usuarios y seguridad | Login, hash, cookie JWT, roles y auditoría; sin endpoints de autorregistro o recuperación. |
+| Notificaciones / Bot de WhatsApp | Plantillas y encolado; adaptador de envío simulado. |
+| Pedidos · Productos · Stock · Pagos · Reportes | Módulos integrados en `app/modules/`; revisar pruebas y contratos de la capacidad afectada. |
 
-Las pruebas de integridad corren contra la base configurada en `DATABASE_URL`:
+La documentación anterior de integración conserva resultados de su fecha.
+Limitaciones conocidas en [DEUDA_TECNICA.md](../../docs/DEUDA_TECNICA.md).
 
-```bash
-pytest tests/test_integridad_bd.py -v
-```
-
-Cada una corre dentro de una transacción que se revierte, así que **no ensucian
-la base compartida**. Si no hay base accesible, se saltean.
+Las pruebas SQL/HTTP (integridad, repositorios, concurrencia, HTTP) escriben en
+la base: algunas revierten su transacción y otras confirman y limpian. Solo
+corren si `DATABASE_URL` es local (`localhost`, `127.0.0.1`, `::1`, socket Unix o el
+servicio `db`);
+con el `.env` de la base compartida se **omiten** y `pytest -rs` muestra el motivo.
+Cómo levantar una base descartable para la suite completa: ver
+[DESARROLLO.md](../../docs/DESARROLLO.md).
