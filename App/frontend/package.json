@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:clientes": "vite build --mode clientes",
+    "build:personal": "vite build --mode personal",
+    "test:portales": "node --test tests/portal.test.js tests/api-proxy.test.js tests/portal-routes.test.js",
     "lint": "oxlint",
     "preview": "vite preview"
   },

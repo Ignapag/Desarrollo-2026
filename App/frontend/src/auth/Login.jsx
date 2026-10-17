@@ -3,6 +3,7 @@ import { Eye, EyeOff, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from './AuthContext';
 import { Link } from 'react-router-dom';
+import { portal } from '../shared/portal';
 
 export default function Login() {
   const { login } = useAuth();
@@ -38,7 +39,7 @@ export default function Login() {
         <div className="p-8">
           <h1 id="login-title" className="text-2xl font-extrabold text-monu-dark mb-1 font-heading">Iniciar sesión</h1>
           <p className="text-monu-text/70 text-sm mb-6 font-bold">
-            Ingresá con la cuenta asignada por Monu Burger.
+            Ingresá con la cuenta asignada por Monu Burger{portal.modo === 'personal' ? ' al personal' : ''}.
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -95,9 +96,9 @@ export default function Login() {
           <p className="mt-6 text-center text-xs text-monu-text/60">
             Las altas y recuperaciones de acceso se gestionan con un administrador.
           </p>
-          <Link to="/menu" className="mt-3 min-h-11 flex items-center justify-center rounded-xl text-sm font-bold text-monu-green hover:bg-monu-green/10 focus-visible:ring-2 focus-visible:ring-monu-green">
+          {portal.clientes && <Link to="/menu" className="mt-3 min-h-11 flex items-center justify-center rounded-xl text-sm font-bold text-monu-green hover:bg-monu-green/10 focus-visible:ring-2 focus-visible:ring-monu-green">
             Ver el menú y pedir sin cuenta
-          </Link>
+          </Link>}
         </div>
       </section>
     </main>

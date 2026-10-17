@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../shared/api/http';
+import { aceptaSesion, portal } from '../shared/portal';
 
 const AuthContext = createContext(null);
 
@@ -27,14 +28,17 @@ function mapUser(data) {
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(portal.personal);
   const navigate = useNavigate();
 
   useEffect(() => {
+    if (!portal.personal) {
+      return undefined;
+    }
     let active = true;
     apiFetch('/api/auth/me')
       .then((data) => {
-        if (active) setUser(mapUser(data));
+        if (active && aceptaSesion(data.rol, portal.modo)) setUser(mapUser(data));
       })
       .catch(() => undefined)
       .finally(() => {
@@ -51,6 +55,10 @@ export function AuthProvider({ children }) {
         method: 'POST',
         body: JSON.stringify({ username, password }),
       });
+      if (!aceptaSesion(data.rol, portal.modo)) {
+        await apiFetch('/api/auth/logout', { method: 'POST' });
+        return { error: 'Este acceso es exclusivo para el personal de Monu Burger.' };
+      }
       const authenticated = mapUser(data);
       setUser(authenticated);
       navigate(ROLE_DESTINATION[data.rol] || '/menu');

@@ -1,36 +1,64 @@
-﻿# 🍔 Monu Burger - Frontend
+# Monu Burger — frontend
 
-Esta carpeta contiene la interfaz gráfica y la experiencia de usuario (Frontend) de **Monu Burger**, desarrollada en React con Vite y Tailwind CSS v4.
+Interfaz React 19 con Vite 8, React Router y Tailwind CSS 4. Este es el único
+frontend del repositorio. Las dependencias se fijan en `package-lock.json`.
 
-## 🎨 ¿Qué se hizo? (Estado de la UI/UX)
-El maquetado visual, la interactividad de la interfaz y el diseño responsivo ya están **100% finalizados y listos para usar**. Se diseñaron las siguientes partes:
+Agentes: leer [AGENTS.md](AGENTS.md). La guía completa de preparación está en
+[DESARROLLO.md](../../docs/DESARROLLO.md).
 
-- **Vistas del Cliente:** Menú interactivo con buscador y categorías. Carrito de compras deslizable completamente funcional (con suma/resta de cantidades).
-- **Autenticación:** Pantalla de Login con diseño retro-vintage, y pantallas preparadas para Registro y Recuperación de Contraseña.
-- **Panel Administrativo (Dashboard):** Panel de Control con gráficos (Recharts) y resúmenes de ventas, panel de Inventario, Directorio de Clientes y Control de Acceso.
-- **Módulo Operativo:** Vista de Pedidos tipo Kanban (Arrastrar y soltar visual) y pantalla de Cocina (KDS).
-- **Módulo de Repartidor:** Interfaz pensada específicamente para celular (deslizable hacia abajo, sin cortes laterales) con listado de pedidos pendientes y entregados.
-- **Detalles técnicos:** Tablas responsivas, protección de rutas y diseño centralizado mediante variables CSS (CSS-first) de Tailwind v4.
+## Inicio
 
----
+Desde esta carpeta, con Node 22 y npm:
 
-## 🔌 ¿Qué hay que conectar? (Guía para el Equipo de Backend)
+```powershell
+npm ci
+npm run dev
+```
 
-La estructura está armada para que la integración sea lo más limpia posible. **No es necesario modificar los componentes visuales (`.jsx`)**. Toda la inyección de datos reales debe hacerse modificando los simuladores ubicados en los archivos de la carpeta `context/`.
+Vite sirve normalmente en `http://localhost:5173` y reenvía `/api` a
+`http://127.0.0.1:8000`. El backend se inicia por separado con `python run.py`
+desde `App/backend`, usando su entorno Python y una base configurada.
+`VITE_API_URL` permite una API pública distinta; nunca contiene secretos.
 
-### 1. Autenticación (`src/context/AuthContext.jsx`)
-*Ideal para: Tomás (Autenticación y Roles)*
-- **Estado actual:** El proyecto usa un "simulador local" que acepta cualquier correo (si pones "admin", te hace admin, etc.). 
-- **Qué hacer:** Reemplazar el interior de la función `login` por una llamada `fetch` o `axios.post('/api/login')` hacia la base de datos real. Esa llamada debe retornar un token JWT y el rol del usuario para setearlo en la app. También hay que conectar las funciones de `register` y las de recuperación de clave.
+## Estructura y estado real
 
-### 2. Base de Datos / Pedidos (`src/context/DataContext.jsx`)
-*Ideal para: Ignacio / José (Base de Datos, Reportes y Lógica)*
-- **Estado actual:** La app arranca con un `initialState` que tiene arreglos de hamburguesas, clientes y pedidos de prueba (mock data).
-- **Qué hacer:** 
-  1. Limpiar esos arreglos de prueba para que arranquen vacíos `[]`.
-  2. Agregar un `useEffect` en el `DataProvider` que haga peticiones `GET` a los endpoints de la API (ej: `/api/menu`, `/api/orders`) para popular la pantalla apenas el usuario ingresa.
-  3. Modificar las acciones como `PLACE_ORDER` o `UPDATE_ORDER_STATUS`. En lugar de cambiar la pantalla de inmediato, primero deben hacer un `POST/PUT` al servidor. Si el servidor dice "OK", ahí recién se actualiza el estado de React.
+- Entrada: `index.html` → `src/main.jsx` → `src/App.jsx`.
+- `src/auth/AuthContext.jsx` gestiona sesión real con la API y cookie HttpOnly.
+- `src/shared/api/http.js` es el cliente HTTP común.
+- `src/shared/store/DataContext.jsx` concentra datos y acciones de varias capacidades.
+- `ordering/` (menú y carrito), `fulfillment/`, `kitchen/`, `inventory/` y
+  `management/` contienen los recorridos de cliente y operación.
+- Todo `src/` es JSX alcanzable desde `main.jsx`; no hay entradas alternativas.
 
-### 3. Pagos
-*Ideal para: Nicolás*
-- **Qué hacer:** Enganchar el botón de "Confirmar Pedido" del carrito con la lógica o pasarela de MercadoPago / transferencia que requiera el sistema.
+El menú, catálogo, inventario y acciones operativas usan la API integrada.
+En desarrollo completo y en la variante de clientes, `/` abre el menú público.
+El carrito prepara un borrador sin cuenta ni teléfono;
+el cliente lo envía por WhatsApp y el bot vincula al remitente antes de registrar
+el pedido. Solo se ofrece ese canal en el checkout público, con efectivo o
+transferencia pendiente de revisión humana. El personal conserva su login.
+Contrato y vinculación en [WhatsApp](../../docs/WHATSAPP_DESARROLLO.md).
+La variante de personal abre el login y solo registra gestión y reparto.
+Los dos proyectos de Cloudflare Pages comparten este frontend; comandos y
+configuración del proxy en [despliegue](../../docs/DESPLIEGUE.md).
+`/register` y `/recover-password` redirigen a login: no hay vistas ni endpoints.
+Algunas vistas de analítica, clientes y acceso todavía muestran contenido
+demostrativo; no considerar la interfaz completamente validada para producción.
+Ver [deuda técnica](../../docs/DEUDA_TECNICA.md).
+
+## Verificación
+
+```powershell
+npm run lint
+npm run build
+npm run test:portales
+```
+
+El lint usa **oxlint** (`.oxlintrc.json`) y build genera `dist/`. No existe
+`npm test` ni una suite end-to-end de navegador en CI. `test:portales` usa Node,
+renderizado React y un servidor HTTP local para comprobar separación de rutas y
+el proxy de Pages; no requiere base de datos. Para cambios de interfaz,
+comprobar el recorrido, errores, permisos, teclado y responsive en navegador.
+
+No editar `dist/`. La arquitectura y convenciones están
+en [ARQUITECTURA.md](../../docs/ARQUITECTURA.md) y
+[CLEAN_CODE.md](../../docs/CLEAN_CODE.md).

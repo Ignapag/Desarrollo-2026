@@ -132,11 +132,15 @@ Desde `App/frontend`:
 ```powershell
 npm run lint
 npm run build
+npm run test:portales
 ```
 
 El lint ejecuta oxlint; build genera `dist/` con Vite. No hay script `npm test`
 ni suite de navegador en el manifiesto actual. Un build exitoso no prueba login,
 pagos ni apariencia. La deuda heredada se registra en [DEUDA_TECNICA.md](DEUDA_TECNICA.md).
+`test:portales` verifica rutas mediante renderizado React y el proxy con HTTP local,
+sin base de datos. Para las variantes `build:clientes` y `build:personal`, la
+configuración de Pages y los checks posteriores, ver [despliegue](DESPLIEGUE.md).
 
 Desde la raíz al terminar:
 

@@ -4,6 +4,7 @@ import { useData } from '../shared/store/DataContext';
 import { ShoppingCart, Search, LogOut } from 'lucide-react';
 import CartDrawer from './CartDrawer';
 import { useState } from 'react';
+import { portal } from '../shared/portal';
 
 export default function ClientLayout() {
   const { logout, user } = useAuth();
@@ -63,7 +64,7 @@ export default function ClientLayout() {
               )}
             </button>
 
-            {user ? (
+            {portal.personal && (user ? (
               <div className="flex items-center gap-3 pl-3 border-l border-white/20 ml-1">
                 <span className="hidden sm:inline text-sm font-bold opacity-80">{user.name}</span>
                 {['admin', 'repartidor'].includes(user.role) && (
@@ -75,7 +76,7 @@ export default function ClientLayout() {
               </div>
             ) : (
               <Link to="/login" className="min-h-11 inline-flex items-center rounded-lg px-2 text-sm font-bold focus-visible:ring-2 focus-visible:ring-monu-green">Personal</Link>
-            )}
+            ))}
           </div>
         </div>
       </header>

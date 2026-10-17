@@ -1,25 +1,25 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { lazy, Suspense } from 'react';
 import { useAuth } from './auth/AuthContext';
+import { portal } from './shared/portal';
 
 // Layouts
 import ClientLayout from './ordering/ClientLayout';
-import DashboardLayout from './management/DashboardLayout';
-
-// Features
-import Login from './auth/Login';
 import Menu from './ordering/Menu';
 
-import ControlPanel from './management/ControlPanel';
-import Customers from './management/Customers';
-import Analytics from './management/Analytics';
-import AccessControl from './management/AccessControl';
+const DashboardLayout = lazy(() => import('./management/DashboardLayout'));
+const Login = lazy(() => import('./auth/Login'));
+const ControlPanel = lazy(() => import('./management/ControlPanel'));
+const Customers = lazy(() => import('./management/Customers'));
+const Analytics = lazy(() => import('./management/Analytics'));
+const AccessControl = lazy(() => import('./management/AccessControl'));
 
-import Orders from './fulfillment/Orders';
-import DeliveryPanel from './fulfillment/DeliveryPanel';
+const Orders = lazy(() => import('./fulfillment/Orders'));
+const DeliveryPanel = lazy(() => import('./fulfillment/DeliveryPanel'));
 
-import Kitchen from './kitchen/Kitchen';
-import Catalog from './management/Catalog';
-import Inventory from './inventory/Inventory';
+const Kitchen = lazy(() => import('./kitchen/Kitchen'));
+const Catalog = lazy(() => import('./management/Catalog'));
+const Inventory = lazy(() => import('./inventory/Inventory'));
 
 function ProtectedRoute({ children, allowedRoles }) {
   const { user, loading } = useAuth();
@@ -38,37 +38,38 @@ function ProtectedRoute({ children, allowedRoles }) {
 
 function App() {
   return (
-    <Routes>
-      {/* Public / Auth */}
-      <Route path="/" element={<Navigate to="/menu" replace />} />
-      <Route path="/login" element={<Login />} />
-      <Route path="/register" element={<Navigate to="/login" replace />} />
-      <Route path="/recover-password" element={<Navigate to="/login" replace />} />
+    <Suspense fallback={<div role="status" className="min-h-screen bg-monu-cream p-6">Cargando...</div>}>
+      <Routes>
+        <Route path="/" element={<Navigate to={portal.inicio} replace />} />
+        {portal.personal && <>
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Navigate to="/login" replace />} />
+          <Route path="/recover-password" element={<Navigate to="/login" replace />} />
+        </>}
 
-      {/* Client Routes */}
-      <Route element={<ClientLayout />}>
-        <Route path="/menu" element={<Menu />} />
-      </Route>
+        {portal.clientes && <Route element={<ClientLayout />}>
+          <Route path="/menu" element={<Menu />} />
+        </Route>}
 
-      {/* Dashboard Routes (Admin/Employee) */}
-      <Route element={<ProtectedRoute allowedRoles={['admin']}><DashboardLayout /></ProtectedRoute>}>
-        <Route path="/dashboard" element={<ControlPanel />} />
-        <Route path="/dashboard/orders" element={<Orders />} />
-        <Route path="/dashboard/kitchen" element={<Kitchen />} />
-        <Route path="/dashboard/catalog" element={<Catalog />} />
-        <Route path="/dashboard/customers" element={<Customers />} />
-        <Route path="/dashboard/inventory" element={<Inventory />} />
-        <Route path="/dashboard/analytics" element={<Analytics />} />
-        <Route path="/dashboard/access" element={<AccessControl />} />
-      </Route>
+        {portal.personal && <Route element={<ProtectedRoute allowedRoles={['admin']}><DashboardLayout /></ProtectedRoute>}>
+          <Route path="/dashboard" element={<ControlPanel />} />
+          <Route path="/dashboard/orders" element={<Orders />} />
+          <Route path="/dashboard/kitchen" element={<Kitchen />} />
+          <Route path="/dashboard/catalog" element={<Catalog />} />
+          <Route path="/dashboard/customers" element={<Customers />} />
+          <Route path="/dashboard/inventory" element={<Inventory />} />
+          <Route path="/dashboard/analytics" element={<Analytics />} />
+          <Route path="/dashboard/access" element={<AccessControl />} />
+        </Route>}
 
-      {/* Delivery Route */}
-      <Route path="/delivery" element={
-        <ProtectedRoute allowedRoles={['repartidor', 'admin']}>
-          <DeliveryPanel />
-        </ProtectedRoute>
-      } />
-    </Routes>
+        {portal.personal && <Route path="/delivery" element={
+          <ProtectedRoute allowedRoles={['repartidor', 'admin']}>
+            <DeliveryPanel />
+          </ProtectedRoute>
+        } />}
+        <Route path="*" element={<Navigate to={portal.inicio} replace />} />
+      </Routes>
+    </Suspense>
   );
 }
 
