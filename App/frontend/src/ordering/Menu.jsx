@@ -1,4 +1,4 @@
-import { Plus } from 'lucide-react';
+import { Plus, LoaderCircle, RefreshCw } from 'lucide-react';
 import { useData } from '../shared/store/DataContext';
 import { useState } from 'react';
 import { Settings2 } from 'lucide-react';
@@ -13,9 +13,11 @@ function ProductCard({ product, addToCart }) {
   const [notes, setNotes] = useState('');
 
   const hasVariants = product.variants && product.variants.length > 0;
+  const canOrder = product.active === true && product.available === true;
   const currentPrice = hasVariants ? product.variants[selectedVariantIndex].price : product.price;
 
   const handleAdd = () => {
+    if (!canOrder) return;
     const itemToAdd = hasVariants ? {
       ...product,
       id: `${product.id}-${product.variants[selectedVariantIndex].name}`,
@@ -49,11 +51,13 @@ function ProductCard({ product, addToCart }) {
         )}
         <button 
           onClick={handleAdd}
+          disabled={!canOrder}
           aria-label={`Agregar ${product.name} al carrito`}
-          className="absolute bottom-3 right-3 min-w-11 min-h-11 bg-white text-monu-dark p-2.5 rounded-xl shadow-md hover:bg-monu-dark hover:text-white transition-colors focus-visible:ring-2 focus-visible:ring-monu-green"
+          className="absolute bottom-3 right-3 min-w-11 min-h-11 bg-white text-monu-dark p-2.5 rounded-xl shadow-md hover:bg-monu-dark hover:text-white transition-colors focus-visible:ring-2 focus-visible:ring-monu-green disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none"
         >
           <Plus className="w-5 h-5" />
         </button>
+        {!canOrder && <span className="absolute left-3 top-3 rounded-full bg-white px-3 py-1 text-sm font-bold text-monu-text">No disponible</span>}
       </div>
 
       <div className="flex-1 flex flex-col">
@@ -69,6 +73,7 @@ function ProductCard({ product, addToCart }) {
           <div className="flex gap-2">
             {hasVariants ? (
               <select 
+                disabled={!canOrder}
                 value={selectedVariantIndex}
                 aria-label={`Variante de ${product.name}`}
                 onChange={(e) => setSelectedVariantIndex(parseInt(e.target.value))}
@@ -83,6 +88,7 @@ function ProductCard({ product, addToCart }) {
             )}
             <button 
               onClick={() => setShowOptions(!showOptions)}
+              disabled={!canOrder}
               aria-label={`Personalizar ${product.name}`}
               aria-expanded={showOptions}
               className={`min-w-11 min-h-11 p-2 rounded-xl transition-colors focus-visible:ring-2 focus-visible:ring-monu-green ${showOptions ? 'bg-monu-green text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
@@ -130,7 +136,7 @@ function ProductCard({ product, addToCart }) {
 }
 
 export default function Menu() {
-  const { state, dispatch } = useData();
+  const { state, dispatch, refreshData } = useData();
   const [searchParams, setSearchParams] = useSearchParams();
   const query = (searchParams.get('q') || '').toLowerCase();
   const currentCategory = searchParams.get('categoria') || 'Todas';
@@ -146,6 +152,26 @@ export default function Menu() {
   const addToCart = (product) => {
     dispatch({ type: 'ADD_TO_CART', payload: { ...product, quantity: 1 } });
   };
+
+  if (state.catalogStatus === 'loading') {
+    return (
+      <div role="status" className="flex min-h-64 items-center justify-center gap-3 rounded-3xl border border-monu-green/10 bg-monu-bone p-6 text-monu-dark">
+        <LoaderCircle aria-hidden="true" className="size-5 motion-safe:animate-spin" />
+        <p className="font-bold">Cargando menú…</p>
+      </div>
+    );
+  }
+
+  if (state.catalogStatus === 'error') {
+    return (
+      <div className="flex min-h-64 flex-col items-center justify-center gap-4 rounded-3xl border border-monu-green/10 bg-monu-bone p-6 text-center">
+        <p role="alert" className="font-bold text-monu-dark">{state.catalogError}</p>
+        <button type="button" onClick={() => { void refreshData().catch(() => undefined); }} className="flex min-h-11 items-center gap-2 rounded-xl bg-monu-green px-5 py-3 font-bold text-white hover:bg-monu-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-monu-green focus-visible:ring-offset-2">
+          <RefreshCw aria-hidden="true" className="size-4" />Reintentar
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
