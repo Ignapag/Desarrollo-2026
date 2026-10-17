@@ -31,9 +31,10 @@ async def procesar_entrada(identificador):
             preparado = await construir_servicio(UnidadDeTrabajo(conn)).preparar(identificador)
         if preparado is None:
             return
-        # Adjuntos, saludo de la web y comandos guiados no consumen IA ni requieren vínculo.
-        vinculo = preparado["vinculo"] if preparado["interpretar"] else None
-        accion = await _interpretar(preparado) if vinculo else CONSULTA
+        # El foco también puede cambiar entre etapas de un adjunto o comando guiado.
+        # Conservar siempre su vínculo; solo el texto que lo necesita consume IA.
+        vinculo = preparado["vinculo"]
+        accion = await _interpretar(preparado) if preparado["interpretar"] else CONSULTA
         try:
             async with conexion() as conn:
                 await construir_servicio(UnidadDeTrabajo(conn)).procesar(

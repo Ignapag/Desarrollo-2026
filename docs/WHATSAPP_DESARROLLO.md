@@ -36,7 +36,7 @@ $env:WHATSAPP_TRANSFERENCIA_DATOS = ''
 
 La preparación aplica las migraciones, incluidas `011_whatsapp.sql`,
 `012_whatsapp_estados_envio.sql`, `013_whatsapp_saldo_transferencia.sql` y
-`014_whatsapp_atencion.sql` hasta `017_whatsapp_mensajes_amigables.sql`, y carga
+`014_whatsapp_atencion.sql` hasta `018_whatsapp_contexto_chat.sql`, y carga
 usuarios, catálogo y recetas de prueba.
 Estas variables prevalecen sobre `App/.env`, que puede apuntar a la base
 compartida. No aplicar estos comandos a esa base ni habilitar excepciones para
@@ -258,7 +258,7 @@ el seguimiento y las modificaciones de compras sin cuenta se hacen por WhatsApp.
 Las consultas financieras y el inicio de cobro verifican titularidad para clientes
 autenticados; el repartidor usa sus rutas de reparto y no el historial global.
 
-Para desplegar, coordinar la aplicación de las migraciones hasta la 017 en la base destino
+Para desplegar, coordinar la aplicación de las migraciones hasta la 018 en la base destino
 sin ejecutar el seed de desarrollo. Actualizar API y workers juntos antes de
 publicar el frontend público: un worker anterior presupone que todo cliente tiene
 usuario y no es compatible con nuevos borradores anónimos. Conservar las variables
@@ -266,15 +266,35 @@ y credenciales actuales de Meta/Gemini, el webhook firmado y las adaptaciones de
 destinatarios de prueba. El cambio de código no demuestra un despliegue: después
 corresponde comprobar compra, recompra y mensajes repetidos con WhatsApp real.
 
-Para continuar una conversación se valida el remitente firmado. Con un único
-pedido activo alcanza ese remitente; con varios, se usa el número habitual de la
-compra, por ejemplo `sin tomate para el pedido #123` o `confirmar para el pedido #123`.
-El número nunca da acceso desde otro WhatsApp. El bot no elige entre pedidos y
-rechaza mensajes con más de un número. Con varias compras, el comprobante debe
-identificar el pedido en el pie de la imagen o documento. Los selectores se
-retiran antes de enviar el texto a Gemini. Las referencias `MB-` siguen aceptadas
-solo para compatibilidad, se ocultan en la bandeja y se retiran también en sus
-variantes de escritura antes de interpretar.
+Para continuar una conversación se valida el remitente firmado. La migración
+`018_whatsapp_contexto_chat.sql` guarda en `whatsapp_sesion` el pedido del que se
+está hablando, con vencimiento de 30 minutos. Enviar el resumen web o seleccionar
+una compra establece ese foco: los mensajes siguientes ya no necesitan repetir
+el número aunque haya otros pedidos abiertos. Los saludos y agradecimientos tienen
+respuestas breves y no borran el contexto ni una pregunta pendiente.
+
+Sin un foco vigente y con varios pedidos, el bot muestra hasta diez compras
+activas del mismo WhatsApp y pregunta sobre cuál seguir. Acepta «el último»,
+ordinales, una opción numérica o «el de Cheese» si identifica una única compra.
+Los números sin prefijo priorizan la opción mostrada; `pedido #123` selecciona el
+número público. Conserva la solicitud original y, al elegir, vuelve a interpretarla
+contra ese pedido. No hace falta repetir el cambio ni el adjunto. Si cambia la lista
+antes de una elección por posición, pregunta de nuevo; no cambia silenciosamente
+el significado de «1». Si el pedido del foco se cierra, no redirige cambios a una
+compra anterior sin preguntar.
+
+También se puede seleccionar directamente `sin tomate para el pedido #123`.
+El número nunca da acceso desde otro WhatsApp. Se rechazan selectores múltiples;
+las referencias `MB-` siguen solo por compatibilidad y se retiran antes de interpretar.
+Los comprobantes conservan el ID de su mensaje original y solo se asocian al pedido
+seleccionado; recibirlos nunca acredita el pago. El vínculo entre preparación y
+ejecución se revalida también para adjuntos y comandos que no consumen Gemini.
+
+El cambio de dirección o de otros datos de un pedido ya registrado todavía requiere
+atención del personal. Una acción `datos` en esa etapa crea la derivación y conserva
+el mensaje para el empleado; no responde solo con un resumen ni afirma que actualizó
+la dirección. Los datos faltantes de un borrador siguen completándose antes de crear
+el pedido.
 
 Las respuestas usan importes argentinos (`$ 12.000`), resúmenes con separaciones
 y emojis, y estados en lenguaje natural. Los avisos de retiro indican cuándo

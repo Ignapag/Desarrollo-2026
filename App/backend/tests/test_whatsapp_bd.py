@@ -58,7 +58,7 @@ async def test_referencia_no_puede_usarse_desde_otro_telefono(uow):
     b = await servicio.crear_borrador(cliente, {"telefono": "5492215550000", "items": [item]})
     await servicio.recibir("test-ajeno", "5492215559999", b["mensaje"])
     respuesta = await servicio.procesar("test-ajeno", {"accion": "consulta", "argumentos": {}})
-    assert "referencia" in respuesta.lower()
+    assert "resumen" in respuesta.lower()
     assert await pedido_borrador(uow, b) is None
 
 

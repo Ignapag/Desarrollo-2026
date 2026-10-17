@@ -99,8 +99,9 @@ async def test_referencia_en_el_mensaje_modifica_solo_ese_pedido(uow, worker):
     ref_a, pid_a = await nuevo_pedido(uow, worker, s, "a")
     _, pid_b = await nuevo_pedido(uow, worker, s, "b")
 
+    await uow.ejecutar("DELETE FROM whatsapp_sesion WHERE telefono=%s", (TELEFONO,))
     respuesta = await enviar(uow, worker, s, "sin-ref", "sin tomate")
-    assert "referencia" in respuesta.lower()
+    assert "cuál" in respuesta.lower()
     assert await notas(uow, pid_a) is None and await notas(uow, pid_b) is None
 
     respuesta = await enviar(uow, worker, s, "con-ref", f"sin tomate {ref_a}")
@@ -122,8 +123,9 @@ async def test_confirmacion_de_importe_con_referencia_aplica_al_pedido_correcto(
     assert "nuevo total" in respuesta
     assert await cantidad(uow, pid_b) == 1
 
+    await uow.ejecutar("DELETE FROM whatsapp_sesion WHERE telefono=%s", (TELEFONO,))
     respuesta = await enviar(uow, worker, s, "confirmar-sin-ref", "confirmar")
-    assert "referencia" in respuesta.lower()
+    assert "cuál" in respuesta.lower()
     assert await cantidad(uow, pid_b) == 1
 
     respuesta = await enviar(uow, worker, s, "confirmar-a", f"confirmar {ref_b[:-1]}x")
@@ -140,8 +142,9 @@ async def test_comprobante_con_referencia_se_asocia_al_pedido_correcto(uow, work
     _, pid_a = await nuevo_pedido(uow, worker, s, "a", metodo="TRANSFERENCIA")
     ref_b, pid_b = await nuevo_pedido(uow, worker, s, "b", metodo="TRANSFERENCIA")
 
+    await uow.ejecutar("DELETE FROM whatsapp_sesion WHERE telefono=%s", (TELEFONO,))
     respuesta = await enviar(uow, worker, s, "foto-sin-ref", "", "media-sin-ref")
-    assert "referencia" in respuesta.lower()
+    assert "cuál" in respuesta.lower()
     assert (
         await uow.valor(
             "SELECT count(*) FROM whatsapp_comprobante WHERE pedido_id = ANY(%s)", ([pid_a, pid_b],)
@@ -506,7 +509,7 @@ async def test_remitente_sin_conversacion_no_se_envia_al_proveedor(uow, worker, 
     await worker.procesar_entrada("desconocido")
     assert interpretador.textos == []
     respuesta = await uow.valor("SELECT respuesta FROM whatsapp_entrada WHERE id='desconocido'")
-    assert "referencia" in respuesta.lower()
+    assert "resumen" in respuesta.lower()
 
 
 @pytest.mark.parametrize("variante", ["mb-{t}", "pedidoMB-{t}", "MB\u2011{t}", "MB {t}", "MB-{t}"])

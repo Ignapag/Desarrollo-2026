@@ -15,11 +15,11 @@ from urllib.parse import quote
 from app.errores import DatosInvalidos, ErrorDominio, NoEncontrado, ReglaDeNegocio
 from app.modules.pedidos.application.servicio_pedidos import ItemNuevoPedido, ServicioPedidos
 from app.modules.stock.application.servicio_stock import INGREDIENTES_QUITABLES, ServicioStock
+from app.modules.whatsapp.application.conversacion import resolver_conversacion
 from app.modules.whatsapp.domain.mensajes import (
     LIMITE_INTERPRETACION,
     SALUDO_BORRADOR,
     es_comando_guiado,
-    es_inicio_web,
     es_saludo_borrador,
     hash_referencia,
     huella_inicio,
@@ -28,7 +28,6 @@ from app.modules.whatsapp.domain.mensajes import (
     resumen,
     sin_referencias,
     sin_selector_pedido,
-    tiene_token_referencia,
 )
 from app.modules.whatsapp.domain.textos import (
     dinero,
@@ -39,6 +38,9 @@ from app.modules.whatsapp.domain.textos import (
 
 
 class RepositorioBot(Protocol):
+    async def sesion(self, telefono, bloquear=False) -> dict | None: ...
+    async def conversaciones(self, telefono) -> list[dict]: ...
+    async def guardar_contexto(self, entrada, b) -> None: ...
     async def crear_borrador(self, referencia_hash, cliente_id, datos) -> dict: ...
     async def recibir(
         self, identificador, telefono, texto, media_id, nombre_remitente=None
@@ -82,16 +84,9 @@ EN_ATENCION = (
     "💬 Un empleado está atendiendo tu consulta. Le pasé tu mensaje y te responderá "
     "por acá. Tu pedido sigue sin cambios mientras lo revisa."
 )
-SIN_CONVERSACION = (
-    "👋 ¡Hola! Soy el asistente de Monu Burger. 🍔\n"
-    "Armá tu carrito en la web y enviá el mensaje preparado desde el mismo "
-    "WhatsApp que completaste en el formulario.\n\n"
-    "Si tenés varios pedidos abiertos, decime el número de referencia de tu compra "
-    "(por ejemplo, *pedido #123*) y en qué te ayudo. 💬"
-)
 CONVERSACION_CAMBIADA = (
     "💬 Tu pedido cambió mientras revisábamos el mensaje y no apliqué cambios nuevos. "
-    "¿Me repetís lo que necesitás? Si tenés varias compras, indicá *pedido #* y su número."
+    "¿Me repetís lo que necesitás? Así seguimos con el pedido correcto."
 )
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
@@ -244,15 +239,15 @@ class ServicioBot:
         entrada = await self.repo.entrada(identificador)
         if not entrada or entrada["estado"] == "PROCESADO":
             return None
-        texto = sin_selector_pedido(sin_referencias(entrada["texto"]))
         b, _ = await self._conversacion(entrada)
+        texto = sin_selector_pedido(sin_referencias(entrada["texto"]))
         contexto = await self._contexto(b)
         return {
             "texto": texto,
             # Sin conversación la respuesta es fija: el mensaje no se envía al proveedor.
             "interpretar": b is not None and await self._requiere_interpretacion(entrada, texto, b),
             "contexto": contexto,
-            "vinculo": self._vinculo(b, contexto),
+            "vinculo": self._vinculo(b, contexto, entrada),
         }
 
     async def _es_eleccion_variante(self, b, texto):
@@ -270,40 +265,14 @@ class ServicioBot:
         # Adjuntos, el saludo preparado por la web y los comandos guiados son deterministas.
         inicio = b and b.get("inicio_hash") == huella_inicio(entrada["telefono"], entrada["texto"])
         if (
-            inicio or entrada["media_id"] or es_saludo_borrador(texto) or es_comando_guiado(texto)
+            inicio or entrada.get("_eleccion") or entrada["media_id"]
+            or es_saludo_borrador(texto) or es_comando_guiado(texto)
         ):
             return False
         return not await self._es_eleccion_variante(b, texto)
 
     async def _conversacion(self, entrada, bloquear=False):
-        """Resuelve la conversación por teléfono y, si existe, por una única referencia."""
-        if es_inicio_web(entrada["texto"]):
-            b = await self.repo.conversacion(
-                entrada["telefono"], bloquear=bloquear,
-                nombre_remitente=entrada.get("nombre_remitente"),
-                inicio_hash=huella_inicio(entrada["telefono"], entrada["texto"]),
-            )
-            return b, None if b else SIN_CONVERSACION
-        numeros = numeros_pedido_en(entrada["texto"])
-        if len(numeros) > 1:
-            return None, "💬 Decime un solo número de pedido para ayudarte sin mezclar tus compras."
-        if numeros:
-            b = await self.repo.conversacion(
-                entrada["telefono"], bloquear=bloquear,
-                nombre_remitente=entrada.get("nombre_remitente"), numero_pedido=numeros.pop(),
-            )
-            return b, None if b else SIN_CONVERSACION
-        referencias = referencias_en(entrada["texto"])
-        if len(referencias) > 1:
-            return None, "💬 Encontré más de una referencia. Decime un solo pedido para ayudarte."
-        if not referencias and tiene_token_referencia(entrada["texto"]):
-            return None, SIN_CONVERSACION
-        ref = referencias.pop() if referencias else None
-        b = await self.repo.conversacion(
-            entrada["telefono"], hash_referencia(ref) if ref else None, bloquear=bloquear,
-            nombre_remitente=entrada.get("nombre_remitente"),
-        )
-        return b, None if b else SIN_CONVERSACION
+        return await resolver_conversacion(self.repo, entrada, bloquear)
 
     async def _contexto(self, b) -> dict:
         if not b:
@@ -329,7 +298,7 @@ class ServicioBot:
         return {"estado": b["estado"], "items": contexto_items}
 
     @staticmethod
-    def _vinculo(b, contexto) -> dict:
+    def _vinculo(b, contexto, entrada=None) -> dict:
         huella = hashlib.sha256(
             json.dumps(contexto, sort_keys=True, default=str).encode()
         ).hexdigest()
@@ -338,10 +307,12 @@ class ServicioBot:
             "pedido_id": b["pedido_id"] if b else None,
             "version": b["version"] if b else None,
             "huella": huella,
+            "solicitud_id": (entrada or {}).get("_solicitud_id"),
+            "sesion_version": (entrada or {}).get("_sesion_version"),
         }
 
-    async def _revalidar(self, b, vinculo, reintentar) -> str | None:
-        actual = self._vinculo(b, await self._contexto(b))
+    async def _revalidar(self, b, vinculo, reintentar, entrada=None) -> str | None:
+        actual = self._vinculo(b, await self._contexto(b), entrada)
         if actual["referencia_hash"] != vinculo.get("referencia_hash"):
             # Otra conversación: nunca se redirige la acción a un pedido distinto.
             return CONVERSACION_CAMBIADA
@@ -364,10 +335,10 @@ class ServicioBot:
             raise NoEncontrado("El mensaje no existe")
         if entrada["estado"] == "PROCESADO":
             return entrada["respuesta"]
-        texto = sin_selector_pedido(sin_referencias(entrada["texto"]))
         b, problema = await self._conversacion(entrada, bloquear=True)
+        texto = sin_selector_pedido(sin_referencias(entrada["texto"]))
         if vinculo is not None:
-            rechazo = await self._revalidar(b, vinculo, reintentar)
+            rechazo = await self._revalidar(b, vinculo, reintentar, entrada)
             if rechazo:
                 mismo = b is not None and b["referencia_hash"] == vinculo.get("referencia_hash")
                 await self.repo.finalizar(entrada, b if mismo else None, rechazo)
@@ -385,7 +356,9 @@ class ServicioBot:
             )
         elif entrada["media_id"]:
             if b["pedido_id"] and b["metodo_pago"] == "TRANSFERENCIA":
-                await self.repo.comprobante(entrada, b["pedido_id"])
+                await self.repo.comprobante(
+                    {**entrada, "id": entrada.get("_solicitud_id", entrada["id"])}, b["pedido_id"]
+                )
                 respuesta = (
                     "📎 ¡Comprobante recibido! Un empleado va a revisar la transferencia. "
                     "Te avisamos por acá cuando el pago esté confirmado. 💚"
@@ -405,15 +378,24 @@ class ServicioBot:
             es_comando_guiado(texto) or await self._es_eleccion_variante(b, texto)
         ):
             # La derivación se atiende antes de completar: nunca crea ni modifica el pedido.
-            respuesta = await self._derivar(b, entrada, accion)
+            respuesta = await self._derivar(
+                b, {**entrada, "id": entrada.get("_solicitud_id", entrada["id"])}, accion
+            )
         elif not b["pedido_id"]:
             respuesta = await self._completar(b, accion, texto)
+        elif accion.get("accion") == "datos":
+            detalle = await self._derivar(
+                b, {**entrada, "id": entrada.get("_solicitud_id", entrada["id"])},
+                {"accion": "humano"},
+            )
+            respuesta = "💬 Para actualizar esos datos, un empleado va a ayudarte. " + detalle
         else:
             respuesta = await self._operar(
                 b, texto, accion, con_referencia=bool(
                     referencias_en(entrada["texto"]) or numeros_pedido_en(entrada["texto"])
                 )
             )
+        await self.repo.guardar_contexto(entrada, b)
         await self.repo.finalizar(entrada, b, respuesta)
         return respuesta
 

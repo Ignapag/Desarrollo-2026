@@ -380,7 +380,7 @@ async def test_reclamo_publico_concurrente_es_unico(
         assert all(f["telefono"] == telefono and f["pedido_id"] for f in filas)
         assert len({f["pedido_id"] for f in filas}) == (1 if misma_referencia else 2)
         if not mismo_telefono:
-            assert "referencia" in respuesta.lower()
+            assert "resumen" in respuesta.lower()
             assert await uow1.valor(
                 "SELECT id FROM cliente WHERE whatsapp_verificado=%s", (otro,)
             ) is None

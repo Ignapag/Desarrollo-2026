@@ -7,7 +7,7 @@ Modelo de datos **tal como está implementado** en la base.
 > quedar desactualizado respecto del esquema real. CI verifica que
 > este al dia.
 
-**34 entidades · 60 relaciones.**
+**35 entidades · 62 relaciones.**
 
 Este diagrama reemplaza al entregado en la Actividad N°2: las diferencias
 están explicadas una por una en [CAMBIOS_DER.md](CAMBIOS_DER.md) (C-01 a C-12).
@@ -89,6 +89,8 @@ erDiagram
     WHATSAPP_BORRADOR ||--o{ WHATSAPP_ATENCION : referencia_hash
     WHATSAPP_ENTRADA ||--o{ WHATSAPP_ATENCION : entrada_id
     USUARIO o|--o{ WHATSAPP_ATENCION : resuelta_por
+    WHATSAPP_BORRADOR o|--o{ WHATSAPP_SESION : referencia_hash
+    WHATSAPP_ENTRADA o|--o{ WHATSAPP_SESION : solicitud_id
 ```
 
 ---
@@ -562,6 +564,20 @@ erDiagram
     }
 ```
 
+### Whatsapp contexto chat
+
+```mermaid
+erDiagram
+    WHATSAPP_SESION {
+        text telefono PK
+        text referencia_hash FK
+        text solicitud_id FK
+        jsonb opciones
+        int version
+        timestamptz expira_en
+    }
+```
+
 ---
 
 ## Relaciones en detalle
@@ -628,6 +644,8 @@ erDiagram
 | `whatsapp_entrada` | `referencia_hash` | `whatsapp_borrador` | 1 : N | No |
 | `whatsapp_salida` | `enviado_por` | `usuario` | 1 : N | No |
 | `whatsapp_salida` | `atencion_id` | `whatsapp_atencion` | 1 : N | No |
+| `whatsapp_sesion` | `referencia_hash` | `whatsapp_borrador` | 1 : N | No |
+| `whatsapp_sesion` | `solicitud_id` | `whatsapp_entrada` | 1 : N | No |
 
 ---
 

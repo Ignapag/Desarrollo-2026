@@ -12,6 +12,42 @@ class RepositorioBotSQL:
     def __init__(self, uow: UnidadDeTrabajo):
         self.uow = uow
 
+    async def sesion(self, telefono, bloquear=False):
+        if bloquear:
+            await self.uow.valor("SELECT pg_advisory_xact_lock(hashtext(%s))", (telefono,))
+        return await self.uow.uno(
+            "SELECT * FROM whatsapp_sesion WHERE telefono=%s AND expira_en>now()", (telefono,)
+        )
+
+    async def conversaciones(self, telefono):
+        return await self.uow.todos(
+            """SELECT b.referencia_hash,p.numero,
+                COALESCE((SELECT string_agg(it.cantidad || ' × ' || it.nombre_producto, ', '
+                    ORDER BY it.id) FROM pedido_item it WHERE it.pedido_id=p.id),
+                    'Carrito pendiente de completar') AS descripcion
+            FROM whatsapp_borrador b LEFT JOIN pedido p ON p.id=b.pedido_id
+            WHERE b.telefono=%s AND b.ultimo_mensaje_en IS NOT NULL
+            AND (b.pedido_id IS NOT NULL OR b.expira_en>now())
+            AND (b.pedido_id IS NULL OR p.estado NOT IN ('ENTREGADO','CANCELADO'))
+            ORDER BY b.creado_en DESC,b.pedido_id DESC NULLS FIRST,b.referencia_hash DESC
+            LIMIT 10""", (telefono,),
+        )
+
+    async def guardar_contexto(self, entrada, b):
+        pregunta = entrada.get("_pregunta")
+        if not pregunta and not (b and b["telefono"]):
+            return
+        await self.uow.ejecutar(
+            """INSERT INTO whatsapp_sesion (telefono,referencia_hash,solicitud_id,opciones)
+            VALUES (%s,%s,%s,%s) ON CONFLICT (telefono) DO UPDATE SET
+            referencia_hash=EXCLUDED.referencia_hash,solicitud_id=EXCLUDED.solicitud_id,
+            opciones=EXCLUDED.opciones,version=whatsapp_sesion.version+1,
+            expira_en=now()+interval '30 minutes'""",
+            (entrada["telefono"], b["referencia_hash"] if b else None,
+             pregunta["solicitud_id"] if pregunta else None,
+             Jsonb(pregunta["opciones"] if pregunta else [])),
+        )
+
     async def crear_borrador(self, referencia_hash, cliente_id, datos):
         return await self.uow.uno(
             """INSERT INTO whatsapp_borrador
