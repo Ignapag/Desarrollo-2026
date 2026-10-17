@@ -49,7 +49,8 @@ function ProductCard({ product, addToCart }) {
         )}
         <button 
           onClick={handleAdd}
-          className="absolute bottom-3 right-3 bg-white text-monu-dark p-2.5 rounded-xl shadow-md hover:bg-monu-dark hover:text-white transition-colors"
+          aria-label={`Agregar ${product.name} al carrito`}
+          className="absolute bottom-3 right-3 min-w-11 min-h-11 bg-white text-monu-dark p-2.5 rounded-xl shadow-md hover:bg-monu-dark hover:text-white transition-colors focus-visible:ring-2 focus-visible:ring-monu-green"
         >
           <Plus className="w-5 h-5" />
         </button>
@@ -69,6 +70,7 @@ function ProductCard({ product, addToCart }) {
             {hasVariants ? (
               <select 
                 value={selectedVariantIndex}
+                aria-label={`Variante de ${product.name}`}
                 onChange={(e) => setSelectedVariantIndex(parseInt(e.target.value))}
                 className="flex-1 bg-monu-cream/50 border border-monu-green/10 rounded-xl px-3 py-2 text-sm font-bold text-monu-dark focus:outline-none focus:border-monu-green"
               >
@@ -81,8 +83,9 @@ function ProductCard({ product, addToCart }) {
             )}
             <button 
               onClick={() => setShowOptions(!showOptions)}
-              className={`p-2 rounded-xl transition-colors ${showOptions ? 'bg-monu-green text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
-              title="Personalizar pedido"
+              aria-label={`Personalizar ${product.name}`}
+              aria-expanded={showOptions}
+              className={`min-w-11 min-h-11 p-2 rounded-xl transition-colors focus-visible:ring-2 focus-visible:ring-monu-green ${showOptions ? 'bg-monu-green text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
             >
               <Settings2 className="w-5 h-5" />
             </button>
@@ -112,6 +115,7 @@ function ProductCard({ product, addToCart }) {
               </div>
               <input 
                 type="text" 
+                aria-label={`Otras notas para ${product.name}`}
                 placeholder="Otras notas / extras..."
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}

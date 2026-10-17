@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Eye, EyeOff, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from './AuthContext';
+import { Link } from 'react-router-dom';
 
 export default function Login() {
   const { login } = useAuth();
@@ -94,6 +95,9 @@ export default function Login() {
           <p className="mt-6 text-center text-xs text-monu-text/60">
             Las altas y recuperaciones de acceso se gestionan con un administrador.
           </p>
+          <Link to="/menu" className="mt-3 min-h-11 flex items-center justify-center rounded-xl text-sm font-bold text-monu-green hover:bg-monu-green/10 focus-visible:ring-2 focus-visible:ring-monu-green">
+            Ver el menú y pedir sin cuenta
+          </Link>
         </div>
       </section>
     </main>

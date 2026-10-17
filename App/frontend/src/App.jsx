@@ -40,13 +40,13 @@ function App() {
   return (
     <Routes>
       {/* Public / Auth */}
-      <Route path="/" element={<Navigate to="/login" replace />} />
+      <Route path="/" element={<Navigate to="/menu" replace />} />
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Navigate to="/login" replace />} />
       <Route path="/recover-password" element={<Navigate to="/login" replace />} />
 
       {/* Client Routes */}
-      <Route element={<ProtectedRoute allowedRoles={['cliente', 'admin']}><ClientLayout /></ProtectedRoute>}>
+      <Route element={<ClientLayout />}>
         <Route path="/menu" element={<Menu />} />
       </Route>
 

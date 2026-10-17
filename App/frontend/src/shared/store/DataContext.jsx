@@ -1,6 +1,6 @@
 ﻿import { createContext, useContext, useReducer, useEffect } from 'react';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useLayoutEffect } from 'react';
 import { useAuth } from '../../auth/AuthContext';
 import { apiFetch } from '../api/http';
 
@@ -45,13 +45,8 @@ const initialState = {
     { id: 33, name: 'Mostaza', description: 'Dip extra', price: 1000, category: 'Dips Extra', image: null },
   ],
   cart: [],
-  orders: [
-    { id: 1042, client: 'Martina Gómez', address: 'Calle 48 #620, La Plata', phone: '5492215550102', status: 'en_camino', total: 19900, items: ['2x Doble Cheddar', '1x Papas Monu'], date: new Date().toISOString() },
-    { id: 1041, client: 'Lucas Fernández', address: 'El Dique, Ensenada', phone: '5492215550148', status: 'en_preparacion', total: 13300, items: ['1x Monu Bacon', '2x Gaseosa 500ml'], date: new Date().toISOString() },
-    { id: 1040, client: 'Sofía Ramírez', address: 'Punta Lara, Ensenada', phone: '5492215550199', status: 'listo', total: 24300, items: ['2x Monu Clásica', '1x Papas con Cheddar'], date: new Date().toISOString() },
-    { id: 1039, client: 'Diego Pereyra', address: 'El Dique, Ensenada', phone: '5492215550148', status: 'entregado', total: 11200, items: ['1x Smash Burger'], date: new Date().toISOString() },
-    { id: 1043, client: 'Camila Suárez', address: 'Punta Lara, Ensenada', phone: '5492215550199', status: 'pendiente', total: 15500, items: ['1x Veggie Deluxe', '1x Agua'], date: new Date().toISOString() },
-  ],
+  orders: [],
+  ordersOwner: null,
   inventory: [
     // Proteínas
     { id: 1, name: 'Medallón de Carne', category: 'Proteínas', stock: 0, min: 50, status: 'critico' },
@@ -142,7 +137,9 @@ function mapInventory(item) {
 function dataReducer(state, action) {
   switch (action.type) {
     case 'SYNC_ORDERS':
-      return { ...state, orders: action.payload };
+      return { ...state, orders: action.payload, ordersOwner: action.owner };
+    case 'RESET_PRIVATE_DATA':
+      return { ...state, orders: [], ordersOwner: null, inventory: initialState.inventory };
     case 'SYNC_CATALOG':
       return { ...state, catalog: action.payload };
     case 'SYNC_INVENTORY':
@@ -187,6 +184,7 @@ function dataReducer(state, action) {
       return {
         ...state,
         orders: [action.payload, ...state.orders],
+        ordersOwner: action.owner,
         cart: []
       }
     case 'ADD_CATALOG_ITEM':
@@ -223,39 +221,62 @@ export function DataProvider({ children }) {
   const [state, dispatch] = useReducer(dataReducer, initialState);
   const [loading, setLoading] = useState(false);
   const { user } = useAuth();
+  const userRef = useRef(user);
   const ordersRequestRef = useRef(null);
 
-  const refreshOrders = useCallback((signal) => {
-    if (ordersRequestRef.current) return ordersRequestRef.current;
-    const request = apiFetch('/api/pedidos', { signal })
-      .then((orders) => dispatch({ type: 'SYNC_ORDERS', payload: orders.map(mapOrder) }))
-      .finally(() => {
-        if (ordersRequestRef.current === request) ordersRequestRef.current = null;
-      });
-    ordersRequestRef.current = request;
-    return request;
-  }, []);
+  useLayoutEffect(() => {
+    userRef.current = user;
+    return () => { userRef.current = null; };
+  }, [user]);
 
-  const refreshData = async () => {
+  const refreshOrders = useCallback((signal) => {
+    if (!user || userRef.current !== user) return Promise.resolve();
+    if (ordersRequestRef.current?.owner === user) return ordersRequestRef.current.request;
+    const request = apiFetch('/api/pedidos', { signal })
+      .then((orders) => {
+        if (userRef.current === user && !signal?.aborted) {
+          dispatch({ type: 'SYNC_ORDERS', payload: orders.map(mapOrder), owner: user });
+        }
+      })
+      .finally(() => {
+        if (ordersRequestRef.current?.request === request) ordersRequestRef.current = null;
+      });
+    ordersRequestRef.current = { owner: user, request };
+    return request;
+  }, [user]);
+
+  const refreshData = useCallback(async (signal) => {
     setLoading(true);
     try {
-      const products = await apiFetch('/api/productos');
+      const products = await apiFetch('/api/productos', { signal });
+      if (signal?.aborted || userRef.current !== user) return;
       dispatch({ type: 'SYNC_CATALOG', payload: products.map(mapProduct) });
       if (user) {
-        await refreshOrders();
+        await refreshOrders(signal);
       }
-      if (user?.role === 'admin') {
-        const inventory = await apiFetch('/api/stock/ingredientes?activo=true');
-        dispatch({ type: 'SYNC_INVENTORY', payload: inventory.map(mapInventory) });
+      if (user?.role === 'admin' && userRef.current === user && !signal?.aborted) {
+        const inventory = await apiFetch('/api/stock/ingredientes?activo=true', { signal });
+        if (userRef.current === user && !signal?.aborted) {
+          dispatch({ type: 'SYNC_INVENTORY', payload: inventory.map(mapInventory) });
+        }
       }
     } finally {
-      setLoading(false);
+      if (userRef.current === user && !signal?.aborted) setLoading(false);
     }
-  };
+  }, [user, refreshOrders]);
 
   useEffect(() => {
-    refreshData().catch(() => undefined);
-  }, [user?.id]);
+    const controller = new AbortController();
+    // El cleanup de StrictMode puede cancelar la carga antes de iniciar la consulta.
+    Promise.resolve().then(() => {
+      if (!controller.signal.aborted) return refreshData(controller.signal);
+      return undefined;
+    }).catch(() => undefined);
+    return () => {
+      controller.abort();
+      dispatch({ type: 'RESET_PRIVATE_DATA' });
+    };
+  }, [refreshData]);
 
   useEffect(() => {
     if (!['EMPLEADO', 'ADMINISTRADOR', 'DUENIO'].includes(user?.backendRole)) return undefined;
@@ -342,7 +363,7 @@ export function DataProvider({ children }) {
       }),
     });
     const order = mapOrder(created);
-    dispatch({ type: 'PLACE_ORDER', payload: order });
+    if (userRef.current === user) dispatch({ type: 'PLACE_ORDER', payload: order, owner: user });
     return created;
   };
 
@@ -383,7 +404,7 @@ export function DataProvider({ children }) {
 
   return (
     <DataContext.Provider value={{
-      state,
+      state: { ...state, orders: user && state.ordersOwner === user ? state.orders : [] },
       dispatch,
       loading,
       refreshData,

@@ -42,6 +42,7 @@ export default function ClientLayout() {
                 type="text" 
                 value={searchQuery}
                 onChange={handleSearch}
+                aria-label="Buscar en el menú"
                 placeholder="Buscar hamburguesas..." 
                 className="w-full bg-white/10 border border-white/20 rounded-full py-2 pl-10 pr-4 text-white placeholder:text-white/50 focus:outline-none focus:border-monu-green transition-colors"
               />
@@ -50,7 +51,9 @@ export default function ClientLayout() {
             
             <button 
               onClick={() => setIsCartOpen(true)}
-              className="relative p-2 hover:bg-white/10 rounded-full transition-colors flex-shrink-0"
+              aria-label={`Abrir carrito, ${state.cart.length} productos`}
+              aria-haspopup="dialog"
+              className="relative min-w-11 min-h-11 p-2 hover:bg-white/10 rounded-full transition-colors flex-shrink-0 focus-visible:ring-2 focus-visible:ring-monu-green"
             >
               <ShoppingCart className="w-6 h-6" />
               {state.cart.length > 0 && (
@@ -60,13 +63,18 @@ export default function ClientLayout() {
               )}
             </button>
 
-            {user && (
+            {user ? (
               <div className="flex items-center gap-3 pl-3 border-l border-white/20 ml-1">
                 <span className="hidden sm:inline text-sm font-bold opacity-80">{user.name}</span>
-                <button onClick={logout} className="p-2 hover:bg-white/10 rounded-full transition-colors text-red-400" title="Cerrar sesión">
+                {['admin', 'repartidor'].includes(user.role) && (
+                  <Link to={user.role === 'repartidor' ? '/delivery' : '/dashboard'} className="min-h-11 inline-flex items-center rounded-lg px-2 text-sm font-bold focus-visible:ring-2 focus-visible:ring-monu-green">Gestión</Link>
+                )}
+                <button onClick={logout} className="min-w-11 min-h-11 p-2 hover:bg-white/10 rounded-full transition-colors text-red-400 focus-visible:ring-2 focus-visible:ring-monu-green" aria-label="Cerrar sesión">
                   <LogOut className="w-5 h-5" />
                 </button>
               </div>
+            ) : (
+              <Link to="/login" className="min-h-11 inline-flex items-center rounded-lg px-2 text-sm font-bold focus-visible:ring-2 focus-visible:ring-monu-green">Personal</Link>
             )}
           </div>
         </div>

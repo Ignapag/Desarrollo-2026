@@ -1,44 +1,34 @@
 ﻿import { useEffect, useRef, useState } from 'react';
-import { useAuth } from '../auth/AuthContext';
 import { useData } from '../shared/store/DataContext';
-import { Trash2, CreditCard, ChevronRight, MessageCircle, ShoppingCart, MapPin } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
-import { toast } from 'sonner';
+import { Trash2, ChevronRight, MessageCircle, ShoppingCart, MapPin } from 'lucide-react';
 import { buildWhatsAppDraftPayload, createWhatsAppDraft } from './whatsapp';
 
 const inputClass = 'w-full bg-white border border-monu-green/30 rounded-xl px-4 py-3 text-base text-monu-dark focus:outline-none focus:ring-2 focus:ring-monu-green';
 const actionClass = 'min-h-11 rounded-xl font-extrabold px-4 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-monu-green disabled:opacity-50 disabled:cursor-not-allowed';
 
 export default function CartDrawer({ isOpen, onClose }) {
-  const { user } = useAuth();
-  const { state, dispatch, placeOrder, startDigitalPayment } = useData();
+  const { state, dispatch } = useData();
   const { cart } = state;
-  const navigate = useNavigate();
-  const [isPayingMP, setIsPayingMP] = useState(false);
   const [address, setAddress] = useState('');
   const [zone, setZone] = useState('');
-  const [phone, setPhone] = useState('');
-  const [channel, setChannel] = useState('MERCADO_PAGO');
   const [delivery, setDelivery] = useState('RETIRO');
   const [payment, setPayment] = useState('EFECTIVO');
   const [number, setNumber] = useState('');
   const [isPreparing, setIsPreparing] = useState(false);
   const [draft, setDraft] = useState(null);
   const [error, setError] = useState('');
-  const [phoneError, setPhoneError] = useState('');
+  const [expiredReference, setExpiredReference] = useState(null);
   const [copied, setCopied] = useState(false);
   const dialogRef = useRef(null);
   const closeRef = useRef(null);
   const errorRef = useRef(null);
-  const phoneRef = useRef(null);
   const draftRef = useRef(null);
   const preparingRef = useRef(false);
-  const isWhatsApp = channel === 'WHATSAPP';
-  const needsAddress = !isWhatsApp || delivery === 'DELIVERY';
-  const busy = isPreparing || isPayingMP;
-  const payload = buildWhatsAppDraftPayload({ cart, phone, delivery, payment, address, number, zone });
-  const payloadKey = `${user?.id}:${JSON.stringify(payload)}`;
-  const currentDraft = draft?.key === payloadKey ? draft.data : null;
+  const needsAddress = delivery === 'DELIVERY';
+  const busy = isPreparing;
+  const payload = buildWhatsAppDraftPayload({ cart, delivery, payment, address, number, zone });
+  const payloadKey = JSON.stringify(payload);
+  const currentDraft = draft?.key === payloadKey && draft.data.referencia !== expiredReference ? draft.data : null;
   const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
   useEffect(() => {
@@ -56,6 +46,12 @@ export default function CartDrawer({ isOpen, onClose }) {
   useEffect(() => {
     if (error) errorRef.current?.focus();
   }, [error]);
+
+  useEffect(() => {
+    if (!draft) return undefined;
+    const timer = window.setTimeout(() => setExpiredReference(draft.data.referencia), Math.max(0, Date.parse(draft.data.expira_en) - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [draft]);
 
   const handleDialogKeyDown = (event) => {
     if (event.key === 'Escape') onClose();
@@ -76,16 +72,7 @@ export default function CartDrawer({ isOpen, onClose }) {
     if (preparingRef.current) return;
     setError('');
     setCopied(false);
-    if (!user || user.role !== 'cliente') {
-      setError('Iniciá sesión como cliente para preparar el mensaje.');
-      return;
-    }
-    if (!/^\+?[\d\s()-]+$/.test(phone) || !/^\d{11,15}$/.test(payload.telefono)) {
-      setPhoneError('Ingresá entre 11 y 15 dígitos, incluidos país y área.');
-      phoneRef.current?.focus();
-      return;
-    }
-    setPhoneError('');
+    if (cart.length === 0) return;
     preparingRef.current = true;
     setIsPreparing(true);
     try {
@@ -115,30 +102,10 @@ export default function CartDrawer({ isOpen, onClose }) {
     }
   };
 
-  const submitOrder = async () => {
-    if (cart.length === 0 || !address || !phone) return;
-    setIsPayingMP(true);
-    try {
-      if (!user || user.role !== 'cliente') {
-        throw new Error('Iniciá sesión como cliente para confirmar el pedido');
-      }
-      const order = await placeOrder({ address, zone, items: cart });
-      await startDigitalPayment(order);
-      toast.success('¡Pedido registrado!', { description: 'El pago quedó pendiente en Mercado Pago.' });
-      onClose();
-      navigate('/menu');
-    } catch (failure) {
-      toast.error('No se pudo confirmar el pedido', { description: failure.message });
-    } finally {
-      setIsPayingMP(false);
-    }
-  };
-
   const handleSubmit = (event) => {
     event.preventDefault();
     if (busy) return;
-    if (isWhatsApp) void prepareWhatsApp();
-    else void submitOrder();
+    void prepareWhatsApp();
   };
 
   if (!isOpen) return null;
@@ -199,33 +166,22 @@ export default function CartDrawer({ isOpen, onClose }) {
               {error && <p ref={errorRef} tabIndex={-1} role="alert" className="p-3 border border-red-300 rounded-xl text-red-800 bg-red-50">{error}</p>}
               <fieldset disabled={busy} className="space-y-4">
                 <legend className="font-extrabold text-monu-dark mb-3">Cómo continuar</legend>
+                <p className="text-sm text-monu-text">Pedí sin cuenta. Prepará el mensaje y envialo por WhatsApp; ahí continuaremos con tu pedido y los datos que falten.</p>
                 <label className="block text-sm font-bold text-monu-dark space-y-1">
-                  <span>Canal del pedido</span>
-                  <select value={channel} onChange={(event) => { setChannel(event.target.value); setError(''); }} className={inputClass}>
-                    <option value="MERCADO_PAGO">Mercado Pago</option>
-                    <option value="WHATSAPP">WhatsApp</option>
+                  <span>Entrega</span>
+                  <select value={delivery} onChange={(event) => setDelivery(event.target.value)} className={inputClass}>
+                    <option value="RETIRO">Retiro en el local</option>
+                    <option value="DELIVERY">Delivery</option>
                   </select>
                 </label>
-                {isWhatsApp && (
-                  <>
-                    <p className="text-sm text-monu-text">Prepará el mensaje y envialo por WhatsApp para continuar el pedido.</p>
-                    <label className="block text-sm font-bold text-monu-dark space-y-1">
-                      <span>Entrega</span>
-                      <select value={delivery} onChange={(event) => setDelivery(event.target.value)} className={inputClass}>
-                        <option value="RETIRO">Retiro en el local</option>
-                        <option value="DELIVERY">Delivery</option>
-                      </select>
-                    </label>
-                    <label className="block text-sm font-bold text-monu-dark space-y-1">
-                      <span>Forma de pago</span>
-                      <select value={payment} onChange={(event) => setPayment(event.target.value)} className={inputClass}>
-                        <option value="EFECTIVO">Efectivo</option>
-                        <option value="TRANSFERENCIA">Transferencia</option>
-                      </select>
-                    </label>
-                    {payment === 'TRANSFERENCIA' && <p className="text-sm text-monu-text">Un empleado deberá revisar y confirmar la transferencia. Enviar un comprobante no acredita el pago automáticamente.</p>}
-                  </>
-                )}
+                <label className="block text-sm font-bold text-monu-dark space-y-1">
+                  <span>Forma de pago</span>
+                  <select value={payment} onChange={(event) => setPayment(event.target.value)} className={inputClass}>
+                    <option value="EFECTIVO">Efectivo</option>
+                    <option value="TRANSFERENCIA">Transferencia</option>
+                  </select>
+                </label>
+                {payment === 'TRANSFERENCIA' && <p className="text-sm text-monu-text">Un empleado deberá revisar y confirmar la transferencia. Enviar un comprobante no acredita el pago automáticamente.</p>}
                 {needsAddress && (
                   <>
                     <div className="bg-orange-50 border border-orange-200 text-orange-800 text-sm p-3 rounded-xl flex items-start gap-2">
@@ -241,34 +197,28 @@ export default function CartDrawer({ isOpen, onClose }) {
                       </select>
                     </label>
                     <label className="block text-sm font-bold text-monu-dark space-y-1">
-                      <span>{isWhatsApp ? 'Calle' : 'Calle y número'}</span>
+                      <span>Calle</span>
                       <input required maxLength={200} autoComplete="address-line1" value={address} onChange={(event) => setAddress(event.target.value)} className={inputClass} />
                     </label>
-                    {isWhatsApp && (
-                      <label className="block text-sm font-bold text-monu-dark space-y-1">
-                        <span>Número</span>
-                        <input required maxLength={20} value={number} onChange={(event) => setNumber(event.target.value)} className={inputClass} />
-                      </label>
-                    )}
+                    <label className="block text-sm font-bold text-monu-dark space-y-1">
+                      <span>Número</span>
+                      <input required maxLength={20} value={number} onChange={(event) => setNumber(event.target.value)} className={inputClass} />
+                    </label>
                   </>
                 )}
-                <label className="block text-sm font-bold text-monu-dark space-y-1">
-                  <span>Tu número de WhatsApp</span>
-                  <input ref={phoneRef} required type="tel" autoComplete="tel" value={phone} onChange={(event) => { setPhone(event.target.value); setPhoneError(''); }} aria-invalid={isWhatsApp && Boolean(phoneError)} aria-describedby={isWhatsApp ? `whatsapp-phone-hint${phoneError ? ' whatsapp-phone-error' : ''}` : undefined} className={inputClass} />
-                </label>
-                {isWhatsApp && <p id="whatsapp-phone-hint" className="text-sm text-monu-text">Incluí país y área: por ejemplo, +54 9 221 555 0000 (entre 11 y 15 dígitos).</p>}
-                {isWhatsApp && phoneError && <p id="whatsapp-phone-error" role="alert" className="text-sm text-red-800">{phoneError}</p>}
+                <p className="text-sm text-monu-text">Usaremos el número desde el que envíes el mensaje para vincular tu pedido. El seguimiento y los cambios continúan por WhatsApp.</p>
               </fieldset>
               <div className="flex justify-between gap-3 font-extrabold text-xl text-monu-dark border-t border-monu-green/10 pt-3">
-                <span>{isWhatsApp ? 'Subtotal estimado' : 'Total'}</span>
+                <span>Subtotal estimado</span>
                 <span>${total.toLocaleString('es-AR')}</span>
               </div>
-              {isWhatsApp && <p className="text-sm text-monu-text">El local verificará precios, disponibilidad y entrega al recibir el mensaje.</p>}
-              <button type="submit" disabled={busy} aria-busy={busy} className={`${actionClass} w-full flex items-center justify-center gap-2 text-white ${isWhatsApp ? 'bg-monu-green hover:bg-monu-green/90' : 'bg-[#009EE3] hover:bg-[#0088C4]'}`}>
-                {isWhatsApp ? <MessageCircle aria-hidden="true" className="w-5 h-5 shrink-0" /> : <CreditCard aria-hidden="true" className="w-5 h-5 shrink-0" />}
-                {isPreparing ? 'Preparando mensaje...' : isPayingMP ? 'Conectando con Mercado Pago...' : isWhatsApp ? 'Preparar mensaje de WhatsApp' : 'Pagar con Mercado Pago'}
+              <p className="text-sm text-monu-text">El local verificará precios, disponibilidad y entrega al recibir el mensaje.</p>
+              <button type="submit" disabled={busy} aria-busy={busy} className={`${actionClass} w-full flex items-center justify-center gap-2 text-white bg-monu-green hover:bg-monu-green/90`}>
+                <MessageCircle aria-hidden="true" className="w-5 h-5 shrink-0" />
+                {isPreparing ? 'Preparando mensaje...' : 'Preparar mensaje de WhatsApp'}
               </button>
-              {isWhatsApp && currentDraft && (
+              {draft?.key === payloadKey && draft.data.referencia === expiredReference && <p role="status" className="text-sm text-monu-text">La referencia venció. Prepará un mensaje nuevo para continuar.</p>}
+              {currentDraft && (
                 <div className="space-y-3 border-t border-monu-green/20 pt-4">
                   <p role="status" className="text-sm font-bold text-monu-dark">Mensaje preparado. Todavía no se creó el pedido: tenés que enviarlo.</p>
                   <p className="text-sm text-monu-text break-words">Referencia: {currentDraft.referencia}</p>
@@ -284,6 +234,13 @@ export default function CartDrawer({ isOpen, onClose }) {
                     <p className="text-sm text-monu-text">Modo simulado: WhatsApp todavía no está conectado. Podés copiar el mensaje, pero no se enviará automáticamente ni se creará un pedido desde esta pantalla.</p>
                   )}
                   <p className="text-sm text-monu-text">Tu carrito se conserva. El local continuará la conversación cuando reciba el mensaje.</p>
+                  <p className="text-sm text-monu-text">Reenviar este mensaje conserva el mismo pedido. Para repetir la compra, prepará otro pedido.</p>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => { draftRef.current = null; void prepareWhatsApp(); }}
+                    className={`${actionClass} w-full border border-monu-green text-monu-green hover:bg-monu-green/10`}
+                  >Preparar otro pedido igual</button>
                 </div>
               )}
             </form>
