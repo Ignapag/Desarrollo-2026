@@ -5,12 +5,12 @@ Lógica pura de negocio: no requiere conexión a base de datos ni servidor web.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
 
-from app.core.errores import DatosInvalidos, ReglaDeNegocio
+from app.errores import DatosInvalidos, ReglaDeNegocio
 from app.modules.pagos.domain.entidades import (
     EstadoPago,
     MetodoPago,
@@ -41,8 +41,8 @@ def _crear_pago_ejemplo(
         estado=estado,
         referencia_externa=None,
         registrado_por=1,
-        registrado_en=datetime.now(timezone.utc),
-        conciliado_en=datetime.now(timezone.utc) if estado == EstadoPago.CONCILIADO else None,
+        registrado_en=datetime.now(UTC),
+        conciliado_en=datetime.now(UTC) if estado == EstadoPago.CONCILIADO else None,
         motivo=None,
     )
 

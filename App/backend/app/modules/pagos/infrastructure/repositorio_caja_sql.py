@@ -6,7 +6,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from app.core.db import UnidadDeTrabajo
-from app.core.errores import ReglaDeNegocio
+from app.errores import ReglaDeNegocio
 from app.modules.pagos.domain.entidades import (
     CierreCaja,
     EstadoCierre,
@@ -51,10 +51,14 @@ class RepositorioCajaSQL:
         """Calcula los totales agrupados por tipo y método en la ventana de tiempo dada."""
         sql = """
             SELECT
-                COALESCE(SUM(CASE WHEN tipo = 'COBRO' AND metodo_pago = 'EFECTIVO' THEN monto ELSE 0 END), 0) AS total_efectivo,
-                COALESCE(SUM(CASE WHEN tipo = 'COBRO' AND metodo_pago <> 'EFECTIVO' THEN monto ELSE 0 END), 0) AS total_billeteras,
-                COALESCE(SUM(CASE WHEN tipo = 'DEVOLUCION' THEN monto ELSE 0 END), 0) AS total_devoluciones,
-                COALESCE(SUM(CASE WHEN tipo = 'COBRO' THEN monto ELSE -monto END), 0) AS total_general,
+                COALESCE(SUM(CASE WHEN tipo = 'COBRO' AND metodo_pago = 'EFECTIVO'
+                    THEN monto ELSE 0 END), 0) AS total_efectivo,
+                COALESCE(SUM(CASE WHEN tipo = 'COBRO' AND metodo_pago <> 'EFECTIVO'
+                    THEN monto ELSE 0 END), 0) AS total_billeteras,
+                COALESCE(SUM(CASE WHEN tipo = 'DEVOLUCION' THEN monto ELSE 0 END), 0)
+                    AS total_devoluciones,
+                COALESCE(SUM(CASE WHEN tipo = 'COBRO' THEN monto ELSE -monto END), 0)
+                    AS total_general,
                 COALESCE(SUM(propina), 0) AS total_propinas,
                 COUNT(DISTINCT pedido_id) FILTER (WHERE tipo = 'COBRO') AS cantidad_pedidos,
                 COUNT(id) AS cantidad_pagos,
@@ -87,7 +91,9 @@ class RepositorioCajaSQL:
             "pagos_pendientes_conciliacion": int(fila["pagos_pendientes_conciliacion"]),
         }
 
-    async def desglose_por_metodo(self, desde: datetime, hasta: datetime) -> list[TotalesMetodoPago]:
+    async def desglose_por_metodo(
+        self, desde: datetime, hasta: datetime
+    ) -> list[TotalesMetodoPago]:
         """Obtiene el monto y cantidad acumulada para cada método de pago."""
         sql = """
             SELECT
@@ -181,7 +187,8 @@ class RepositorioCajaSQL:
         )
         if fila is None:
             raise ReglaDeNegocio(
-                f"El cierre de caja para {fecha} turno {turno.value} ya fue APROBADO y es inalterable"
+                f"El cierre de caja para {fecha} turno {turno.value} "
+                "ya fue APROBADO y es inalterable"
             )
         return _mapear_cierre(fila)
 

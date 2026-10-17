@@ -11,16 +11,13 @@ base accesible, se saltean.
 from __future__ import annotations
 
 import uuid
-from collections.abc import AsyncIterator
 
-import psycopg
 import pytest
 import pytest_asyncio
 
-from app.core.config import settings
 from app.core.db import UnidadDeTrabajo
-from app.core.errores import NoAutenticado, NoEncontrado, ReglaDeNegocio
 from app.core.seguridad import hashear_password
+from app.errores import NoAutenticado, NoEncontrado, ReglaDeNegocio
 from app.modules.usuarios.application.servicio_auth import ServicioAuth
 from app.modules.usuarios.application.servicio_usuarios import (
     DatosNuevoUsuario,
@@ -30,24 +27,6 @@ from app.modules.usuarios.application.servicio_usuarios import (
 from app.modules.usuarios.infrastructure.repositorio_sql import RepositorioUsuariosSQL
 
 CONTRASENIA_PRUEBA = "Prueba1234"
-
-
-@pytest_asyncio.fixture
-async def uow() -> AsyncIterator[UnidadDeTrabajo]:
-    """Unidad de trabajo sobre una transaccion que siempre se revierte."""
-    try:
-        conn = await psycopg.AsyncConnection.connect(
-            settings.database_url, row_factory=psycopg.rows.dict_row, connect_timeout=10
-        )
-    except Exception as exc:  # pragma: no cover
-        pytest.skip(f"Base no accesible: {exc.__class__.__name__}")
-
-    await conn.set_autocommit(False)
-    try:
-        yield UnidadDeTrabajo(conn)
-    finally:
-        await conn.rollback()
-        await conn.close()
 
 
 @pytest_asyncio.fixture
@@ -150,6 +129,23 @@ async def test_registrar_usuario_con_username_repetido_falla(uow, servicio_usuar
                 rol="EMPLEADO",
             ),
             ejecutor_id=None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_repositorio_traduce_la_carrera_de_username_a_regla_de_negocio(uow):
+    """Si el chequeo previo no ve el duplicado, la restriccion UNIQUE decide."""
+    _id, username = await crear_usuario_activo(uow)
+
+    with pytest.raises(ReglaDeNegocio, match="ya existe"):
+        await RepositorioUsuariosSQL(uow).crear(
+            nombre="Otra",
+            apellido="Persona",
+            username=username,
+            email=None,
+            telefono=None,
+            password_hash="x",
+            rol="EMPLEADO",
         )
 
 

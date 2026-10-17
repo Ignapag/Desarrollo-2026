@@ -31,12 +31,17 @@ class RegistrarPagoEfectivoEntrada(BaseModel):
     monto_recibido: Decimal = Field(
         ...,
         gt=0,
-        description="Monto en efectivo entregado físicamente por el cliente (para calcular el vuelto)",
+        description=(
+            "Monto en efectivo entregado físicamente por el cliente "
+            "(para calcular el vuelto)"
+        ),
     )
     monto_a_pagar: Decimal | None = Field(
         default=None,
         gt=0,
-        description="Monto específico a cobrar. Si no se envía, se toma el saldo pendiente completo",
+        description=(
+            "Monto específico a cobrar. Si no se envía, se toma el saldo pendiente completo"
+        ),
     )
     propina: Decimal = Field(
         default=Decimal("0.00"),
@@ -45,7 +50,10 @@ class RegistrarPagoEfectivoEntrada(BaseModel):
     )
     conciliar_inmediato: bool = Field(
         default=True,
-        description="True para cobro inmediato en mostrador (queda CONCILIADO); False para entrega pendiente",
+        description=(
+            "True para cobro inmediato en mostrador (queda CONCILIADO); "
+            "False para entrega pendiente"
+        ),
     )
     registrado_por: int | None = Field(
         default=None,
@@ -62,7 +70,10 @@ class IniciarCobroDigitalEntrada(BaseModel):
     pedido_id: int = Field(..., gt=0, description="ID del pedido a cobrar")
     metodo_pago: MetodoPago = Field(
         default=MetodoPago.MERCADO_PAGO,
-        description="Billetera virtual seleccionada (MERCADO_PAGO, CUENTA_DNI, NARANJA_X, OTRA_BILLETERA, TRANSFERENCIA)",
+        description=(
+            "Billetera virtual seleccionada "
+            "(MERCADO_PAGO, CUENTA_DNI, NARANJA_X, OTRA_BILLETERA, TRANSFERENCIA)"
+        ),
     )
     monto_a_pagar: Decimal | None = Field(
         default=None,
@@ -382,7 +393,9 @@ class RegistrarDevolucionEntrada(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    pedido_id: int = Field(..., gt=0, description="ID del pedido sobre el que se efectúa la devolución")
+    pedido_id: int = Field(
+        ..., gt=0, description="ID del pedido sobre el que se efectúa la devolución"
+    )
     monto: Decimal = Field(..., gt=0, description="Monto a devolver/reintegrar")
     motivo: str = Field(..., min_length=3, description="Explicación detallada del reintegro")
     metodo_pago: MetodoPago = Field(

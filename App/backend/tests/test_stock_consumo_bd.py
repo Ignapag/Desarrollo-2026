@@ -12,7 +12,7 @@ import pytest_asyncio
 
 from app.core.config import settings
 from app.core.db import UnidadDeTrabajo
-from app.core.errores import ReglaDeNegocio
+from app.errores import ReglaDeNegocio
 from app.modules.stock.application.servicio_stock import (
     PedidoYaProcesado,
     ServicioStock,
@@ -20,21 +20,7 @@ from app.modules.stock.application.servicio_stock import (
 )
 from app.modules.stock.domain.entidades import ItemConsumoStock
 from app.modules.stock.infrastructure.repositorio_sql import RepositorioStockSQL
-
-
-@pytest_asyncio.fixture
-async def uow_consumo():
-    try:
-        conn = await psycopg.AsyncConnection.connect(
-            settings.database_url, row_factory=psycopg.rows.dict_row, connect_timeout=2
-        )
-    except psycopg.OperationalError as exc:
-        pytest.skip(f"PostgreSQL local no disponible: {exc.__class__.__name__}")
-    try:
-        yield UnidadDeTrabajo(conn)
-    finally:
-        await conn.rollback()
-        await conn.close()
+from tests.soporte_bd import conectar_o_omitir
 
 
 async def escenario(unidad, *, saldo=Decimal("2"), dos_ingredientes=False):
@@ -88,8 +74,8 @@ async def crear_pedido(unidad, cliente_id, producto_id):
 
 
 @pytest.mark.asyncio
-async def test_descuenta_registra_alerta_y_cambia_disponibilidad(uow_consumo):
-    unidad = uow_consumo
+async def test_descuenta_registra_alerta_y_cambia_disponibilidad(uow):
+    unidad = uow
     cliente_id, producto_id, (ingrediente_id,) = await escenario(unidad)
     repo = RepositorioStockSQL(unidad)
     servicio = ServicioStock(repo)
@@ -146,8 +132,8 @@ async def test_descuenta_registra_alerta_y_cambia_disponibilidad(uow_consumo):
 
 
 @pytest.mark.asyncio
-async def test_opciones_persistidas_se_rechazan_sin_escribir(uow_consumo):
-    unidad = uow_consumo
+async def test_opciones_persistidas_se_rechazan_sin_escribir(uow):
+    unidad = uow
     cliente_id, producto_id, (ingrediente_id,) = await escenario(unidad)
     pedido_id, item_id = await crear_pedido(unidad, cliente_id, producto_id)
     await unidad.ejecutar(
@@ -175,8 +161,8 @@ async def test_opciones_persistidas_se_rechazan_sin_escribir(uow_consumo):
 
 
 @pytest.mark.asyncio
-async def test_fallo_de_escritura_revierte_todo_el_consumo(uow_consumo):
-    unidad = uow_consumo
+async def test_fallo_de_escritura_revierte_todo_el_consumo(uow):
+    unidad = uow
     cliente_id, producto_id, ingredientes = await escenario(unidad, dos_ingredientes=True)
     pedido_id, _ = await crear_pedido(unidad, cliente_id, producto_id)
     repo = RepositorioStockSQL(unidad)
@@ -222,12 +208,7 @@ async def test_fallo_de_escritura_revierte_todo_el_consumo(uow_consumo):
 @pytest_asyncio.fixture
 async def escenario_concurrente():
     """Datos propios confirmados para que dos conexiones puedan verlos; limpieza final."""
-    try:
-        conn = await psycopg.AsyncConnection.connect(
-            settings.database_url, row_factory=psycopg.rows.dict_row, connect_timeout=2
-        )
-    except psycopg.OperationalError as exc:
-        pytest.skip(f"PostgreSQL local no disponible: {exc.__class__.__name__}")
+    conn = await conectar_o_omitir()
     unidad = UnidadDeTrabajo(conn)
     try:
         async with conn.transaction():

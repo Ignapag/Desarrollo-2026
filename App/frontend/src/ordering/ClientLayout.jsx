@@ -1,8 +1,8 @@
-﻿import { Outlet, Link, useNavigate, useSearchParams } from 'react-router-dom';
+﻿import { Outlet, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { useData } from '../shared/store/DataContext';
 import { ShoppingCart, Search, LogOut } from 'lucide-react';
-import CartDrawer from '../components/client/CartDrawer';
+import CartDrawer from './CartDrawer';
 import { useState } from 'react';
 
 export default function ClientLayout() {

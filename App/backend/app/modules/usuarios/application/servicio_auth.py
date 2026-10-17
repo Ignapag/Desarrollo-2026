@@ -10,8 +10,8 @@ from dataclasses import dataclass
 
 from app.core import auditoria
 from app.core.db import UnidadDeTrabajo
-from app.core.errores import NoAutenticado
 from app.core.seguridad import crear_token, verificar_password
+from app.errores import NoAutenticado
 from app.modules.usuarios.domain.entidades import AccionesAuditoria, Rol
 from app.modules.usuarios.infrastructure.repositorio_sql import RepositorioUsuariosSQL
 

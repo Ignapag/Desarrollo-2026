@@ -1,6 +1,6 @@
 ﻿import { createContext, useContext, useReducer, useEffect } from 'react';
 
-import { useState } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useAuth } from '../../auth/AuthContext';
 import { apiFetch } from '../api/http';
 
@@ -123,7 +123,7 @@ function mapOrder(order) {
     address: order.tipo_entrega === 'RETIRO' ? 'Retiro en local' : 'Delivery',
     status: order.estado.toLowerCase(),
     total: Number(order.total),
-    items: order.items.map((item) => `${item.cantidad}x ${item.nombre_producto}`),
+    items: order.items.map((item) => `${item.cantidad}x ${item.nombre_producto}${item.aclaraciones ? ` · ${item.aclaraciones}` : ''}`),
     date: order.creado_en,
   };
 }
@@ -223,6 +223,18 @@ export function DataProvider({ children }) {
   const [state, dispatch] = useReducer(dataReducer, initialState);
   const [loading, setLoading] = useState(false);
   const { user } = useAuth();
+  const ordersRequestRef = useRef(null);
+
+  const refreshOrders = useCallback((signal) => {
+    if (ordersRequestRef.current) return ordersRequestRef.current;
+    const request = apiFetch('/api/pedidos', { signal })
+      .then((orders) => dispatch({ type: 'SYNC_ORDERS', payload: orders.map(mapOrder) }))
+      .finally(() => {
+        if (ordersRequestRef.current === request) ordersRequestRef.current = null;
+      });
+    ordersRequestRef.current = request;
+    return request;
+  }, []);
 
   const refreshData = async () => {
     setLoading(true);
@@ -230,8 +242,7 @@ export function DataProvider({ children }) {
       const products = await apiFetch('/api/productos');
       dispatch({ type: 'SYNC_CATALOG', payload: products.map(mapProduct) });
       if (user) {
-        const orders = await apiFetch('/api/pedidos');
-        dispatch({ type: 'SYNC_ORDERS', payload: orders.map(mapOrder) });
+        await refreshOrders();
       }
       if (user?.role === 'admin') {
         const inventory = await apiFetch('/api/stock/ingredientes?activo=true');
@@ -245,6 +256,33 @@ export function DataProvider({ children }) {
   useEffect(() => {
     refreshData().catch(() => undefined);
   }, [user?.id]);
+
+  useEffect(() => {
+    if (!['EMPLEADO', 'ADMINISTRADOR', 'DUENIO'].includes(user?.backendRole)) return undefined;
+    let controller = null;
+    const updateOrders = async () => {
+      if (document.hidden || controller) return;
+      controller = new AbortController();
+      try {
+        await refreshOrders(controller.signal);
+      } catch {
+        // Conserva el último tablero disponible; reintenta en el siguiente ciclo.
+      } finally {
+        controller = null;
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.hidden) controller?.abort();
+      else void updateOrders();
+    };
+    const timer = window.setInterval(updateOrders, 8000);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      controller?.abort();
+    };
+  }, [user?.id, user?.backendRole, refreshOrders]);
 
   const createProduct = async (payload) => {
     const created = await apiFetch('/api/productos', {

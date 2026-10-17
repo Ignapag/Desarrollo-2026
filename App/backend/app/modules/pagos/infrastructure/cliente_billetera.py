@@ -98,7 +98,11 @@ class ClienteMercadoPago:
                 pref_id = data["id"]
                 init_point = data.get("init_point", "")
                 # Genera payload de QR basado en el init_point
-                qr_data = data.get("point_of_interaction", {}).get("transaction_data", {}).get("qr_code", init_point)
+                qr_data = (
+                    data.get("point_of_interaction", {})
+                    .get("transaction_data", {})
+                    .get("qr_code", init_point)
+                )
 
                 return PreferenciaCobro(
                     preference_id=pref_id,
@@ -108,7 +112,9 @@ class ClienteMercadoPago:
                     referencia_externa=referencia,
                 )
             except Exception as exc:
-                log.warning("Fallo al conectar con la API de Mercado Pago (%s). Usando simulación.", exc)
+                log.warning(
+                    "Fallo al conectar con la API de Mercado Pago (%s). Usando simulación.", exc
+                )
 
         # Modo simulación / desarrollo local
         pref_id = f"pref_{referencia}"

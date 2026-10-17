@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock
 
 import pytest
 
-from app.core.errores import DatosInvalidos, NoEncontrado, ReglaDeNegocio
+from app.errores import DatosInvalidos, NoEncontrado, ReglaDeNegocio
 from app.modules.pagos.application.servicio_conciliacion import ServicioConciliacion
 from app.modules.pagos.domain.entidades import (
     EstadoPago,
@@ -39,8 +39,8 @@ def _crear_pago_ejemplo(
         estado=estado,
         referencia_externa=referencia_externa,
         registrado_por=1,
-        registrado_en=datetime.now(timezone.utc),
-        conciliado_en=datetime.now(timezone.utc) if estado == EstadoPago.CONCILIADO else None,
+        registrado_en=datetime.now(UTC),
+        conciliado_en=datetime.now(UTC) if estado == EstadoPago.CONCILIADO else None,
         motivo=None,
     )
 
@@ -99,7 +99,9 @@ async def test_conciliar_pago_anulado_lanza_regla_de_negocio(servicio, mock_repo
 @pytest.mark.asyncio
 async def test_conciliar_pago_exitoso_y_confirma_pedido_saldado(servicio, mock_repo, mock_uow):
     pago_pendiente = _crear_pago_ejemplo(pago_id=3, pedido_id=15, monto=Decimal("5000.00"))
-    pago_conciliado = _crear_pago_ejemplo(pago_id=3, pedido_id=15, monto=Decimal("5000.00"), estado=EstadoPago.CONCILIADO)
+    pago_conciliado = _crear_pago_ejemplo(
+        pago_id=3, pedido_id=15, monto=Decimal("5000.00"), estado=EstadoPago.CONCILIADO
+    )
 
     mock_repo.obtener_pago_por_id.return_value = pago_pendiente
     mock_repo.conciliar_pago.return_value = pago_conciliado
@@ -130,7 +132,9 @@ async def test_conciliar_pago_exitoso_y_confirma_pedido_saldado(servicio, mock_r
 @pytest.mark.asyncio
 async def test_conciliar_pago_parcial_no_confirma_pedido_si_falta_saldo(servicio, mock_repo):
     pago_pendiente = _crear_pago_ejemplo(pago_id=4, pedido_id=20, monto=Decimal("2000.00"))
-    pago_conciliado = _crear_pago_ejemplo(pago_id=4, pedido_id=20, monto=Decimal("2000.00"), estado=EstadoPago.CONCILIADO)
+    pago_conciliado = _crear_pago_ejemplo(
+        pago_id=4, pedido_id=20, monto=Decimal("2000.00"), estado=EstadoPago.CONCILIADO
+    )
 
     mock_repo.obtener_pago_por_id.return_value = pago_pendiente
     mock_repo.conciliar_pago.return_value = pago_conciliado

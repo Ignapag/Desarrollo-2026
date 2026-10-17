@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from app.core import auditoria
 from app.core.db import UnidadDeTrabajo
-from app.core.errores import DatosInvalidos, NoEncontrado, ReglaDeNegocio
+from app.errores import DatosInvalidos, NoEncontrado, ReglaDeNegocio
 from app.modules.pagos.domain.entidades import (
     AccionesPagos,
     EstadoFinancieroPedido,
@@ -75,7 +75,7 @@ class ServicioPagos:
             propina=propina,
         )
 
-        ahora = datetime.now(timezone.utc)
+        ahora = datetime.now(UTC)
         estado = EstadoPago.CONCILIADO if conciliar_inmediato else EstadoPago.PENDIENTE
         conciliado_en = ahora if conciliar_inmediato else None
 
@@ -150,13 +150,18 @@ class ServicioPagos:
         saldo_pendiente = max(Decimal("0.00"), total_pedido - total_pagado)
 
         if saldo_pendiente == Decimal("0.00"):
-            raise ReglaDeNegocio(f"El pedido #{pedido['numero']} ya se encuentra totalmente saldado")
+            raise ReglaDeNegocio(
+                f"El pedido #{pedido['numero']} ya se encuentra totalmente saldado"
+            )
 
         monto_cobrar = monto_a_pagar if monto_a_pagar is not None else saldo_pendiente
         if monto_cobrar <= Decimal("0.00"):
             raise DatosInvalidos("El monto a cobrar debe ser mayor a cero")
         if monto_cobrar > saldo_pendiente:
-            raise DatosInvalidos(f"El monto a cobrar (${monto_cobrar}) supera el saldo pendiente (${saldo_pendiente})")
+            raise DatosInvalidos(
+                f"El monto a cobrar (${monto_cobrar}) supera el saldo pendiente "
+                f"(${saldo_pendiente})"
+            )
         if propina < Decimal("0.00"):
             raise DatosInvalidos("La propina no puede ser negativa")
 
@@ -230,10 +235,10 @@ class ServicioPagos:
         if pago.estado == EstadoPago.CONCILIADO:
             return {"estado": "ya_conciliado", "pago_id": pago.id}
 
-        ahora = datetime.now(timezone.utc)
+        ahora = datetime.now(UTC)
 
         if info.status == "approved":
-            pago_actualizado = await self.repo.actualizar_pago_por_referencia(
+            await self.repo.actualizar_pago_por_referencia(
                 referencia_externa=pago.referencia_externa or payment_id,
                 nuevo_estado=EstadoPago.CONCILIADO,
                 conciliado_en=ahora,

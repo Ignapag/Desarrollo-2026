@@ -53,7 +53,7 @@ export default function Kitchen() {
                         {item.match(/^\d+/)?.[0] || '1'}
                       </span>
                       <span className="font-bold text-monu-dark text-lg leading-tight">
-                        {item.replace(/^\dx\s/, '')}
+                        {item.replace(/^\d+x\s/, '')}
                       </span>
                     </div>
                   ))}

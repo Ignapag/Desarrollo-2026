@@ -8,7 +8,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.core.errores import DatosInvalidos, ReglaDeNegocio
+from app.errores import DatosInvalidos, ReglaDeNegocio
 from app.modules.stock.application.servicio_stock import ServicioStock
 from app.modules.stock.domain.entidades import DatosIngrediente, nivel_stock
 

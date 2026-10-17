@@ -27,6 +27,7 @@ import pytest_asyncio
 
 from app.core.db import UnidadDeTrabajo, abrir_pool, cerrar_pool, conexion, verificar_conexion
 from app.main import app
+from tests.soporte_bd import exigir_base_descartable
 
 CONTRASENIA_SEED = "Monu2026!"
 
@@ -46,6 +47,7 @@ async def _pool_de_pruebas() -> AsyncIterator[None]:
     function-scoped (ver pyproject.toml). El costo de reabrirlo es bajo:
     son pocas pruebas y el pool no hace trabajo pesado al abrir.
     """
+    exigir_base_descartable()
     await abrir_pool()
     try:
         await verificar_conexion()

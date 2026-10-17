@@ -36,6 +36,68 @@ class RepositorioStockSQL:
             )
         )
 
+    async def item_para_ajuste(self, pedido_id: int, item_id: int) -> dict | None:
+        return await self.uow.uno(
+            "SELECT p.estado, i.producto_id, i.cantidad, i.aclaraciones "
+            "FROM pedido p JOIN pedido_item i ON i.pedido_id = p.id "
+            "WHERE p.id = %s AND i.id = %s FOR UPDATE OF i", (pedido_id, item_id),
+        )
+
+    async def ajuste_existente(self, pedido_id: int, motivo: str) -> bool:
+        return bool(await self.uow.valor(
+            "SELECT EXISTS (SELECT 1 FROM movimiento_stock WHERE pedido_id = %s AND motivo = %s)",
+            (pedido_id, motivo),
+        ))
+
+    async def ingrediente_item_para_devolucion(
+        self, pedido_id: int, item_id: int, nombre: str
+    ) -> dict | None:
+        return await self.uow.uno(
+            """
+            SELECT p.estado, i.cantidad, i.aclaraciones,
+                   ing.id AS ingrediente_id, receta.cantidad_requerida
+            FROM pedido p
+            JOIN pedido_item i ON i.pedido_id = p.id
+            JOIN producto_ingrediente receta ON receta.producto_id = i.producto_id
+            JOIN ingrediente ing ON ing.id = receta.ingrediente_id
+            WHERE p.id = %s AND i.id = %s AND lower(ing.nombre) = %s
+            FOR UPDATE OF i, ing
+            """,
+            (pedido_id, item_id, nombre),
+        )
+
+    async def devolucion_existente(self, pedido_id: int, motivo: str) -> bool:
+        return bool(await self.uow.valor(
+            "SELECT EXISTS (SELECT 1 FROM movimiento_stock WHERE pedido_id = %s "
+            "AND tipo = 'DEVOLUCION' AND motivo = %s)", (pedido_id, motivo),
+        ))
+
+    async def consumo_neto_ingrediente(self, pedido_id: int, ingrediente_id: int) -> Decimal:
+        return await self.uow.valor(
+            """
+            SELECT COALESCE(sum(CASE WHEN tipo = 'CONSUMO' THEN cantidad
+                                    WHEN tipo = 'DEVOLUCION' THEN -cantidad ELSE 0 END), 0)
+            FROM movimiento_stock WHERE pedido_id = %s AND ingrediente_id = %s
+            """,
+            (pedido_id, ingrediente_id),
+        )
+
+    async def devolver(
+        self, ingrediente_id: int, cantidad: Decimal, pedido_id: int,
+        usuario_id: int | None, motivo: str,
+    ) -> None:
+        fila = await self.uow.uno(
+            "UPDATE ingrediente SET cantidad_actual = cantidad_actual + %s "
+            "WHERE id = %s RETURNING *", (cantidad, ingrediente_id),
+        )
+        await self.uow.ejecutar(
+            "INSERT INTO movimiento_stock "
+            "(ingrediente_id, tipo, cantidad, saldo_resultante, pedido_id, usuario_id, motivo) "
+            "VALUES (%s, 'DEVOLUCION', %s, %s, %s, %s, %s)",
+            (ingrediente_id, cantidad, fila["cantidad_actual"], pedido_id, usuario_id, motivo),
+        )
+        await self._sincronizar_alerta(fila, usuario_id=usuario_id)
+
     async def recetas(self, producto_ids: list[int]) -> list[dict]:
         return await self.uow.todos(
             """
@@ -61,7 +123,10 @@ class RepositorioStockSQL:
                 filas.append(fila)
         return filas
 
-    async def consumir(self, ingrediente_id: int, cantidad: Decimal, pedido_id: int) -> dict | None:
+    async def consumir(
+        self, ingrediente_id: int, cantidad: Decimal, pedido_id: int, *,
+        motivo: str | None = None, usuario_id: int | None = None,
+    ) -> dict | None:
         fila = await self.uow.uno(
             """
             UPDATE ingrediente
@@ -76,13 +141,13 @@ class RepositorioStockSQL:
         movimiento = await self.uow.uno(
             """
             INSERT INTO movimiento_stock
-                (ingrediente_id, tipo, cantidad, saldo_resultante, pedido_id)
-            VALUES (%s, 'CONSUMO', %s, %s, %s)
+                (ingrediente_id, tipo, cantidad, saldo_resultante, pedido_id, motivo, usuario_id)
+            VALUES (%s, 'CONSUMO', %s, %s, %s, %s, %s)
             RETURNING id, creado_en
             """,
-            (ingrediente_id, cantidad, fila["cantidad_actual"], pedido_id),
+            (ingrediente_id, cantidad, fila["cantidad_actual"], pedido_id, motivo, usuario_id),
         )
-        await self._sincronizar_alerta(fila)
+        await self._sincronizar_alerta(fila, usuario_id=usuario_id)
         return {
             "ingrediente_id": ingrediente_id,
             "cantidad": cantidad,

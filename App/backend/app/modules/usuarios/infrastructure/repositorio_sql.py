@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import psycopg
+
 from app.core.db import UnidadDeTrabajo
+from app.errores import ReglaDeNegocio
+
 
 class RepositorioUsuariosSQL:
     def __init__(self, uow: UnidadDeTrabajo) -> None:
@@ -83,14 +87,20 @@ class RepositorioUsuariosSQL:
         password_hash: str,
         rol: str,
     ) -> int:
-        fila = await self.uow.uno(
-            """
-            INSERT INTO usuario (nombre, apellido, username, email, telefono, password_hash, rol)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            RETURNING id
-            """,
-            (nombre, apellido, username, email, telefono, password_hash, rol),
-        )
+        try:
+            fila = await self.uow.uno(
+                """
+                INSERT INTO usuario
+                    (nombre, apellido, username, email, telefono, password_hash, rol)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (nombre, apellido, username, email, telefono, password_hash, rol),
+            )
+        except psycopg.errors.UniqueViolation as exc:
+            # Carrera entre el chequeo previo del caso de uso y el INSERT:
+            # la restriccion UNIQUE de la base es la que realmente lo garantiza.
+            raise ReglaDeNegocio("Ese nombre de usuario ya existe") from exc
         return fila["id"]  # type: ignore[index]
 
     async def actualizar(

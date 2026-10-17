@@ -90,16 +90,15 @@ class Pago:
         nuevo_pedido_id: int,
     ) -> None:
         """Protección del alcance: un pago conciliado es inalterable en sus atributos críticos."""
-        if self.es_conciliado:
-            if (
-                self.monto != nuevo_monto
-                or self.metodo_pago != nuevo_metodo
-                or self.propina != nueva_propina
-                or self.pedido_id != nuevo_pedido_id
-            ):
-                raise ReglaDeNegocio(
-                    f"No se puede modificar un pago ya conciliado (pago #{self.id})"
-                )
+        if self.es_conciliado and (
+            self.monto != nuevo_monto
+            or self.metodo_pago != nuevo_metodo
+            or self.propina != nueva_propina
+            or self.pedido_id != nuevo_pedido_id
+        ):
+            raise ReglaDeNegocio(
+                f"No se puede modificar un pago ya conciliado (pago #{self.id})"
+            )
 
 
 @dataclass(slots=True, frozen=True)
@@ -303,7 +302,9 @@ def determinar_turno_y_ventana(
         fecha_caja = momento.date()
         turno = TurnoCierre.NOCHE
         desde = datetime.combine(fecha_caja, time(17, 0, 0), tzinfo=momento.tzinfo)
-        hasta = datetime.combine(fecha_caja + timedelta(days=1), time(4, 59, 59), tzinfo=momento.tzinfo)
+        hasta = datetime.combine(
+            fecha_caja + timedelta(days=1), time(4, 59, 59), tzinfo=momento.tzinfo
+        )
 
     return turno, fecha_caja, desde, hasta
 

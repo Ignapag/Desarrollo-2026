@@ -249,7 +249,7 @@ def generar() -> str:
 
         titulo = archivo.stem.split("_", 1)[1].replace("_", " ").capitalize()
         cuerpo += [f"## {archivo.stem} — {titulo}", ""]
-        enlaces = ", ".join(f"[`{t.nombre}`](#{t.nombre})" for t in tablas)
+        enlaces = ", ".join(f"[`{t.nombre}`](#{t.nombre})" for t in tablas) or "sin tablas nuevas"
         indice += [f"**{titulo}** — {enlaces}", ""]
 
         for tabla in tablas:

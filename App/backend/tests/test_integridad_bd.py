@@ -21,10 +21,12 @@ import pytest
 from psycopg.rows import dict_row
 
 from app.core.config import settings
+from tests.soporte_bd import exigir_base_descartable
 
 
 @pytest.fixture(scope="session")
 def conexion_disponible() -> bool:
+    exigir_base_descartable()
     try:
         with psycopg.connect(settings.database_url, connect_timeout=10):
             return True

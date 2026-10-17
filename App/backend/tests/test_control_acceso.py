@@ -13,9 +13,9 @@ from __future__ import annotations
 
 import pytest
 
-from app.modules.usuarios.presentation.dependencias import requiere_rol
-from app.core.errores import SinPermiso
+from app.errores import SinPermiso
 from app.modules.usuarios.domain.entidades import ROLES_PERSONAL_INTERNO, ClaimsSesion, Rol
+from app.modules.usuarios.presentation.dependencias import requiere_rol
 
 
 def claims(rol: Rol) -> ClaimsSesion:

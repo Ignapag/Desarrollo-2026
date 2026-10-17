@@ -13,36 +13,16 @@ test_delivery_bd.py con los repartidores del seed.
 from __future__ import annotations
 
 import uuid
-from collections.abc import AsyncIterator
 
-import psycopg
 import pytest
 import pytest_asyncio
 
-from app.core.config import settings
 from app.core.db import UnidadDeTrabajo
-from app.core.errores import NoEncontrado, ReglaDeNegocio
+from app.errores import NoEncontrado, ReglaDeNegocio
 from app.modules.notificaciones.application.servicio_notificaciones import ServicioNotificaciones
 from app.modules.notificaciones.domain.entidades import EventoNotificacion
 from app.modules.notificaciones.infrastructure.enviadores import EnviadorSimulado
 from app.modules.notificaciones.infrastructure.repositorio_sql import RepositorioNotificacionesSQL
-
-
-@pytest_asyncio.fixture
-async def uow() -> AsyncIterator[UnidadDeTrabajo]:
-    try:
-        conn = await psycopg.AsyncConnection.connect(
-            settings.database_url, row_factory=psycopg.rows.dict_row, connect_timeout=10
-        )
-    except Exception as exc:  # pragma: no cover
-        pytest.skip(f"Base no accesible: {exc.__class__.__name__}")
-
-    await conn.set_autocommit(False)
-    try:
-        yield UnidadDeTrabajo(conn)
-    finally:
-        await conn.rollback()
-        await conn.close()
 
 
 @pytest_asyncio.fixture

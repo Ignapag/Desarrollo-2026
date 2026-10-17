@@ -7,7 +7,7 @@ Modelo de datos **tal como está implementado** en la base.
 > quedar desactualizado respecto del esquema real. CI verifica que
 > este al dia.
 
-**27 entidades · 46 relaciones.**
+**34 entidades · 57 relaciones.**
 
 Este diagrama reemplaza al entregado en la Actividad N°2: las diferencias
 están explicadas una por una en [CAMBIOS_DER.md](CAMBIOS_DER.md) (C-01 a C-12).
@@ -75,6 +75,17 @@ erDiagram
     NOTIFICACION_PLANTILLA o|--o{ NOTIFICACION : plantilla_id
     CLIENTE o|--o{ NOTIFICACION : cliente_id
     PEDIDO o|--o{ NOTIFICACION : pedido_id
+    CLIENTE ||--o{ WHATSAPP_BORRADOR : cliente_id
+    PEDIDO o|--|| WHATSAPP_BORRADOR : pedido_id
+    WHATSAPP_BORRADOR o|--o{ WHATSAPP_ENTRADA : referencia_hash
+    PEDIDO ||--o{ WHATSAPP_CAMBIO : pedido_id
+    USUARIO o|--o{ WHATSAPP_CAMBIO : revisado_por
+    WHATSAPP_ENTRADA ||--|| WHATSAPP_COMPROBANTE : entrada_id
+    PEDIDO ||--o{ WHATSAPP_COMPROBANTE : pedido_id
+    USUARIO o|--o{ WHATSAPP_COMPROBANTE : revisado_por
+    WHATSAPP_BORRADOR ||--o{ WHATSAPP_ATENCION : referencia_hash
+    WHATSAPP_ENTRADA ||--o{ WHATSAPP_ATENCION : entrada_id
+    USUARIO o|--o{ WHATSAPP_ATENCION : resuelta_por
 ```
 
 ---
@@ -438,6 +449,106 @@ erDiagram
     }
 ```
 
+### Whatsapp
+
+```mermaid
+erDiagram
+    WHATSAPP_BORRADOR o|--o{ WHATSAPP_ENTRADA : referencia_hash
+    WHATSAPP_ENTRADA ||--|| WHATSAPP_COMPROBANTE : entrada_id
+    WHATSAPP_BORRADOR {
+        text referencia_hash PK
+        bigint cliente_id FK
+        text telefono
+        jsonb items
+        text tipo_entrega
+        text metodo_pago
+        jsonb direccion
+        text estado
+        text estado_pago
+        bigint pedido_id FK
+        int version
+        jsonb propuesta
+        timestamptz creado_en
+        timestamptz expira_en
+        timestamptz ultimo_mensaje_en
+    }
+    WHATSAPP_ENTRADA {
+        text id PK
+        text telefono
+        text texto
+        text media_id
+        text referencia_hash FK
+        text estado
+        text respuesta
+        timestamptz creado_en
+    }
+    WHATSAPP_SALIDA {
+        bigint id PK
+        text clave UK
+        text telefono
+        text texto
+        text estado
+        text proveedor_id UK
+        int intentos
+        timestamptz proximo_intento_en
+        timestamptz actualizado_en
+        timestamptz creado_en
+    }
+    WHATSAPP_CAMBIO {
+        bigint id PK
+        bigint pedido_id FK
+        int version
+        jsonb accion
+        jsonb anterior
+        jsonb posterior
+        text estado
+        bigint revisado_por FK
+        timestamptz revisado_en
+        timestamptz creado_en
+    }
+    WHATSAPP_COMPROBANTE {
+        bigint id PK
+        text entrada_id FK
+        bigint pedido_id FK
+        text media_id
+        text estado
+        bigint revisado_por FK
+        timestamptz revisado_en
+        text motivo
+        timestamptz creado_en
+    }
+```
+
+### Whatsapp estados envio
+
+```mermaid
+erDiagram
+    WHATSAPP_ESTADO_ENVIO {
+        text proveedor_id PK
+        text telefono PK
+        text estado PK
+        timestamptz recibido_en
+    }
+```
+
+### Whatsapp atencion
+
+```mermaid
+erDiagram
+    WHATSAPP_ATENCION {
+        bigint id PK
+        text referencia_hash FK
+        text entrada_id FK
+        text motivo
+        text estado
+        text resolucion
+        bigint resuelta_por FK
+        timestamptz resuelta_en
+        timestamptz creado_en
+        is resolucion
+    }
+```
+
 ---
 
 ## Relaciones en detalle
@@ -490,6 +601,17 @@ erDiagram
 | `repartidor` | `usuario_id` | `usuario` | 1 : 1 | Sí |
 | `viaje` | `repartidor_id` | `repartidor` | 1 : N | Sí |
 | `viaje` | `asignado_por` | `usuario` | 1 : N | No |
+| `whatsapp_atencion` | `resuelta_por` | `usuario` | 1 : N | No |
+| `whatsapp_atencion` | `referencia_hash` | `whatsapp_borrador` | 1 : N | Sí |
+| `whatsapp_atencion` | `entrada_id` | `whatsapp_entrada` | 1 : N | Sí |
+| `whatsapp_borrador` | `cliente_id` | `cliente` | 1 : N | Sí |
+| `whatsapp_borrador` | `pedido_id` | `pedido` | 1 : 1 | No |
+| `whatsapp_cambio` | `pedido_id` | `pedido` | 1 : N | Sí |
+| `whatsapp_cambio` | `revisado_por` | `usuario` | 1 : N | No |
+| `whatsapp_comprobante` | `pedido_id` | `pedido` | 1 : N | Sí |
+| `whatsapp_comprobante` | `revisado_por` | `usuario` | 1 : N | No |
+| `whatsapp_comprobante` | `entrada_id` | `whatsapp_entrada` | 1 : 1 | Sí |
+| `whatsapp_entrada` | `referencia_hash` | `whatsapp_borrador` | 1 : N | No |
 
 ---
 

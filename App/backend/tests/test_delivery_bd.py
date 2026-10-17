@@ -11,13 +11,9 @@ la base compartida del grupo**.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
-
-import psycopg
 import pytest
 import pytest_asyncio
 
-from app.core.config import settings
 from app.core.db import UnidadDeTrabajo
 from app.modules.delivery.application.servicio_delivery import ServicioDelivery
 from app.modules.delivery.infrastructure.repositorio_sql import RepositorioDeliverySQL
@@ -26,24 +22,6 @@ from app.modules.delivery.infrastructure.repositorio_sql import RepositorioDeliv
 ENSENADA_CENTRO = (-34.860, -57.907)
 ENSENADA_CERCA = (-34.8620, -57.9090)   # ~300 m del centro
 ENSENADA_LEJOS = (-34.8840, -57.9350)   # ~3,5 km del centro
-
-
-@pytest_asyncio.fixture
-async def uow() -> AsyncIterator[UnidadDeTrabajo]:
-    """Unidad de trabajo sobre una transaccion que siempre se revierte."""
-    try:
-        conn = await psycopg.AsyncConnection.connect(
-            settings.database_url, row_factory=psycopg.rows.dict_row, connect_timeout=10
-        )
-    except Exception as exc:  # pragma: no cover
-        pytest.skip(f"Base no accesible: {exc.__class__.__name__}")
-
-    await conn.set_autocommit(False)
-    try:
-        yield UnidadDeTrabajo(conn)
-    finally:
-        await conn.rollback()
-        await conn.close()
 
 
 @pytest_asyncio.fixture
@@ -242,7 +220,7 @@ async def test_iniciar_viaje_pone_los_pedidos_en_camino(uow, servicio):
 
 @pytest.mark.asyncio
 async def test_iniciar_dos_veces_el_mismo_viaje_falla(uow, servicio):
-    from app.core.errores import ReglaDeNegocio
+    from app.errores import ReglaDeNegocio
 
     await liberar_repartidores(uow)
     await crear_pedido_listo(uow, "i2", ENSENADA_CENTRO)
@@ -314,7 +292,7 @@ async def test_con_dos_pedidos_el_viaje_sigue_abierto_tras_la_primera_entrega(uo
 
 @pytest.mark.asyncio
 async def test_no_se_puede_entregar_dos_veces(uow, servicio):
-    from app.core.errores import ReglaDeNegocio
+    from app.errores import ReglaDeNegocio
 
     await liberar_repartidores(uow)
     pedido_id = await crear_pedido_listo(uow, "dd", ENSENADA_CENTRO)

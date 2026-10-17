@@ -11,8 +11,6 @@ from app.modules.stock.application.servicio_stock import ServicioStock
 from app.modules.stock.domain.entidades import DatosIngrediente
 from app.modules.stock.infrastructure.repositorio_sql import RepositorioStockSQL
 
-from tests.test_delivery_bd import uow as uow  # reutiliza su fixture transaccional
-
 
 @pytest.mark.asyncio
 async def test_alta_busqueda_reposiciones_historial_y_alertas(uow):

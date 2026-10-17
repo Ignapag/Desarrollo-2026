@@ -6,7 +6,7 @@ from decimal import Decimal
 
 from app.core import auditoria
 from app.core.db import UnidadDeTrabajo
-from app.core.errores import DatosInvalidos, NoEncontrado, ReglaDeNegocio
+from app.errores import DatosInvalidos, NoEncontrado, ReglaDeNegocio
 from app.modules.pagos.domain.entidades import (
     AccionesPagos,
     EstadoPago,
@@ -18,7 +18,9 @@ from app.modules.pagos.infrastructure.repositorio_sql import RepositorioPagosSQL
 
 
 class ServicioConciliacion:
-    """Orquesta la conciliación de cobros pendientes, registro de egresos/devoluciones y anulaciones."""
+    """Orquesta la conciliación de cobros pendientes, registro de egresos/devoluciones
+    y anulaciones.
+    """
 
     def __init__(self, uow: UnidadDeTrabajo, repo: RepositorioPagosSQL) -> None:
         self.uow = uow
@@ -81,7 +83,9 @@ class ServicioConciliacion:
         conciliar_por: int | None = None,
         ip_cliente: str | None = None,
     ) -> dict:
-        """Concilia en lote múltiples pagos pendientes (ej. arqueo de repartidores o extracto bancario)."""
+        """Concilia en lote múltiples pagos pendientes (ej. arqueo de repartidores
+        o extracto bancario).
+        """
         conciliados: list[int] = []
         fallidos: list[dict] = []
 
@@ -131,7 +135,8 @@ class ServicioConciliacion:
         total_neto_pagado = await self.repo.total_pagado_por_pedido(pedido_id)
         if monto > total_neto_pagado:
             raise DatosInvalidos(
-                f"El monto a devolver (${monto}) supera el total neto abonado en el pedido (${total_neto_pagado})"
+                f"El monto a devolver (${monto}) supera el total neto abonado "
+                f"en el pedido (${total_neto_pagado})"
             )
 
         devolucion = await self.repo.registrar_pago(

@@ -6,7 +6,7 @@ from datetime import date, datetime
 
 from app.core import auditoria
 from app.core.db import UnidadDeTrabajo
-from app.core.errores import NoEncontrado, ReglaDeNegocio
+from app.errores import NoEncontrado, ReglaDeNegocio
 from app.modules.pagos.domain.entidades import (
     AccionesPagos,
     CierreCaja,
@@ -87,7 +87,8 @@ class ServicioCaja:
         existente = await self.repo.obtener_cierre_por_fecha_turno(fecha_caja, turno_caja)
         if existente and existente.es_aprobado:
             raise ReglaDeNegocio(
-                f"El cierre de caja del turno {turno_caja.value} para el día {fecha_caja} ya fue aprobado y no puede reabrirse"
+                f"El cierre de caja del turno {turno_caja.value} para el día {fecha_caja} "
+                "ya fue aprobado y no puede reabrirse"
             )
 
         totales = await self.repo.consolidar_totales_turno(desde, hasta)

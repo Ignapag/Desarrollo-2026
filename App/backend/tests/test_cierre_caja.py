@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.core.errores import NoEncontrado, ReglaDeNegocio
+from app.errores import NoEncontrado, ReglaDeNegocio
 from app.modules.pagos.application.servicio_caja import ServicioCaja
 from app.modules.pagos.domain.entidades import (
     CierreCaja,
@@ -20,7 +20,6 @@ from app.modules.pagos.domain.entidades import (
     ventana_para_turno,
 )
 from app.modules.pagos.infrastructure.repositorio_caja_sql import RepositorioCajaSQL
-
 
 # ---------------------------------------------------------------------------
 # Pruebas de reglas de dominio: turnos y ventanas horarias
@@ -115,7 +114,9 @@ async def test_consolidar_turno_calculo_completo():
         "pagos_pendientes_conciliacion": 2,
     }
     mock_repo.desglose_por_metodo.return_value = [
-        TotalesMetodoPago(metodo_pago=MetodoPago.MERCADO_PAGO, total=Decimal("60000.00"), cantidad=20),
+        TotalesMetodoPago(
+            metodo_pago=MetodoPago.MERCADO_PAGO, total=Decimal("60000.00"), cantidad=20
+        ),
         TotalesMetodoPago(metodo_pago=MetodoPago.EFECTIVO, total=Decimal("45000.00"), cantidad=15),
         TotalesMetodoPago(metodo_pago=MetodoPago.CUENTA_DNI, total=Decimal("35000.00"), cantidad=7),
     ]

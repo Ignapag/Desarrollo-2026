@@ -8,12 +8,12 @@ from app.core.dependencias import UoW
 from app.modules.pedidos.application.servicio_pedidos import ServicioPedidos
 from app.modules.pedidos.infrastructure.repositorio_sql import RepositorioPedidosSQL
 from app.modules.pedidos.infrastructure.stock import AdaptadorConsumoStock
-from app.modules.stock.application.servicio_stock import ServicioStock
-from app.modules.stock.infrastructure.repositorio_sql import RepositorioStockSQL
+from app.modules.stock.presentation.dependencias import obtener_servicio_stock
 
 
 def obtener_servicio_pedidos(uow: UoW) -> ServicioPedidos:
-    stock = AdaptadorConsumoStock(ServicioStock(RepositorioStockSQL(uow)))
+    # Stock comparte la unidad de trabajo: pedido y consumo confirman juntos.
+    stock = AdaptadorConsumoStock(obtener_servicio_stock(uow))
     return ServicioPedidos(RepositorioPedidosSQL(uow), stock)
 
 

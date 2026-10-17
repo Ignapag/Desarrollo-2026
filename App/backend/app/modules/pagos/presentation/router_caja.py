@@ -7,8 +7,8 @@ from datetime import date
 from fastapi import APIRouter, Query, status
 
 from app.core.dependencias import IpCliente
-from app.modules.pagos.presentation.dependencias import ServicioCajaDep
 from app.modules.pagos.domain.entidades import EstadoCierre, TurnoCierre
+from app.modules.pagos.presentation.dependencias import ServicioCajaDep
 from app.modules.pagos.presentation.esquemas import (
     AprobarCierreEntrada,
     CierreCajaSalida,
@@ -68,7 +68,8 @@ async def generar_cierre(
     datos: GenerarCierreEntrada | None = None,
     ip: IpCliente = None,
 ) -> CierreCajaSalida:
-    """Genera formalmente el cierre de caja para el turno, asentándolo en estado PENDIENTE_APROBACION.
+    """Genera formalmente el cierre de caja para el turno, asentándolo en estado \
+PENDIENTE_APROBACION.
 
     - Totaliza ingresos en efectivo, billeteras y devoluciones.
     - Vincula en lote todos los pagos del período con el cierre generado (`pago.cierre_caja_id`).
@@ -134,7 +135,8 @@ async def aprobar_cierre(
     servicio: ServicioCajaDep,
     ip: IpCliente = None,
 ) -> CierreCajaSalida:
-    """Aprueba un cierre de caja pendiente, cambiando su estado a APROBADO e inalterable (RF del alcance)."""
+    """Aprueba un cierre de caja pendiente, cambiando su estado a APROBADO e inalterable \
+(RF del alcance)."""
     cierre = await servicio.aprobar_y_bloquear_cierre(
         cierre_id=cierre_id,
         aprobado_por=datos.aprobado_por or sesion.usuario_id,

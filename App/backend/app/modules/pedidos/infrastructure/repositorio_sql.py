@@ -83,6 +83,7 @@ class RepositorioPedidosSQL:
         direccion_id: int | None,
         observaciones: str | None,
         items: list[dict],
+        canal: str = "WEB",
     ) -> dict:
         subtotal = sum(
             (Decimal(str(item["precio_unitario"])) * item["cantidad"] for item in items),
@@ -93,10 +94,10 @@ class RepositorioPedidosSQL:
             INSERT INTO pedido
                 (cliente_id, tipo_entrega, direccion_id, canal, estado,
                  subtotal, costo_envio, descuento_total, total, observaciones)
-            VALUES (%s, %s, %s, 'WEB', 'PENDIENTE', %s, 0, 0, %s, %s)
+            VALUES (%s, %s, %s, %s, 'PENDIENTE', %s, 0, 0, %s, %s)
             RETURNING id
             """,
-            (cliente_id, tipo_entrega, direccion_id, subtotal, subtotal, observaciones),
+            (cliente_id, tipo_entrega, direccion_id, canal, subtotal, subtotal, observaciones),
         )
         pedido_id = fila["id"]
         for item in items:
@@ -175,7 +176,20 @@ class RepositorioPedidosSQL:
     async def obtener(self, pedido_id: int, *, bloquear: bool = False) -> dict | None:
         if bloquear:
             return await self.uow.uno(
-                "SELECT id, estado FROM pedido WHERE id = %s FOR UPDATE", (pedido_id,)
+                """
+                SELECT p.id, p.estado,
+                       NOT EXISTS (
+                           SELECT 1 FROM whatsapp_borrador b
+                           WHERE b.pedido_id = p.id AND b.metodo_pago = 'TRANSFERENCIA'
+                             AND (b.estado_pago <> 'APROBADO' OR p.total > (
+                                 SELECT COALESCE(sum(CASE WHEN tipo='COBRO' THEN monto
+                                                        ELSE -monto END),0)
+                                 FROM pago WHERE pedido_id=p.id AND estado='CONCILIADO'
+                             ))
+                       ) AS puede_preparar
+                FROM pedido p WHERE p.id = %s FOR UPDATE OF p
+                """,
+                (pedido_id,),
             )
         return await self.uow.uno(
             "SELECT id, estado FROM pedido WHERE id = %s", (pedido_id,)
@@ -183,7 +197,8 @@ class RepositorioPedidosSQL:
 
     async def items_para_stock(self, pedido_id: int) -> list[dict]:
         return await self.uow.todos(
-            "SELECT producto_id, cantidad FROM pedido_item WHERE pedido_id = %s",
+            "SELECT producto_id, cantidad, aclaraciones FROM pedido_item "
+            "WHERE pedido_id = %s ORDER BY id",
             (pedido_id,),
         )
 

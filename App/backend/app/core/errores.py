@@ -1,7 +1,8 @@
-"""Errores de dominio y su traduccion a respuestas HTTP.
+"""Traduccion de errores a respuestas HTTP.
 
-Las capas de dominio y aplicacion nunca importan FastAPI: lanzan estas
-excepciones y la capa de presentacion las mapea a codigos HTTP.
+Las clases de error viven en ``app.errores``, sin frameworks: dominio,
+aplicacion y adaptadores las importan desde alli. Este modulo solo contiene
+los manejadores que ``app.main`` registra.
 """
 
 from __future__ import annotations
@@ -9,14 +10,7 @@ from __future__ import annotations
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-from app.errores import (
-    DatosInvalidos,
-    ErrorDominio,
-    NoAutenticado,
-    NoEncontrado,
-    ReglaDeNegocio,
-    SinPermiso,
-)
+from app.errores import ErrorDominio
 
 
 async def manejador_error_dominio(_: Request, exc: ErrorDominio) -> JSONResponse:

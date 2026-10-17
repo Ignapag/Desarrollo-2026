@@ -1,13 +1,12 @@
 """Punto de entrada de la API de Monu Burger.
 
 Monolito modular: una sola aplicacion FastAPI que monta el router de cada
-modulo. Las capas siguen Clean Architecture (presentation / application /
-domain / infrastructure) dentro de cada modulo.
+capacidad de ``app/modules``. Las capas siguen Clean Architecture (domain /
+application / infrastructure / presentation) dentro de cada capacidad.
 
-Alcance de este repositorio: Base de Datos (EDT 1.9.2), Asignacion de
-Repartidores (EDT 1.3.1), Usuarios y Seguridad (EDT 1.8) y Notificaciones /
-Bot de WhatsApp sin la integracion n8n (EDT 1.7). Los demas modulos estan a
-cargo de otros integrantes del grupo y se integran mas adelante.
+Este archivo solo compone lo transversal: CORS, manejadores de error, ciclo
+de vida del pool y healthcheck. Los routers se descubren en
+``app.registro_modulos``; no se registran a mano.
 """
 
 from __future__ import annotations
@@ -23,11 +22,8 @@ from psycopg_pool import PoolTimeout
 
 from app.core.config import settings
 from app.core.db import abrir_pool, cerrar_pool, verificar_conexion
-from app.core.errores import (
-    ErrorDominio,
-    manejador_base_no_disponible,
-    manejador_error_dominio,
-)
+from app.core.errores import manejador_base_no_disponible, manejador_error_dominio
+from app.errores import ErrorDominio
 from app.registro_modulos import registrar_routers
 
 logging.basicConfig(

@@ -2,6 +2,7 @@
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Clock, CheckCircle, PackageCheck, AlertCircle } from 'lucide-react';
+import WhatsAppInbox from './WhatsAppInbox';
 
 const STATUS_COLUMNS = [
   { id: 'pendiente', title: 'Nuevos', color: 'bg-red-50 text-red-700 border-red-200', icon: AlertCircle },
@@ -37,7 +38,9 @@ export default function Orders() {
         <p className="text-monu-text/70">Tablero Kanban para el flujo operativo.</p>
       </div>
 
-      <div className="flex-1 flex gap-4 overflow-x-auto pb-4 px-2 snap-x snap-mandatory">
+      <WhatsAppInbox />
+
+      <div className="flex-1 min-h-48 flex gap-4 overflow-x-auto pb-4 px-2 snap-x snap-mandatory">
         {STATUS_COLUMNS.map(col => (
           <div key={col.id} className="flex-none w-[85vw] md:w-80 snap-center bg-monu-bone rounded-2xl flex flex-col max-h-full border border-monu-green/10 shadow-sm">
             <div className={`p-4 border-b rounded-t-2xl flex justify-between items-center ${col.color}`}>
@@ -63,8 +66,8 @@ export default function Orders() {
                   <div className="space-y-1 mb-4">
                     {order.items.map((item, i) => (
                       <div key={i} className="text-xs flex gap-2">
-                        <span className="font-bold text-monu-green">1x</span>
-                        <span className="text-monu-text/80">{item.replace(/^\dx\s/, '')}</span>
+                        <span className="font-bold text-monu-green shrink-0">{item.match(/^\d+/)?.[0] || '1'}x</span>
+                        <span className="text-monu-text/80">{item.replace(/^\d+x\s/, '')}</span>
                       </div>
                     ))}
                   </div>

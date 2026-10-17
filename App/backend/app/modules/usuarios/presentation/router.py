@@ -19,6 +19,8 @@ from fastapi import APIRouter, Query, Response
 from app.core import auditoria
 from app.core.config import settings
 from app.core.dependencias import IpCliente, UoW
+from app.errores import NoEncontrado
+from app.modules.usuarios.application.servicio_usuarios import FiltrosUsuario
 from app.modules.usuarios.presentation.dependencias import (
     AdministradorODuenio,
     ServicioAuthDep,
@@ -26,8 +28,6 @@ from app.modules.usuarios.presentation.dependencias import (
     Sesion,
     SoloAdministrador,
 )
-from app.core.errores import NoEncontrado
-from app.modules.usuarios.application.servicio_usuarios import FiltrosUsuario
 from app.modules.usuarios.presentation.esquemas import (
     AsignarRolEntrada,
     EventoAuditoriaSalida,

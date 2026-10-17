@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.core.errores import DatosInvalidos, ReglaDeNegocio
+from app.errores import DatosInvalidos, ReglaDeNegocio
 from app.modules.pagos.application.servicio_pagos import ServicioPagos
 from app.modules.pagos.domain.entidades import (
     EstadoPago,

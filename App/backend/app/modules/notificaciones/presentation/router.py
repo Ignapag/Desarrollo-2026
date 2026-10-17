@@ -13,7 +13,6 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from app.modules.notificaciones.presentation.dependencias import ServicioNotificacionesDep
-from app.modules.usuarios.presentation.dependencias import AdministradorODuenio, PersonalInterno
 from app.modules.notificaciones.presentation.esquemas import (
     ModificarPlantillaEntrada,
     NotificacionSalida,
@@ -21,6 +20,7 @@ from app.modules.notificaciones.presentation.esquemas import (
     PlantillaSalida,
     ResultadoProcesamiento,
 )
+from app.modules.usuarios.presentation.dependencias import AdministradorODuenio, PersonalInterno
 
 router = APIRouter(prefix="/api/notificaciones", tags=["notificaciones"])
 

@@ -8,7 +8,7 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-from app.core.errores import DatosInvalidos, SinPermiso
+from app.errores import DatosInvalidos, SinPermiso
 from app.modules.reportes.application.servicio_reportes import ServicioReportes
 from app.modules.reportes.presentation.esquemas import (
     DashboardAdministrador,

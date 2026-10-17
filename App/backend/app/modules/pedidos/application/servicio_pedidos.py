@@ -30,6 +30,7 @@ class RepositorioPedidos(Protocol):
         direccion_id: int | None,
         observaciones: str | None,
         items: list[dict],
+        canal: str = "WEB",
     ) -> dict: ...
     async def listar(self, *, cliente_id: int | None) -> list[dict]: ...
     async def obtener(self, pedido_id: int, *, bloquear: bool = False) -> dict | None: ...
@@ -57,7 +58,10 @@ class ServicioPedidos:
         direccion_nueva: dict | None,
         observaciones: str | None,
         items: list[ItemNuevoPedido],
+        canal: str = "WEB",
     ) -> dict:
+        if canal not in {"WEB", "WHATSAPP", "MOSTRADOR"}:
+            raise DatosInvalidos("El canal del pedido no es valido")
         if cliente_id <= 0 or not await self.repo.cliente_valido(cliente_id):
             raise DatosInvalidos("El cliente no existe o esta inactivo")
         if tipo_entrega not in {"DELIVERY", "RETIRO"}:
@@ -73,17 +77,29 @@ class ServicioPedidos:
                 raise DatosInvalidos("La direccion no pertenece al cliente o esta inactiva")
         if not items:
             raise DatosInvalidos("El pedido debe contener al menos un producto")
+        if len(items) > 50:
+            raise DatosInvalidos("El pedido no puede contener mas de 50 lineas")
 
-        cantidades: dict[tuple[int, str | None], int] = {}
-        aclaraciones: dict[tuple[int, str | None], str | None] = {}
+        cantidades: dict[tuple[int, str | None, str | None], int] = {}
+        por_producto: dict[tuple[int, str | None], int] = {}
         for item in items:
-            if item.producto_id <= 0 or item.cantidad <= 0:
+            if (
+                isinstance(item.producto_id, bool)
+                or not isinstance(item.producto_id, int)
+                or item.producto_id <= 0
+                or isinstance(item.cantidad, bool)
+                or not isinstance(item.cantidad, int)
+                or not 1 <= item.cantidad <= 50
+            ):
                 raise DatosInvalidos("El producto o su cantidad no son validos")
-            clave = (item.producto_id, item.variante)
+            producto_variante = (item.producto_id, item.variante)
+            por_producto[producto_variante] = por_producto.get(producto_variante, 0) + item.cantidad
+            if por_producto[producto_variante] > 50:
+                raise DatosInvalidos("La cantidad acumulada del producto no puede superar 50")
+            clave = (item.producto_id, item.variante, item.aclaraciones)
             cantidades[clave] = cantidades.get(clave, 0) + item.cantidad
-            aclaraciones[clave] = item.aclaraciones
 
-        ids_solicitados = sorted({producto_id for producto_id, _ in cantidades})
+        ids_solicitados = sorted({producto_id for producto_id, _, _ in cantidades})
         productos = await self.repo.productos(ids_solicitados)
         por_id = {fila["id"]: fila for fila in productos}
         faltantes = sorted(set(ids_solicitados) - set(por_id))
@@ -96,7 +112,7 @@ class ServicioPedidos:
             )
 
         items_snapshot: list[dict] = []
-        for (producto_id, variante), cantidad in cantidades.items():
+        for (producto_id, variante, aclaracion), cantidad in cantidades.items():
             producto = por_id[producto_id]
             variantes = producto.get("variantes") or []
             precio = producto["precio_base"]
@@ -119,7 +135,7 @@ class ServicioPedidos:
                     "nombre_producto": nombre,
                     "cantidad": cantidad,
                     "precio_unitario": precio,
-                    "aclaraciones": aclaraciones[(producto_id, variante)],
+                    "aclaraciones": aclaracion,
                 }
             )
         return await self.repo.crear(
@@ -128,6 +144,7 @@ class ServicioPedidos:
             direccion_id=direccion_id,
             observaciones=observaciones,
             items=items_snapshot,
+            canal=canal,
         )
 
     async def listar(self, *, cliente_id: int | None = None) -> list[dict]:
@@ -144,9 +161,10 @@ class ServicioPedidos:
             raise ReglaDeNegocio(
                 f"No se puede cambiar un pedido de {actual.value} a {nuevo.value}"
             )
-        if actual == EstadoPedido.PENDIENTE and nuevo in {
-            EstadoPedido.CONFIRMADO,
-            EstadoPedido.EN_PREPARACION,
-        }:
+        if nuevo == EstadoPedido.EN_PREPARACION and pedido.get("puede_preparar") is False:
+            raise ReglaDeNegocio("La transferencia debe estar aprobada antes de preparar el pedido")
+        if nuevo == EstadoPedido.EN_PREPARACION or (
+            actual == EstadoPedido.PENDIENTE and nuevo == EstadoPedido.CONFIRMADO
+        ):
             await self.stock.procesar(pedido_id, await self.repo.items_para_stock(pedido_id))
         return await self.repo.cambiar_estado(pedido_id, nuevo, usuario_id)

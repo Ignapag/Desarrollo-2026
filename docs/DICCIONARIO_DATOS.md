@@ -32,11 +32,23 @@ columnas, tipos, obligatoriedad, relaciones y valores permitidos.
 
 **Notificaciones** — [`notificacion_plantilla`](#notificacion_plantilla), [`notificacion`](#notificacion)
 
-**Parametros delivery** — 
+**Parametros delivery** — sin tablas nuevas
 
-**Funciones geo float** — 
+**Funciones geo float** — sin tablas nuevas
 
-Total: **27 tablas**.
+**Menu emilio** — sin tablas nuevas
+
+**Stock ingredientes menu** — sin tablas nuevas
+
+**Whatsapp** — [`whatsapp_borrador`](#whatsapp_borrador), [`whatsapp_entrada`](#whatsapp_entrada), [`whatsapp_salida`](#whatsapp_salida), [`whatsapp_cambio`](#whatsapp_cambio), [`whatsapp_comprobante`](#whatsapp_comprobante)
+
+**Whatsapp estados envio** — [`whatsapp_estado_envio`](#whatsapp_estado_envio)
+
+**Whatsapp saldo transferencia** — sin tablas nuevas
+
+**Whatsapp atencion** — [`whatsapp_atencion`](#whatsapp_atencion)
+
+Total: **34 tablas**.
 
 ---
 
@@ -503,3 +515,128 @@ _===================================================================== 006 - Not
 ## 008_funciones_geo_float — Funciones geo float
 
 **Funciones:** `distancia_km`, `punto_en_zona`
+
+## 009_menu_emilio — Menu emilio
+
+## 010_stock_ingredientes_menu — Stock ingredientes menu
+
+## 011_whatsapp — Whatsapp
+
+### whatsapp_borrador
+
+_Borradores separados del pedido operativo y colas transaccionales del bot._
+
+| Columna | Tipo | Obligatoria | Notas |
+|---------|------|-------------|-------|
+| `referencia_hash` | TEXT | Sí | PK |
+| `cliente_id` | BIGINT | Sí | FK → `cliente.usuario_id` |
+| `telefono` | TEXT | Sí | — |
+| `items` | JSONB | Sí | — |
+| `tipo_entrega` | TEXT | No | valores: `RETIRO`, `DELIVERY` |
+| `metodo_pago` | TEXT | No | valores: `EFECTIVO`, `TRANSFERENCIA` |
+| `direccion` | JSONB | No | — |
+| `estado` | TEXT | Sí | valores: `BORRADOR`, `VINCULADO`, `CREADO`, `HUMANO` · default `'BORRADOR' CHECK (estado IN ('BORRADOR','VINCULADO','CREADO','HUMANO'))` |
+| `estado_pago` | TEXT | Sí | valores: `PENDIENTE`, `APROBADO`, `RECHAZADO` · default `'PENDIENTE' CHECK (estado_pago IN ('PENDIENTE','APROBADO','RECHAZADO'))` |
+| `pedido_id` | BIGINT | No | único · FK → `pedido.id` |
+| `version` | INT | Sí | default `1 CHECK (version > 0)` |
+| `propuesta` | JSONB | No | — |
+| `creado_en` | TIMESTAMPTZ | Sí | default `now()` |
+| `expira_en` | TIMESTAMPTZ | Sí | default `now() + interval '30 minutes'` |
+| `ultimo_mensaje_en` | TIMESTAMPTZ | No | — |
+
+### whatsapp_entrada
+
+| Columna | Tipo | Obligatoria | Notas |
+|---------|------|-------------|-------|
+| `id` | TEXT | Sí | PK |
+| `telefono` | TEXT | Sí | — |
+| `texto` | TEXT | Sí | — |
+| `media_id` | TEXT | No | — |
+| `referencia_hash` | TEXT | No | FK → `whatsapp_borrador.referencia_hash` |
+| `estado` | TEXT | Sí | valores: `PENDIENTE`, `PROCESADO` · default `'PENDIENTE' CHECK (estado IN ('PENDIENTE','PROCESADO'))` |
+| `respuesta` | TEXT | No | — |
+| `creado_en` | TIMESTAMPTZ | Sí | default `now()` |
+
+### whatsapp_salida
+
+| Columna | Tipo | Obligatoria | Notas |
+|---------|------|-------------|-------|
+| `id` | BIGINT | Sí | PK · autonumérico |
+| `clave` | TEXT | Sí | único |
+| `telefono` | TEXT | Sí | — |
+| `texto` | TEXT | Sí | — |
+| `estado` | TEXT | Sí | valores: `PENDIENTE`, `ENVIANDO`, `ACEPTADO`, `ENTREGADO`, `FALLIDO`, `INCIERTO`, `SIMULADO` · default `'PENDIENTE' CHECK (estado IN` |
+| `proveedor_id` | TEXT | No | único |
+| `intentos` | INT | Sí | default `0` |
+| `proximo_intento_en` | TIMESTAMPTZ | Sí | default `now()` |
+| `actualizado_en` | TIMESTAMPTZ | Sí | default `now()` |
+| `creado_en` | TIMESTAMPTZ | Sí | default `now()` |
+
+### whatsapp_cambio
+
+_Cambios propuestos, aplicados o derivados. La cocina lee pedido_item vigente._
+
+| Columna | Tipo | Obligatoria | Notas |
+|---------|------|-------------|-------|
+| `id` | BIGINT | Sí | PK · autonumérico |
+| `pedido_id` | BIGINT | Sí | FK → `pedido.id` |
+| `version` | INT | Sí | — |
+| `accion` | JSONB | Sí | — |
+| `anterior` | JSONB | Sí | — |
+| `posterior` | JSONB | No | — |
+| `estado` | TEXT | Sí | valores: `APLICADO`, `PENDIENTE_EMPLEADO`, `RECHAZADO` |
+| `revisado_por` | BIGINT | No | FK → `usuario.id` |
+| `revisado_en` | TIMESTAMPTZ | No | — |
+| `creado_en` | TIMESTAMPTZ | Sí | default `now()` |
+
+### whatsapp_comprobante
+
+| Columna | Tipo | Obligatoria | Notas |
+|---------|------|-------------|-------|
+| `id` | BIGINT | Sí | PK · autonumérico |
+| `entrada_id` | TEXT | Sí | único · FK → `whatsapp_entrada.id` |
+| `pedido_id` | BIGINT | Sí | FK → `pedido.id` |
+| `media_id` | TEXT | Sí | — |
+| `estado` | TEXT | Sí | valores: `PENDIENTE`, `APROBADO`, `RECHAZADO` · default `'PENDIENTE' CHECK (estado IN ('PENDIENTE','APROBADO','RECHAZADO'))` |
+| `revisado_por` | BIGINT | No | FK → `usuario.id` |
+| `revisado_en` | TIMESTAMPTZ | No | — |
+| `motivo` | TEXT | No | — |
+| `creado_en` | TIMESTAMPTZ | Sí | default `now()` |
+
+**Triggers:** `whatsapp_estado_trg`
+
+## 012_whatsapp_estados_envio — Whatsapp estados envio
+
+### whatsapp_estado_envio
+
+_Los callbacks pueden adelantarse a la persistencia de la respuesta HTTP de Meta._
+
+| Columna | Tipo | Obligatoria | Notas |
+|---------|------|-------------|-------|
+| `proveedor_id` | TEXT | Sí | PK |
+| `telefono` | TEXT | Sí | PK |
+| `estado` | TEXT | Sí | PK · valores: `sent`, `delivered`, `read`, `failed` |
+| `recibido_en` | TIMESTAMPTZ | Sí | default `now()` |
+
+## 013_whatsapp_saldo_transferencia — Whatsapp saldo transferencia
+
+**Triggers:** `whatsapp_saldo_transferencia_trg`
+
+## 014_whatsapp_atencion — Whatsapp atencion
+
+### whatsapp_atencion
+
+_Derivaciones a personal: visibles en la bandeja hasta que un empleado las resuelve. Una conversación tiene a lo sumo una atención pendiente; mientras exista, el bot no crea ni modifica el pedido. El mensaje que la originó y la resolución quedan registrados con el empleado responsable._
+
+| Columna | Tipo | Obligatoria | Notas |
+|---------|------|-------------|-------|
+| `id` | BIGINT | Sí | PK · autonumérico |
+| `referencia_hash` | TEXT | Sí | FK → `whatsapp_borrador.referencia_hash` |
+| `entrada_id` | TEXT | Sí | FK → `whatsapp_entrada.id` |
+| `motivo` | TEXT | Sí | valores: `SOLICITUD`, `PROVEEDOR` |
+| `estado` | TEXT | Sí | valores: `PENDIENTE`, `RESUELTA` · default `'PENDIENTE' CHECK (estado IN ('PENDIENTE','RESUELTA'))` |
+| `resolucion` | TEXT | No | — |
+| `resuelta_por` | BIGINT | No | FK → `usuario.id` |
+| `resuelta_en` | TIMESTAMPTZ | No | — |
+| `creado_en` | TIMESTAMPTZ | Sí | default `now()` |
+| `resolucion` | IS | Sí | — |

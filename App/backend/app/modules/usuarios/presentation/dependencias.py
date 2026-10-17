@@ -9,8 +9,8 @@ from fastapi import Depends, Request
 
 from app.core.config import settings
 from app.core.dependencias import UoW
-from app.core.errores import NoAutenticado, SinPermiso
 from app.core.seguridad import TokenInvalido, decodificar_token
+from app.errores import NoAutenticado, SinPermiso
 from app.modules.usuarios.application.servicio_auth import ServicioAuth
 from app.modules.usuarios.application.servicio_usuarios import ServicioUsuarios
 from app.modules.usuarios.domain.entidades import ROLES_PERSONAL_INTERNO, ClaimsSesion, Rol

@@ -8,12 +8,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import psycopg
-
 from app.core import auditoria
 from app.core.db import UnidadDeTrabajo
-from app.core.errores import NoEncontrado, ReglaDeNegocio
 from app.core.seguridad import hashear_password
+from app.errores import NoEncontrado, ReglaDeNegocio
 from app.modules.usuarios.domain.entidades import AccionesAuditoria, Rol, validar_password
 from app.modules.usuarios.infrastructure.repositorio_sql import RepositorioUsuariosSQL
 
@@ -84,20 +82,17 @@ class ServicioUsuarios:
             raise ReglaDeNegocio("Ese nombre de usuario ya existe")
 
         password_hash = hashear_password(datos.password)
-        try:
-            usuario_id = await self.repo.crear(
-                nombre=datos.nombre,
-                apellido=datos.apellido,
-                username=datos.username,
-                email=datos.email,
-                telefono=datos.telefono,
-                password_hash=password_hash,
-                rol=datos.rol,
-            )
-        except psycopg.errors.UniqueViolation as exc:
-            # Carrera entre el chequeo de arriba y el INSERT: la restriccion
-            # UNIQUE de la base es la que realmente lo garantiza.
-            raise ReglaDeNegocio("Ese nombre de usuario ya existe") from exc
+        # El repositorio traduce una carrera contra la restriccion UNIQUE al
+        # mismo ReglaDeNegocio que el chequeo previo.
+        usuario_id = await self.repo.crear(
+            nombre=datos.nombre,
+            apellido=datos.apellido,
+            username=datos.username,
+            email=datos.email,
+            telefono=datos.telefono,
+            password_hash=password_hash,
+            rol=datos.rol,
+        )
 
         await auditoria.registrar(
             self.uow,

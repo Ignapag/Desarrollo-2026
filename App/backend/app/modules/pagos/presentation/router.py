@@ -142,7 +142,8 @@ async def estado_financiero_pedido(
     _sesion: Sesion,
     servicio: ServicioPagosDep,
 ) -> EstadoFinancieroPedidoSalida:
-    """Retorna el balance de pagos, saldo pendiente, detalle de pagos y si el pedido está saldado."""
+    """Retorna el balance de pagos, saldo pendiente, detalle de pagos y si el pedido \
+está saldado."""
     estado = await servicio.obtener_estado_financiero(pedido_id)
     return EstadoFinancieroPedidoSalida.desde_dominio(estado)
 

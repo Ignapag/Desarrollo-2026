@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -51,6 +51,19 @@ class Settings(BaseSettings):
     mp_webhook_secret: str | None = None
     mp_url_notificacion: str = "https://api.monuburger.local/api/pagos/webhook/mercadopago"
     mp_url_retorno: str = "http://localhost:5173/pago/resultado"
+
+    # WhatsApp: sin credenciales el canal solo admite la demostración local.
+    whatsapp_modo: Literal["simulado", "real"] = "simulado"
+    whatsapp_numero_negocio: str = ""
+    whatsapp_phone_number_id: str = ""
+    whatsapp_token: str = ""
+    whatsapp_app_secret: str = ""
+    whatsapp_verify_token: str = ""
+    whatsapp_graph_version: str = "v26.0"
+    whatsapp_transferencia_datos: str = ""
+    gemini_api_key: str = ""
+    gemini_modelo: str = "gemini-3.1-flash-lite"
+    gemini_modo: Literal["simulado", "real"] = "simulado"
 
     @field_validator("debug", mode="before")
     @classmethod

@@ -9,7 +9,6 @@ from uuid import uuid4
 import pytest
 
 from app.modules.reportes.infrastructure.repositorio_sql import RepositorioReportesSQL
-from tests.test_delivery_bd import uow as uow  # fixture transaccional del proyecto
 
 
 async def escenario(unidad):

@@ -8,6 +8,11 @@ from decimal import Decimal
 UNIDADES = frozenset({"KG", "GR", "LT", "ML", "UNIDAD"})
 NIVELES = frozenset({"NORMAL", "BAJO_UMBRAL", "SIN_STOCK"})
 TIPOS_MOVIMIENTO = frozenset({"CONSUMO", "REPOSICION", "AJUSTE", "DEVOLUCION", "MERMA"})
+INGREDIENTES_QUITABLES = frozenset({
+    "tomate", "lechuga", "cebolla cruda", "cebolla en cubos", "cebolla caramelizada",
+    "cebolla crispy", "pepinillos", "panceta", "bacon en cubos", "queso cheddar",
+    "mayonesa", "ketchup", "mostaza", "barbacoa", "alioli", "salsa monu", "rucula",
+})
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +32,18 @@ class ItemConsumoStock:
     producto_id: int
     cantidad: int
     opciones: tuple[object, ...] = ()
+    ingredientes_omitidos: tuple[str, ...] = ()
+
+
+def ingredientes_omitidos_de_aclaraciones(aclaraciones: str | None) -> tuple[str, ...]:
+    """Interpreta solo listas completas de retiros conocidos, sin texto libre."""
+    if not aclaraciones:
+        return ()
+    notas = [nota.strip().casefold() for nota in aclaraciones.split(",")]
+    if any(not nota.startswith("sin ") or nota[4:] not in INGREDIENTES_QUITABLES
+           for nota in notas):
+        return ()
+    return tuple(nota[4:] for nota in notas)
 
 
 def validar_ingrediente(datos: DatosIngrediente) -> DatosIngrediente:

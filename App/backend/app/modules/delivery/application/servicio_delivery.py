@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 from app.core import auditoria
 from app.core.db import UnidadDeTrabajo
-from app.core.errores import NoEncontrado, ReglaDeNegocio
+from app.errores import NoEncontrado, ReglaDeNegocio
 from app.modules.delivery.domain.entidades import (
     AsignacionPropuesta,
     EstadoEnvio,

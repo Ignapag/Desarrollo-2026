@@ -6,7 +6,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.core.errores import DatosInvalidos, NoEncontrado, ReglaDeNegocio
+from app.errores import DatosInvalidos, NoEncontrado, ReglaDeNegocio
 from app.modules.stock.application.servicio_stock import (
     PedidoYaProcesado,
     ServicioStock,
@@ -176,3 +176,35 @@ async def test_valida_entradas_y_existencia(consumo):
     repo.productos[3] = []
     with pytest.raises(ReglaDeNegocio, match="sin receta"):
         await servicio.procesar_consumo(7, [ItemConsumoStock(3, 1)])
+
+
+@pytest.mark.asyncio
+async def test_omite_ingrediente_solo_en_la_linea_personalizada(consumo):
+    servicio, repo = consumo
+    repo.productos[1].append((30, "1"))
+    repo.nombres[30] = "Tomate"
+    movimientos = await servicio.procesar_consumo(7, [
+        ItemConsumoStock(1, 2, ingredientes_omitidos=("tomate",)),
+        ItemConsumoStock(1, 1),
+    ])
+    assert {m["ingrediente_id"]: m["cantidad"] for m in movimientos} == {10: 3, 20: 6, 30: 1}
+
+
+@pytest.mark.asyncio
+async def test_ingrediente_omitido_sin_stock_no_bloquea_consumo(consumo):
+    servicio, repo = consumo
+    repo.productos[1].append((30, "1"))
+    repo.nombres[30] = "Tomate"
+    repo.saldos[30] = Decimal("0")
+    movimientos = await servicio.procesar_consumo(
+        7, [ItemConsumoStock(1, 1, ingredientes_omitidos=("tomate",))])
+    assert [m["ingrediente_id"] for m in movimientos] == [10, 20]
+
+
+@pytest.mark.asyncio
+async def test_no_permite_omitir_ingredientes_estructurales(consumo):
+    servicio, repo = consumo
+    with pytest.raises(ReglaDeNegocio):
+        await servicio.procesar_consumo(
+            7, [ItemConsumoStock(1, 1, ingredientes_omitidos=("carne",))])
+    assert repo.movimientos == []

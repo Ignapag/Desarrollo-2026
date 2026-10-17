@@ -134,7 +134,9 @@ class RepositorioPagosSQL:
         usuario_id: int | None = None,
         observacion: str | None = None,
     ) -> None:
-        """Cambia el estado del pedido y registra el historial en pedido_estado_historial (RF-01)."""
+        """Cambia el estado del pedido y registra el historial en pedido_estado_historial
+        (RF-01).
+        """
         anterior = await self.uow.valor("SELECT estado FROM pedido WHERE id = %s", (pedido_id,))
 
         if estado == "CONFIRMADO":
