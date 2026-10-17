@@ -37,6 +37,19 @@ class RepositorioPagosSQL:
     def __init__(self, uow: UnidadDeTrabajo) -> None:
         self.uow = uow
 
+    async def pedido_pertenece_a_usuario(self, pedido_id: int, usuario_id: int) -> bool:
+        """Relaciona la identidad comercial del pedido con su cuenta, si la tiene."""
+        return bool(await self.uow.valor(
+            """
+            SELECT EXISTS (
+                SELECT 1 FROM pedido p
+                JOIN cliente c ON c.id = p.cliente_id
+                WHERE p.id = %s AND c.usuario_id = %s
+            )
+            """,
+            (pedido_id, usuario_id),
+        ))
+
     async def obtener_pedido(self, pedido_id: int) -> dict | None:
         """Obtiene datos esenciales del pedido para lectura (sin bloqueo)."""
         sql = """

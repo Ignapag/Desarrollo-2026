@@ -72,7 +72,7 @@ async def datos_iniciales() -> tuple[int, int, dict, tuple[str, str]]:
             "Aplicá las migraciones locales, incluida 012, antes de la demo.",
         )
         cliente_id = await uow.valor(
-            "SELECT c.usuario_id FROM cliente c JOIN usuario u ON u.id=c.usuario_id "
+            "SELECT c.id FROM cliente c JOIN usuario u ON u.id=c.usuario_id "
             "WHERE u.estado='ACTIVO' AND u.rol='CLIENTE' ORDER BY c.usuario_id LIMIT 1"
         )
         empleado_id = await uow.valor(

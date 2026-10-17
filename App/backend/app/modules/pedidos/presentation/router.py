@@ -1,6 +1,8 @@
 """Endpoints para crear, consultar y avanzar pedidos."""
 
-from fastapi import APIRouter, status
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, status
 
 from app.errores import DatosInvalidos
 from app.modules.pedidos.application.servicio_pedidos import ItemNuevoPedido
@@ -10,17 +12,28 @@ from app.modules.pedidos.presentation.esquemas import (
     PedidoCrear,
     PedidoSalida,
 )
-from app.modules.usuarios.domain.entidades import Rol
-from app.modules.usuarios.presentation.dependencias import PersonalInterno, Sesion
+from app.modules.usuarios.domain.entidades import ClaimsSesion, Rol
+from app.modules.usuarios.presentation.dependencias import Sesion, requiere_rol
 
 router = APIRouter(prefix="/api/pedidos", tags=["pedidos"])
+SesionPedidos = Annotated[
+    ClaimsSesion,
+    Depends(requiere_rol(Rol.ADMINISTRADOR, Rol.DUENIO, Rol.EMPLEADO, Rol.CLIENTE)),
+]
+GestionPedidos = Annotated[
+    ClaimsSesion,
+    Depends(requiere_rol(Rol.ADMINISTRADOR, Rol.DUENIO, Rol.EMPLEADO)),
+]
 
 
 @router.post("", response_model=PedidoSalida, status_code=status.HTTP_201_CREATED)
 async def crear_pedido(
-    datos: PedidoCrear, sesion: Sesion, servicio: ServicioPedidosDep
+    datos: PedidoCrear, sesion: SesionPedidos, servicio: ServicioPedidosDep
 ) -> PedidoSalida:
-    cliente_id = sesion.usuario_id if sesion.rol == Rol.CLIENTE else datos.cliente_id
+    cliente_id = (
+        await servicio.cliente_para_usuario(sesion.usuario_id)
+        if sesion.rol == Rol.CLIENTE else datos.cliente_id
+    )
     if cliente_id is None:
         raise DatosInvalidos("El personal interno debe indicar cliente_id")
     fila = await servicio.crear(
@@ -38,15 +51,20 @@ async def crear_pedido(
 
 @router.get("", response_model=list[PedidoSalida])
 async def listar_pedidos(sesion: Sesion, servicio: ServicioPedidosDep) -> list[PedidoSalida]:
-    cliente_id = sesion.usuario_id if sesion.rol == Rol.CLIENTE else None
-    return [PedidoSalida(**fila) for fila in await servicio.listar(cliente_id=cliente_id)]
+    cliente_id = (
+        await servicio.cliente_para_usuario(sesion.usuario_id)
+        if sesion.rol == Rol.CLIENTE else None
+    )
+    repartidor_id = sesion.usuario_id if sesion.rol == Rol.REPARTIDOR else None
+    filas = await servicio.listar(cliente_id=cliente_id, repartidor_id=repartidor_id)
+    return [PedidoSalida(**fila) for fila in filas]
 
 
 @router.patch("/{pedido_id}/estado", response_model=PedidoSalida)
 async def cambiar_estado(
     pedido_id: int,
     datos: CambiarEstadoEntrada,
-    sesion: PersonalInterno,
+    sesion: GestionPedidos,
     servicio: ServicioPedidosDep,
 ) -> PedidoSalida:
     fila = await servicio.cambiar_estado(

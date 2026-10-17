@@ -39,10 +39,10 @@ async def crear_cliente(uow: UnidadDeTrabajo, sufijo: str) -> int:
         """,
         (sufijo, f"cli_prueba_{sufijo}"),
     )
-    cliente_id = fila["id"]
-    await uow.ejecutar(
-        "INSERT INTO cliente (usuario_id, telefono_whatsapp) VALUES (%s, '5492210000000')",
-        (cliente_id,),
+    cliente_id = await uow.valor(
+        "INSERT INTO cliente (usuario_id, telefono_whatsapp) "
+        "VALUES (%s, '5492210000000') RETURNING id",
+        (fila["id"],),
     )
     return cliente_id
 

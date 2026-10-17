@@ -120,15 +120,17 @@ permite inspeccionar las operaciones internas.
 
 Recorrido manual:
 
-1. Iniciar sesión de cliente, agregar La Típica Doble al carrito y elegir
-   **WhatsApp**, entrega, pago y teléfono ficticio. **Preparar mensaje de
+1. Abrir `/` o `/menu` sin sesión, agregar La Típica Doble al carrito y elegir
+   entrega y pago. No se pide nombre, teléfono ni credenciales. **Preparar mensaje de
    WhatsApp** guarda un borrador; conserva el carrito y permite copiar el
    mensaje. En simulación sin número de negocio no se abre un chat conectado.
+   Para una recompra idéntica, **Preparar otro pedido igual** genera otra
+   referencia; reenviar el mensaje anterior conserva el pedido original.
 2. En una sesión independiente de empleado o administrador, usar `/docs` y
    `POST /api/auth/login` con credenciales del seed. Las llamadas posteriores
    usan la cookie HttpOnly; no copiarla ni exponerla en la consola.
 3. Enviar el mensaje copiado a `POST /api/whatsapp/simular` con un ID nuevo y el
-   mismo teléfono del borrador. Ejecutar el worker. Un ID ya recibido es
+   teléfono ficticio que representará al remitente. Ejecutar el worker. Un ID ya recibido es
    idempotente; un mensaje distinto debe tener otro ID.
 4. Repetir `/simular` con `sin tomate`, `cantidad: 2` y `confirmar`, ejecutando el
    worker entre mensajes. Si hay varios productos, el bot conserva la solicitud
@@ -169,7 +171,7 @@ Los contratos y permisos efectivos están en
 
 | Endpoint | Acceso y comportamiento |
 | --- | --- |
-| `POST /api/whatsapp/borradores` | Solo cliente autenticado; `201`. Acepta teléfono, items, modalidad, pago y dirección opcionales. Rechaza precios y campos extra. Devuelve referencia, mensaje, vencimiento y enlace si hay número configurado. No crea el pedido operativo. |
+| `POST /api/whatsapp/borradores` | Público, sin sesión; `201`. Acepta items y, opcionalmente, modalidad, pago y dirección nueva. Rechaza teléfono, cliente_id, precios y campos extra. Devuelve referencia, mensaje, vencimiento y enlace si hay número configurado. No crea cliente ni pedido operativo. |
 | `POST /api/whatsapp/simular` | Empleado, administrador o dueño; solo entorno no productivo con WhatsApp simulado. `202`, guarda una entrada con `id`, `telefono`, `texto` y `media_id` opcional. |
 | `GET /api/whatsapp/bandeja` | Empleado, administrador o dueño. Devuelve `comprobantes` con total vigente, `cambios` pendientes, `atenciones` pendientes y `salidas`. Cada atención incluye `id`, `motivo` (`SOLICITUD` o `PROVEEDOR`), `telefono`, `cliente`, `pedido_id`/`numero`/`estado_pedido`/`total` (nulos sin pedido), `tipo_entrega`, `metodo_pago`, `borrador_vencido`, `productos`, `mensaje` que la originó, hasta cinco `mensajes` recientes y sus `respuestas` con el estado de la outbox. Las referencias `MB-` se reemplazan por `[referencia]`. |
 | `POST /api/whatsapp/atenciones/{id}/respuesta` | Mismos roles internos. Cuerpo `texto` (1 a 1000 caracteres) y `solicitud_id` (UUID). `202`: crea una salida en `whatsapp_salida` con `atencion_id` y `enviado_por`; devuelve `id`, `atencion_id` y `estado` (`PENDIENTE`). No significa enviado. Repetir el mismo `solicitud_id` devuelve la misma salida; una atención resuelta responde `409`. |
@@ -181,10 +183,52 @@ Los contratos y permisos efectivos están en
 | `POST /api/whatsapp/webhook` | Público con firma `X-Hub-Signature-256` válida sobre los bytes originales, límite de 256 KiB y coincidencia del phone-number-ID configurado. Persiste entradas y callbacks; el worker procesa después. |
 
 Un repartidor o cliente no puede revisar comprobantes, simular mensajes,
-consultar la bandeja interna, responder ni resolver atenciones. La identidad de
-cliente del borrador proviene de la sesión del backend. Para continuar una
-conversación se requiere su referencia y el teléfono declarado. Con un único
-pedido activo alcanza el teléfono; con varios, cada mensaje que consulte o
+consultar la bandeja interna, responder ni resolver atenciones. El checkout público
+ofrece WhatsApp con efectivo o transferencia; Mercado Pago ya no se ofrece en
+ese carrito. Las operaciones internas conservan sus guardas de sesión y rol.
+
+### Identidad comercial y vinculación
+
+La migración `015_clientes_sin_cuenta.sql` separa `cliente.id` de su vínculo
+opcional `usuario_id`. Conserva los IDs de clientes existentes y las referencias
+de pedidos, direcciones, notificaciones y borradores; copia nombre y estado del
+usuario, sin modificar sus credenciales. Los clientes nuevos de WhatsApp no
+tienen usuario ni contraseña. Sus pedidos aparecen en los listados internos,
+reparto y atenciones del bot con su identificación comercial.
+
+El borrador público nace con `cliente_id` y `telefono` nulos. Su referencia aleatoria
+de 256 bits es secreta y solo se guarda su hash. Al procesar el primer mensaje
+con esa referencia vigente, el worker reclama el borrador para el `from` recibido
+por el webhook firmado de Meta. Usa el nombre de perfil del contacto cuyo
+`wa_id` coincide, si viene disponible; en su ausencia identifica por WhatsApp y
+número. No es necesario volver a pedir esos datos en la web.
+
+El bloqueo transaccional del teléfono y de la fila del borrador serializa reclamos
+concurrentes. Una referencia reclamada queda limitada a ese remitente. El campo
+único `cliente.whatsapp_verificado` permite recomprar desde el mismo WhatsApp;
+el teléfono histórico declarado no se copia a ese campo ni fusiona identidades.
+Los historiales anteriores se conservan asociados a sus clientes: no se unen
+automáticamente con un nuevo cliente sin cuenta por coincidir el número.
+Los borradores antiguos ya vinculados conservan la validación de referencia y
+teléfono existente. El método interno de creación conserva esa compatibilidad;
+el endpoint público siempre crea un borrador anónimo.
+
+No hay consulta pública de borradores, pedidos ni historial por teléfono. La web
+autenticada filtra los pedidos de cuentas anteriores mediante `usuario_id → cliente.id`;
+el seguimiento y las modificaciones de compras sin cuenta se hacen por WhatsApp.
+Las consultas financieras y el inicio de cobro verifican titularidad para clientes
+autenticados; el repartidor usa sus rutas de reparto y no el historial global.
+
+Para desplegar, coordinar la aplicación de la migración 015 en la base destino
+sin ejecutar el seed de desarrollo. Actualizar API y workers juntos antes de
+publicar el frontend público: un worker anterior presupone que todo cliente tiene
+usuario y no es compatible con nuevos borradores anónimos. Conservar las variables
+y credenciales actuales de Meta/Gemini, el webhook firmado y las adaptaciones de
+destinatarios de prueba. El cambio de código no demuestra un despliegue: después
+corresponde comprobar compra, recompra y mensajes repetidos con WhatsApp real.
+
+Para continuar una conversación se valida el remitente firmado. Con un único
+pedido activo alcanza ese remitente; con varios, cada mensaje que consulte o
 modifique un pedido debe incluir su referencia `MB-`, por ejemplo
 `sin tomate MB-…` o `confirmar MB-…`. El bot nunca elige entre pedidos. Dos
 referencias distintas o un token `MB-` mal formado no seleccionan ninguno. Los
@@ -487,6 +531,7 @@ Con `DATABASE_URL` configurada hacia la base descartable, desde `App/backend`:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests/test_whatsapp_proveedores.py tests/test_whatsapp_cola.py tests/test_whatsapp_bd.py tests/test_whatsapp_regresiones.py tests/test_whatsapp_http.py tests/test_whatsapp_concurrencia.py tests/test_pedidos_whatsapp.py tests/test_stock_devoluciones.py tests/test_stock_cambios_cantidad.py tests/test_arquitectura.py -q -rs
+.\.venv\Scripts\python.exe -m pytest tests/test_compra_publica.py tests/test_clientes_identidad.py tests/test_pagos_privacidad.py -q -rs
 .\.venv\Scripts\python.exe -m scripts.whatsapp_demo
 ```
 

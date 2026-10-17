@@ -16,12 +16,22 @@ class RepositorioPedidosSQL:
                 """
                 SELECT EXISTS (
                     SELECT 1 FROM cliente c
-                    JOIN usuario u ON u.id = c.usuario_id
-                    WHERE c.usuario_id = %s AND u.estado = 'ACTIVO'
+                    LEFT JOIN usuario u ON u.id = c.usuario_id
+                    WHERE c.id = %s AND c.estado = 'ACTIVO'
+                      AND (c.usuario_id IS NULL OR u.estado = 'ACTIVO')
                 )
                 """,
                 (cliente_id,),
             )
+        )
+
+    async def cliente_para_usuario(self, usuario_id: int) -> int | None:
+        return await self.uow.valor(
+            """
+            SELECT c.id FROM cliente c JOIN usuario u ON u.id = c.usuario_id
+            WHERE c.usuario_id = %s AND c.estado = 'ACTIVO' AND u.estado = 'ACTIVO'
+            """,
+            (usuario_id,),
         )
 
     async def direccion_valida(self, cliente_id: int, direccion_id: int) -> bool:
@@ -128,20 +138,29 @@ class RepositorioPedidosSQL:
         )
         return await self.detalle(pedido_id)
 
-    async def listar(self, *, cliente_id: int | None) -> list[dict]:
+    async def listar(
+        self, *, cliente_id: int | None, repartidor_id: int | None = None
+    ) -> list[dict]:
         pedidos = await self.uow.todos(
             """
             SELECT p.id, p.numero, p.cliente_id,
-                   u.nombre || ' ' || u.apellido AS cliente,
+                   COALESCE(NULLIF(concat_ws(' ', u.nombre, u.apellido), ''), c.nombre) AS cliente,
                    p.tipo_entrega, p.direccion_id, p.estado, p.subtotal,
                    p.costo_envio, p.total, p.observaciones, p.creado_en
             FROM pedido p
-            JOIN usuario u ON u.id = p.cliente_id
+            JOIN cliente c ON c.id = p.cliente_id
+            LEFT JOIN usuario u ON u.id = c.usuario_id
             WHERE (%s::bigint IS NULL OR p.cliente_id = %s)
+              AND (%s::bigint IS NULL OR EXISTS (
+                  SELECT 1 FROM envio e JOIN viaje v ON v.id = e.viaje_id
+                  WHERE e.pedido_id = p.id AND v.repartidor_id = %s
+                    AND v.estado IN ('PLANIFICADO', 'EN_RUTA')
+                    AND e.estado IN ('ASIGNADO', 'EN_CAMINO')
+              ))
             ORDER BY p.creado_en DESC, p.id DESC
             LIMIT 200
             """,
-            (cliente_id, cliente_id),
+            (cliente_id, cliente_id, repartidor_id, repartidor_id),
         )
         for pedido in pedidos:
             pedido["items"] = await self._items(pedido["id"])
@@ -151,11 +170,12 @@ class RepositorioPedidosSQL:
         pedido = await self.uow.uno(
             """
             SELECT p.id, p.numero, p.cliente_id,
-                   u.nombre || ' ' || u.apellido AS cliente,
+                   COALESCE(NULLIF(concat_ws(' ', u.nombre, u.apellido), ''), c.nombre) AS cliente,
                    p.tipo_entrega, p.direccion_id, p.estado, p.subtotal,
                    p.costo_envio, p.total, p.observaciones, p.creado_en
             FROM pedido p
-            JOIN usuario u ON u.id = p.cliente_id
+            JOIN cliente c ON c.id = p.cliente_id
+            LEFT JOIN usuario u ON u.id = c.usuario_id
             WHERE p.id = %s
             """,
             (pedido_id,),

@@ -11,7 +11,7 @@ from app.core.db import UnidadDeTrabajo, conexion
 from app.core.dependencias import UoW
 from app.errores import DatosInvalidos, NoEncontrado, SinPermiso
 from app.modules.usuarios.domain.entidades import ClaimsSesion, Rol
-from app.modules.usuarios.presentation.dependencias import SoloCliente, requiere_rol
+from app.modules.usuarios.presentation.dependencias import requiere_rol
 from app.modules.whatsapp.infrastructure.cola import ColaWhatsAppSQL
 from app.modules.whatsapp.infrastructure.proveedores import validar_firma
 from app.modules.whatsapp.presentation.dependencias import (
@@ -34,8 +34,8 @@ Empleado = Annotated[
 
 
 @router.post("/borradores", status_code=201)
-async def crear_borrador(datos: BorradorEntrada, sesion: SoloCliente, servicio: ServicioBotDep):
-    return await servicio.crear_borrador(sesion.usuario_id, datos.model_dump())
+async def crear_borrador(datos: BorradorEntrada, servicio: ServicioBotDep):
+    return await servicio.crear_borrador(None, datos.model_dump())
 
 
 @router.post("/simular", status_code=202)
@@ -168,6 +168,10 @@ async def webhook(request: Request):
             uow = UnidadDeTrabajo(conn)
             servicio = construir_servicio(uow)
             for valor in eventos:
+                nombres = {
+                    contacto["wa_id"]: contacto.get("profile", {}).get("name")
+                    for contacto in valor.get("contacts", []) if contacto.get("wa_id")
+                }
                 for m in valor.get("messages", []):
                     tipo = m.get("type")
                     media = m.get(tipo, {}).get("id") if tipo in {"image", "document"} else None
@@ -178,7 +182,10 @@ async def webhook(request: Request):
                         texto = m[tipo].get("caption", "")
                     else:
                         texto = "atención humana"
-                    await servicio.recibir(m["id"], m["from"], texto, media)
+                    await servicio.recibir(
+                        m["id"], m["from"], texto, media,
+                        nombre_remitente=nombres.get(m["from"]),
+                    )
                 for estado in valor.get("statuses", []):
                     await ColaWhatsAppSQL(uow).estado_proveedor(
                         estado["id"], estado.get("recipient_id", ""), estado["status"]

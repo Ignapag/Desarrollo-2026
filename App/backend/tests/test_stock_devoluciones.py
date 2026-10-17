@@ -112,7 +112,8 @@ async def devolucion_sql(uow):
     servicio = ServicioStock(repo)
     await servicio.procesar_consumo(pedido_id, [ItemConsumoStock(producto_id, 4)])
     await uow.ejecutar("UPDATE pedido SET estado = 'CONFIRMADO' WHERE id = %s", (pedido_id,))
-    return servicio, repo, pedido_id, item_id, ingrediente_id, cliente_id
+    usuario_id = await uow.valor("SELECT usuario_id FROM cliente WHERE id=%s", (cliente_id,))
+    return servicio, repo, pedido_id, item_id, ingrediente_id, usuario_id
 
 
 @pytest.mark.asyncio

@@ -20,7 +20,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from scripts.diccionario import RAIZ_REPO, Tabla, parsear
+from scripts.diccionario import RAIZ_REPO, Tabla, parsear_esquema
 from scripts.migrate import DIR_MIGRACIONES
 
 SALIDA_POR_DEFECTO = RAIZ_REPO / "docs" / "DER.md"
@@ -72,9 +72,10 @@ def generar() -> str:
     archivos = sorted(DIR_MIGRACIONES.glob("*.sql"))
     por_archivo: dict[str, list[Tabla]] = {}
     todas: list[Tabla] = []
+    esquema = parsear_esquema(archivos)
 
     for archivo in archivos:
-        tablas = parsear(archivo)
+        tablas = [tabla for tabla in esquema if tabla.archivo == archivo.stem]
         if tablas:
             por_archivo[archivo.stem] = tablas
             todas.extend(tablas)

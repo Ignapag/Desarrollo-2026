@@ -121,13 +121,14 @@ class RepositorioDeliverySQL:
                    d.calle, d.numero AS altura, d.piso_depto, d.referencia,
                    z.nombre AS zona_nombre,
                    c.telefono_whatsapp AS telefono_cliente,
-                   u.nombre || ' ' || u.apellido AS cliente_nombre
+                   COALESCE(NULLIF(concat_ws(' ', u.nombre, u.apellido), ''), c.nombre)
+                       AS cliente_nombre
             FROM envio e
             JOIN pedido p ON p.id = e.pedido_id
             LEFT JOIN direccion d ON d.id = p.direccion_id
             LEFT JOIN zona_cobertura z ON z.id = e.zona_id
-            JOIN cliente c ON c.usuario_id = p.cliente_id
-            JOIN usuario u ON u.id = c.usuario_id
+            JOIN cliente c ON c.id = p.cliente_id
+            LEFT JOIN usuario u ON u.id = c.usuario_id
             WHERE e.viaje_id = %s
             ORDER BY e.orden_en_viaje
             """,

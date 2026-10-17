@@ -18,8 +18,9 @@ async def escenario(unidad):
         "VALUES ('Reporte', 'Prueba', %s, 'x', 'CLIENTE') RETURNING id",
         (f"reportes_{sufijo}",),
     )
-    await unidad.ejecutar(
-        "INSERT INTO cliente (usuario_id, telefono_whatsapp) VALUES (%s, '5492210000000')",
+    cliente_id = await unidad.valor(
+        "INSERT INTO cliente (usuario_id, telefono_whatsapp) "
+        "VALUES (%s, '5492210000000') RETURNING id",
         (usuario_id,),
     )
     categorias = []
@@ -46,7 +47,7 @@ async def escenario(unidad):
         "(producto_id, ingrediente_id, cantidad_requerida) VALUES (%s, %s, 1)",
         (productos[0], ingrediente_id),
     )
-    return usuario_id, categorias, productos
+    return cliente_id, categorias, productos
 
 
 async def pedido_con_item(unidad, cliente_id, producto_id, estado, fecha, *, cantidad=1):

@@ -48,7 +48,7 @@ async def item_con_tomate(uow, cantidad=1):
 
 
 async def cliente(uow):
-    return await uow.valor("SELECT usuario_id FROM cliente ORDER BY usuario_id LIMIT 1")
+    return await uow.valor("SELECT id FROM cliente ORDER BY id LIMIT 1")
 
 
 async def empleado(uow):

@@ -15,7 +15,7 @@ async def pedido_borrador(uow, b):
 
 
 async def datos_prueba(uow):
-    cliente = await uow.valor("SELECT usuario_id FROM cliente ORDER BY usuario_id LIMIT 1")
+    cliente = await uow.valor("SELECT id FROM cliente ORDER BY id LIMIT 1")
     producto = await uow.uno(
         "SELECT id, variantes FROM producto WHERE activo AND nombre ILIKE '%MONU%' "
         "ORDER BY id LIMIT 1"

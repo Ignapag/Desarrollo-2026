@@ -20,7 +20,8 @@ async def cambio(uow):
                        (ingredientes[0],))
     pedido, item = await crear_pedido(uow, cliente, producto)
     await uow.ejecutar("UPDATE pedido_item SET cantidad = 2, subtotal = 200 WHERE id = %s", (item,))
-    return ServicioStock(RepositorioStockSQL(uow)), pedido, item, producto, ingredientes, cliente
+    usuario_id = await uow.valor("SELECT usuario_id FROM cliente WHERE id=%s", (cliente,))
+    return ServicioStock(RepositorioStockSQL(uow)), pedido, item, producto, ingredientes, usuario_id
 
 
 async def consumir(uow, cambio, estado="CONFIRMADO", omitidos=()):

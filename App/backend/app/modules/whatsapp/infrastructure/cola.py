@@ -110,11 +110,13 @@ class ColaWhatsAppSQL:
             b.telefono,b.estado estado_conversacion,b.tipo_entrega,b.metodo_pago,b.items,
             b.pedido_id,(b.pedido_id IS NULL AND b.expira_en<=now()) borrador_vencido,
             p.numero,p.estado estado_pedido,p.total,
-            concat_ws(' ',u.nombre,u.apellido) cliente,e.texto mensaje
+            COALESCE(NULLIF(concat_ws(' ',u.nombre,u.apellido), ''), c.nombre) cliente,
+            e.texto mensaje
             FROM whatsapp_atencion a
             JOIN whatsapp_borrador b ON b.referencia_hash=a.referencia_hash
             JOIN whatsapp_entrada e ON e.id=a.entrada_id
-            JOIN usuario u ON u.id=b.cliente_id
+            LEFT JOIN cliente c ON c.id=b.cliente_id
+            LEFT JOIN usuario u ON u.id=c.usuario_id
             LEFT JOIN pedido p ON p.id=b.pedido_id
             WHERE a.estado='PENDIENTE' ORDER BY a.creado_en LIMIT 100"""
         )

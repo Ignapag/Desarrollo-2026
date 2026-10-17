@@ -39,8 +39,8 @@ INSERT INTO repartidor (usuario_id, estado, vehiculo, ultima_lat, ultima_lng)
 SELECT id, 'DISPONIBLE', 'Moto', -34.865000, -57.920000 FROM usuario WHERE username = 'ldelivery'
 ON CONFLICT (usuario_id) DO NOTHING;
 
-INSERT INTO cliente (usuario_id, telefono_whatsapp)
-SELECT id, '5492213333333' FROM usuario WHERE username = 'acliente'
+INSERT INTO cliente (usuario_id, nombre, telefono_whatsapp)
+SELECT id, nombre || ' ' || apellido, '5492213333333' FROM usuario WHERE username = 'acliente'
 ON CONFLICT (usuario_id) DO NOTHING;
 
 -- ------------------------- Zonas de cobertura -------------------------

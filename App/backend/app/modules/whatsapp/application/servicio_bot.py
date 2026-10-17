@@ -29,9 +29,13 @@ from app.modules.whatsapp.domain.mensajes import (
 
 class RepositorioBot(Protocol):
     async def crear_borrador(self, referencia_hash, cliente_id, datos) -> dict: ...
-    async def recibir(self, identificador, telefono, texto, media_id) -> None: ...
+    async def recibir(
+        self, identificador, telefono, texto, media_id, nombre_remitente=None
+    ) -> None: ...
     async def entrada(self, identificador, bloquear=False) -> dict | None: ...
-    async def conversacion(self, telefono, referencia_hash=None, bloquear=False) -> dict | None: ...
+    async def conversacion(
+        self, telefono, referencia_hash=None, bloquear=False, nombre_remitente=None
+    ) -> dict | None: ...
     async def finalizar(self, entrada, b, respuesta) -> None: ...
     async def pedido(self, pedido_id) -> dict: ...
     async def ingredientes(self, producto_id) -> list[dict]: ...
@@ -67,7 +71,7 @@ EN_ATENCION = (
     "cambios automáticos; te responderá por este chat."
 )
 SIN_CONVERSACION = (
-    "Enviá la referencia MB- del borrador desde el teléfono indicado en la web. "
+    "Enviá la referencia MB- del borrador desde el WhatsApp con el que hiciste el pedido. "
     "Si tenés más de un pedido activo, incluí en el mismo mensaje la referencia "
     "del pedido que querés consultar o modificar."
 )
@@ -93,11 +97,14 @@ class ServicioBot:
         self.transferencia = transferencia
         self.stock = stock
 
-    async def crear_borrador(self, cliente_id: int, datos: dict) -> dict:
-        if not re.fullmatch(r"[0-9]{11,15}", datos.get("telefono", "")):
-            raise DatosInvalidos("Usá teléfono internacional, solo 11 a 15 dígitos")
-        if not await self.pedidos.repo.cliente_valido(cliente_id):
-            raise DatosInvalidos("El cliente no existe o está inactivo")
+    async def crear_borrador(self, cliente_id: int | None, datos: dict) -> dict:
+        # El endpoint público nunca acepta identidad ni teléfono declarados. Los
+        # borradores internos anteriores conservan su asociación autenticada.
+        if cliente_id is not None:
+            if not re.fullmatch(r"[0-9]{11,15}", datos.get("telefono", "")):
+                raise DatosInvalidos("Usá teléfono internacional, solo 11 a 15 dígitos")
+            if not await self.pedidos.repo.cliente_valido(cliente_id):
+                raise DatosInvalidos("El cliente no existe o está inactivo")
         items = datos.get("items", [])
         if not isinstance(items, list) or not 1 <= len(items) <= 50:
             raise DatosInvalidos("El borrador requiere entre 1 y 50 productos")
@@ -172,13 +179,15 @@ class ServicioBot:
         item["aclaraciones"] = ", ".join(dict.fromkeys(canonicas))
 
     async def recibir(
-        self, identificador: str, telefono: str, texto: str, media_id: str | None = None
+        self, identificador: str, telefono: str, texto: str, media_id: str | None = None,
+        nombre_remitente: str | None = None,
     ):
         if not identificador or len(identificador) > 200 or len(texto) > 4096:
             raise DatosInvalidos("Mensaje inválido o demasiado largo")
         if not re.fullmatch(r"[0-9]{11,15}", telefono):
             raise DatosInvalidos("Remitente inválido")
-        await self.repo.recibir(identificador, telefono, texto, media_id)
+        nombre = nombre_remitente.strip()[:120] if nombre_remitente else None
+        await self.repo.recibir(identificador, telefono, texto, media_id, nombre or None)
 
     async def preparar(self, identificador: str) -> dict | None:
         """Etapa previa a la interpretación, en una transacción breve: texto, contexto y vínculo.
@@ -214,7 +223,8 @@ class ServicioBot:
             return None, SIN_CONVERSACION
         ref = referencias.pop() if referencias else None
         b = await self.repo.conversacion(
-            entrada["telefono"], hash_referencia(ref) if ref else None, bloquear=bloquear
+            entrada["telefono"], hash_referencia(ref) if ref else None, bloquear=bloquear,
+            nombre_remitente=entrada.get("nombre_remitente"),
         )
         return b, None if b else SIN_CONVERSACION
 

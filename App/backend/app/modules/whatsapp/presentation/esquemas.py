@@ -11,7 +11,6 @@ from app.modules.pedidos.presentation.esquemas import DireccionPedidoEntrada, It
 
 class BorradorEntrada(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    telefono: str = Field(pattern=r"^[0-9]{11,15}$")
     tipo_entrega: Literal["RETIRO", "DELIVERY"] | None = None
     metodo_pago: Literal["EFECTIVO", "TRANSFERENCIA"] | None = None
     direccion_nueva: DireccionPedidoEntrada | None = None

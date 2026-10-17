@@ -7,7 +7,7 @@ Modelo de datos **tal como está implementado** en la base.
 > quedar desactualizado respecto del esquema real. CI verifica que
 > este al dia.
 
-**34 entidades · 57 relaciones.**
+**34 entidades · 60 relaciones.**
 
 Este diagrama reemplaza al entregado en la Actividad N°2: las diferencias
 están explicadas una por una en [CAMBIOS_DER.md](CAMBIOS_DER.md) (C-01 a C-12).
@@ -30,7 +30,7 @@ Entidades y relaciones, sin atributos.
 ```mermaid
 erDiagram
     USUARIO ||--|| REPARTIDOR : usuario_id
-    USUARIO ||--|| CLIENTE : usuario_id
+    USUARIO o|--|| CLIENTE : usuario_id
     ZONA_COBERTURA o|--o{ PUNTO_ENCUENTRO : zona_id
     CLIENTE ||--o{ DIRECCION : cliente_id
     ZONA_COBERTURA o|--o{ DIRECCION : zona_id
@@ -43,6 +43,7 @@ erDiagram
     PRODUCTO ||--o{ PRODUCTO_OPCION : producto_id
     INGREDIENTE ||--o{ PRODUCTO_OPCION : ingrediente_id
     INGREDIENTE ||--o{ MOVIMIENTO_STOCK : ingrediente_id
+    PEDIDO o|--o{ MOVIMIENTO_STOCK : pedido_id
     USUARIO o|--o{ MOVIMIENTO_STOCK : usuario_id
     INGREDIENTE ||--o{ ALERTA_STOCK : ingrediente_id
     USUARIO o|--o{ ALERTA_STOCK : resuelta_por
@@ -75,9 +76,11 @@ erDiagram
     NOTIFICACION_PLANTILLA o|--o{ NOTIFICACION : plantilla_id
     CLIENTE o|--o{ NOTIFICACION : cliente_id
     PEDIDO o|--o{ NOTIFICACION : pedido_id
-    CLIENTE ||--o{ WHATSAPP_BORRADOR : cliente_id
+    CLIENTE o|--o{ WHATSAPP_BORRADOR : cliente_id
     PEDIDO o|--|| WHATSAPP_BORRADOR : pedido_id
     WHATSAPP_BORRADOR o|--o{ WHATSAPP_ENTRADA : referencia_hash
+    WHATSAPP_ATENCION o|--o{ WHATSAPP_SALIDA : atencion_id
+    USUARIO o|--o{ WHATSAPP_SALIDA : enviado_por
     PEDIDO ||--o{ WHATSAPP_CAMBIO : pedido_id
     USUARIO o|--o{ WHATSAPP_CAMBIO : revisado_por
     WHATSAPP_ENTRADA ||--|| WHATSAPP_COMPROBANTE : entrada_id
@@ -97,7 +100,7 @@ erDiagram
 ```mermaid
 erDiagram
     USUARIO ||--|| REPARTIDOR : usuario_id
-    USUARIO ||--|| CLIENTE : usuario_id
+    USUARIO o|--|| CLIENTE : usuario_id
     ZONA_COBERTURA o|--o{ PUNTO_ENCUENTRO : zona_id
     CLIENTE ||--o{ DIRECCION : cliente_id
     ZONA_COBERTURA o|--o{ DIRECCION : zona_id
@@ -126,10 +129,14 @@ erDiagram
         timestamptz ultima_pos_en
     }
     CLIENTE {
-        bigint usuario_id PK
+        bigint usuario_id FK
         text telefono_whatsapp
         boolean acepta_notif_wsp
         text notas
+        bigint id PK
+        text nombre
+        text estado
+        text whatsapp_verificado UK
     }
     ZONA_COBERTURA {
         bigint id PK
@@ -225,6 +232,7 @@ erDiagram
         int orden
         timestamptz creado_en
         timestamptz actualizado_en
+        jsonb variantes
     }
     PRODUCTO_INGREDIENTE {
         bigint producto_id PK
@@ -248,7 +256,7 @@ erDiagram
         text tipo
         numeric cantidad
         numeric saldo_resultante
-        bigint pedido_id
+        bigint pedido_id FK
         bigint usuario_id FK
         text motivo
         timestamptz creado_en
@@ -481,6 +489,7 @@ erDiagram
         text estado
         text respuesta
         timestamptz creado_en
+        text nombre_remitente
     }
     WHATSAPP_SALIDA {
         bigint id PK
@@ -493,6 +502,8 @@ erDiagram
         timestamptz proximo_intento_en
         timestamptz actualizado_en
         timestamptz creado_en
+        bigint atencion_id FK
+        bigint enviado_por FK
     }
     WHATSAPP_CAMBIO {
         bigint id PK
@@ -545,7 +556,6 @@ erDiagram
         bigint resuelta_por FK
         timestamptz resuelta_en
         timestamptz creado_en
-        is resolucion
     }
 ```
 
@@ -560,7 +570,7 @@ erDiagram
 | `auditoria` | `usuario_id` | `usuario` | 1 : N | No |
 | `cierre_caja` | `aprobado_por` | `usuario` | 1 : N | No |
 | `cierre_caja` | `generado_por` | `usuario` | 1 : N | No |
-| `cliente` | `usuario_id` | `usuario` | 1 : 1 | Sí |
+| `cliente` | `usuario_id` | `usuario` | 1 : 1 | No |
 | `direccion` | `cliente_id` | `cliente` | 1 : N | Sí |
 | `direccion` | `zona_id` | `zona_cobertura` | 1 : N | No |
 | `envio` | `pedido_id` | `pedido` | 1 : 1 | Sí |
@@ -569,6 +579,7 @@ erDiagram
 | `envio` | `zona_id` | `zona_cobertura` | 1 : N | No |
 | `ingrediente` | `responsable_id` | `usuario` | 1 : N | No |
 | `movimiento_stock` | `ingrediente_id` | `ingrediente` | 1 : N | Sí |
+| `movimiento_stock` | `pedido_id` | `pedido` | 1 : N | No |
 | `movimiento_stock` | `usuario_id` | `usuario` | 1 : N | No |
 | `notificacion` | `cliente_id` | `cliente` | 1 : N | No |
 | `notificacion` | `plantilla_id` | `notificacion_plantilla` | 1 : N | No |
@@ -604,7 +615,7 @@ erDiagram
 | `whatsapp_atencion` | `resuelta_por` | `usuario` | 1 : N | No |
 | `whatsapp_atencion` | `referencia_hash` | `whatsapp_borrador` | 1 : N | Sí |
 | `whatsapp_atencion` | `entrada_id` | `whatsapp_entrada` | 1 : N | Sí |
-| `whatsapp_borrador` | `cliente_id` | `cliente` | 1 : N | Sí |
+| `whatsapp_borrador` | `cliente_id` | `cliente` | 1 : N | No |
 | `whatsapp_borrador` | `pedido_id` | `pedido` | 1 : 1 | No |
 | `whatsapp_cambio` | `pedido_id` | `pedido` | 1 : N | Sí |
 | `whatsapp_cambio` | `revisado_por` | `usuario` | 1 : N | No |
@@ -612,6 +623,8 @@ erDiagram
 | `whatsapp_comprobante` | `revisado_por` | `usuario` | 1 : N | No |
 | `whatsapp_comprobante` | `entrada_id` | `whatsapp_entrada` | 1 : 1 | Sí |
 | `whatsapp_entrada` | `referencia_hash` | `whatsapp_borrador` | 1 : N | No |
+| `whatsapp_salida` | `enviado_por` | `usuario` | 1 : N | No |
+| `whatsapp_salida` | `atencion_id` | `whatsapp_atencion` | 1 : N | No |
 
 ---
 

@@ -130,11 +130,14 @@ class ServicioPagos:
         payer_email: str | None = None,
         registrado_por: int | None = None,
         ip_cliente: str | None = None,
+        *,
+        cliente_usuario_id: int | None = None,
     ) -> ResultadoInicioBilletera:
         """Genera la orden de cobro digital (preferencia de pago / QR dinámico).
 
         Crea el pago en estado PENDIENTE asociado a la preferencia_id.
         """
+        await self._validar_acceso_pedido(pedido_id, cliente_usuario_id)
         if metodo_pago == MetodoPago.EFECTIVO:
             raise DatosInvalidos("Para cobro en efectivo debe utilizar el endpoint correspondiente")
 
@@ -292,8 +295,20 @@ class ServicioPagos:
 
         return {"estado": "en_proceso", "pago_id": pago.id, "status_mp": info.status}
 
-    async def obtener_estado_financiero(self, pedido_id: int) -> EstadoFinancieroPedido:
+    async def _validar_acceso_pedido(
+        self, pedido_id: int, cliente_usuario_id: int | None,
+    ) -> None:
+        """None corresponde a una operación interna autorizada en presentación."""
+        if cliente_usuario_id is not None and not await self.repo.pedido_pertenece_a_usuario(
+            pedido_id, cliente_usuario_id,
+        ):
+            raise NoEncontrado(f"Pedido {pedido_id} no encontrado")
+
+    async def obtener_estado_financiero(
+        self, pedido_id: int, *, cliente_usuario_id: int | None = None,
+    ) -> EstadoFinancieroPedido:
         """Calcula el estado financiero y balance de pagos completo de un pedido."""
+        await self._validar_acceso_pedido(pedido_id, cliente_usuario_id)
         pedido = await self.repo.obtener_pedido(pedido_id)
         if pedido is None:
             raise NoEncontrado(f"Pedido {pedido_id} no encontrado")
@@ -309,15 +324,23 @@ class ServicioPagos:
             pagos=pagos,
         )
 
-    async def obtener_pago(self, pago_id: int) -> Pago:
+    async def obtener_pago(
+        self, pago_id: int, *, cliente_usuario_id: int | None = None,
+    ) -> Pago:
         """Recupera un pago específico o lanza NoEncontrado."""
         pago = await self.repo.obtener_pago_por_id(pago_id)
-        if pago is None:
+        if pago is None or (
+            cliente_usuario_id is not None
+            and not await self.repo.pedido_pertenece_a_usuario(pago.pedido_id, cliente_usuario_id)
+        ):
             raise NoEncontrado(f"Pago {pago_id} no encontrado")
         return pago
 
-    async def listar_pagos_por_pedido(self, pedido_id: int) -> list[Pago]:
+    async def listar_pagos_por_pedido(
+        self, pedido_id: int, *, cliente_usuario_id: int | None = None,
+    ) -> list[Pago]:
         """Devuelve todos los pagos imputados a un pedido."""
+        await self._validar_acceso_pedido(pedido_id, cliente_usuario_id)
         pedido = await self.repo.obtener_pedido(pedido_id)
         if pedido is None:
             raise NoEncontrado(f"Pedido {pedido_id} no encontrado")

@@ -54,6 +54,80 @@ class Tabla:
     descripcion: str
     columnas: list[Columna] = field(default_factory=list)
     unicos: list[str] = field(default_factory=list)
+    restricciones: dict[str, tuple[str, list[str]]] = field(default_factory=dict, repr=False)
+
+
+def _separar_sql(texto: str, separador: str = ",") -> list[str]:
+    """Separa operaciones sin cortar expresiones, tipos ni literales SQL."""
+    partes = []
+    inicio = profundidad = 0
+    en_literal = False
+    for indice, caracter in enumerate(texto):
+        if caracter == "'":
+            en_literal = not en_literal
+        elif not en_literal:
+            if caracter == "(":
+                profundidad += 1
+            elif caracter == ")":
+                profundidad -= 1
+            elif caracter == separador and profundidad == 0:
+                partes.append(texto[inicio:indice].strip())
+                inicio = indice + 1
+    partes.append(texto[inicio:].strip())
+    return partes
+
+
+def _agregar_restriccion(tabla: Tabla, definicion: str) -> None:
+    nombre = None
+    if coincidencia := re.match(r"CONSTRAINT\s+(\w+)\s+(.+)", definicion, re.I | re.S):
+        nombre, definicion = coincidencia.groups()
+    coincidencia = re.match(
+        r"(PRIMARY KEY|UNIQUE|FOREIGN KEY)\s*\(([^)]+)\)", definicion, re.I
+    )
+    if coincidencia:
+        clase = coincidencia.group(1).upper()
+        nombres = [c.strip() for c in coincidencia.group(2).split(",")]
+        sufijo = {"PRIMARY KEY": "pkey", "UNIQUE": "key", "FOREIGN KEY": "fkey"}[clase]
+        nombre = nombre or (
+            f"{tabla.nombre}_pkey" if clase == "PRIMARY KEY"
+            else f"{tabla.nombre}_{'_'.join(nombres)}_{sufijo}"
+        )
+        tabla.restricciones[nombre] = (clase, nombres)
+        for columna in tabla.columnas:
+            if columna.nombre not in nombres:
+                continue
+            if clase == "PRIMARY KEY":
+                columna.es_pk = columna.obligatoria = True
+            elif clase == "UNIQUE" and len(nombres) == 1:
+                columna.es_unica = True
+            elif clase == "FOREIGN KEY":
+                referencia = re.search(r"REFERENCES\s+(\w+)\s*\((\w+)\)", definicion, re.I)
+                if referencia:
+                    columna.referencia = ".".join(referencia.groups())
+        if clase == "UNIQUE" and len(nombres) > 1:
+            tabla.unicos.append(", ".join(nombres))
+    # Los CHECK enumerados se muestran en la columna, igual que en CREATE.
+    for columna in tabla.columnas:
+        valores = _valores_de_check(definicion, columna.nombre)
+        if valores:
+            columna.valores = valores
+
+
+def _agregar_columna(tabla: Tabla, definicion: str) -> None:
+    columna = _parsear_columna(definicion)
+    if columna is None:
+        _agregar_restriccion(tabla, definicion)
+        return
+    tabla.columnas.append(columna)
+    for marca, activa in (("PRIMARY KEY", columna.es_pk), ("UNIQUE", columna.es_unica)):
+        if activa:
+            _agregar_restriccion(tabla, f"{marca} ({columna.nombre})")
+    if columna.referencia:
+        destino, atributo = columna.referencia.split(".")
+        _agregar_restriccion(
+            tabla, f"FOREIGN KEY ({columna.nombre}) REFERENCES {destino} ({atributo})"
+        )
+    columna.valores = _valores_de_check(definicion, columna.nombre)
 
 
 def _descripcion_previa(lineas: list[str], indice: int) -> str:
@@ -110,8 +184,10 @@ def _parsear_columna(linea: str) -> Columna | None:
     columna.es_unica = "UNIQUE" in resto_mayus
     columna.obligatoria = "NOT NULL" in resto_mayus or columna.es_pk
 
-    if (defecto := re.search(r"DEFAULT\s+(.+?)(?:\s+(?:NOT NULL|REFERENCES|UNIQUE|PRIMARY)|$)",
-                            resto, re.IGNORECASE)):
+    if (defecto := re.search(
+        r"DEFAULT\s+(.+?)(?:\s+(?:NOT NULL|REFERENCES|UNIQUE|PRIMARY|CHECK)|$)",
+        resto, re.IGNORECASE,
+    )):
         columna.default = defecto.group(1).strip()
 
     if (ref := re.search(r"REFERENCES\s+(\w+)\s*\((\w+)\)", resto, re.IGNORECASE)):
@@ -147,35 +223,63 @@ def parsear(archivo: Path) -> list[Tabla]:
             descripcion=_descripcion_previa(lineas, numero),
         )
 
-        for cuerpo_linea in cuerpo_lineas:
-            columna = _parsear_columna(cuerpo_linea)
-            if columna is None:
-                continue
-            columna.valores = _valores_de_check(cuerpo, columna.nombre)
-            tabla.columnas.append(columna)
-
-        # Claves foraneas declaradas a nivel tabla
-        for ref_columna, ref_tabla, ref_destino in re.findall(
-            r"FOREIGN KEY \((\w+)\) REFERENCES (\w+)\s*\((\w+)\)", cuerpo, re.IGNORECASE
-        ):
-            for columna in tabla.columnas:
-                if columna.nombre == ref_columna and not columna.referencia:
-                    columna.referencia = f"{ref_tabla}.{ref_destino}"
-
-        # PRIMARY KEY (a, b) a nivel tabla
-        if (pk := re.search(r"PRIMARY KEY \(([^)]+)\)", cuerpo, re.IGNORECASE)):
-            for parte in pk.group(1).split(","):
-                for columna in tabla.columnas:
-                    if columna.nombre == parte.strip():
-                        columna.es_pk = True
-                        columna.obligatoria = True
-
-        for unico in re.findall(r"UNIQUE \(([^)]+)\)", cuerpo, re.IGNORECASE):
-            tabla.unicos.append(unico.strip())
+        cuerpo = re.sub(r"--[^\n]*", "", cuerpo)
+        for definicion in _separar_sql(cuerpo):
+            _agregar_columna(tabla, definicion)
 
         tablas.append(tabla)
 
     return tablas
+
+
+def parsear_esquema(archivos: list[Path]) -> list[Tabla]:
+    """Aplica los ALTER usados por las migraciones; no es un parser SQL general.
+
+    Admite ADD COLUMN/CONSTRAINT, DROP CONSTRAINT y ALTER COLUMN sobre
+    obligatoriedad/default. Conserva la migración de creación para agrupar tablas.
+    No interpreta funciones, índices, cambios de tipo ni identificadores citados.
+    """
+    tablas: dict[str, Tabla] = {}
+    for archivo in sorted(archivos):
+        tablas.update((tabla.nombre, tabla) for tabla in parsear(archivo))
+        contenido = re.sub(r"--[^\n]*", "", archivo.read_text(encoding="utf-8"))
+        for nombre, operaciones in re.findall(
+            r"ALTER TABLE\s+(\w+)\s+([^;]+);", contenido, re.I
+        ):
+            tabla = tablas[nombre]
+            for operacion in _separar_sql(operaciones):
+                if agregar := re.match(r"ADD COLUMN\s+(.+)", operacion, re.I | re.S):
+                    _agregar_columna(tabla, agregar.group(1))
+                elif re.match(r"ADD\s+", operacion, re.I):
+                    _agregar_restriccion(tabla, re.sub(r"^ADD\s+", "", operacion, flags=re.I))
+                elif borrar := re.fullmatch(r"DROP CONSTRAINT\s+(\w+)", operacion, re.I):
+                    clase, nombres = tabla.restricciones.pop(borrar.group(1))
+                    for columna in tabla.columnas:
+                        if columna.nombre in nombres:
+                            if clase == "PRIMARY KEY":
+                                columna.es_pk = False
+                            elif clase == "UNIQUE":
+                                columna.es_unica = False
+                            elif clase == "FOREIGN KEY":
+                                columna.referencia = None
+                    if clase == "UNIQUE" and len(nombres) > 1:
+                        tabla.unicos.remove(", ".join(nombres))
+                elif alterar := re.fullmatch(
+                    r"ALTER COLUMN\s+(\w+)\s+"
+                    r"(SET NOT NULL|DROP NOT NULL|DROP DEFAULT|SET DEFAULT\s+.+)",
+                    operacion, re.I | re.S,
+                ):
+                    columna = next(c for c in tabla.columnas if c.nombre == alterar.group(1))
+                    accion = alterar.group(2)
+                    if accion.upper() in {"SET NOT NULL", "DROP NOT NULL"}:
+                        columna.obligatoria = accion.upper() == "SET NOT NULL"
+                    elif accion.upper() == "DROP DEFAULT":
+                        columna.default = None
+                    else:
+                        columna.default = re.sub(r"^SET DEFAULT\s+", "", accion, flags=re.I)
+                else:
+                    raise ValueError(f"ALTER TABLE no soportado en {archivo.name}: {operacion}")
+    return list(tablas.values())
 
 
 def otros_objetos(archivo: Path) -> dict[str, list[str]]:
@@ -237,13 +341,14 @@ def generar() -> str:
     ]
 
     archivos = sorted(DIR_MIGRACIONES.glob("*.sql"))
+    esquema = parsear_esquema(archivos)
     total_tablas = 0
 
     indice: list[str] = ["## Índice de tablas", ""]
     cuerpo: list[str] = []
 
     for archivo in archivos:
-        tablas = parsear(archivo)
+        tablas = [tabla for tabla in esquema if tabla.archivo == archivo.stem]
         total_tablas += len(tablas)
         objetos = otros_objetos(archivo)
 

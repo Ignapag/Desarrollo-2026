@@ -18,6 +18,7 @@ class ItemNuevoPedido:
 
 
 class RepositorioPedidos(Protocol):
+    async def cliente_para_usuario(self, usuario_id: int) -> int | None: ...
     async def cliente_valido(self, cliente_id: int) -> bool: ...
     async def direccion_valida(self, cliente_id: int, direccion_id: int) -> bool: ...
     async def crear_direccion(self, cliente_id: int, datos: dict) -> int | None: ...
@@ -32,7 +33,9 @@ class RepositorioPedidos(Protocol):
         items: list[dict],
         canal: str = "WEB",
     ) -> dict: ...
-    async def listar(self, *, cliente_id: int | None) -> list[dict]: ...
+    async def listar(
+        self, *, cliente_id: int | None, repartidor_id: int | None = None
+    ) -> list[dict]: ...
     async def obtener(self, pedido_id: int, *, bloquear: bool = False) -> dict | None: ...
     async def items_para_stock(self, pedido_id: int) -> list[dict]: ...
     async def cambiar_estado(
@@ -48,6 +51,12 @@ class ServicioPedidos:
     def __init__(self, repo: RepositorioPedidos, stock: ProcesadorStock) -> None:
         self.repo = repo
         self.stock = stock
+
+    async def cliente_para_usuario(self, usuario_id: int) -> int:
+        cliente_id = await self.repo.cliente_para_usuario(usuario_id)
+        if cliente_id is None:
+            raise DatosInvalidos("La cuenta no tiene un cliente activo vinculado")
+        return cliente_id
 
     async def crear(
         self,
@@ -147,7 +156,11 @@ class ServicioPedidos:
             canal=canal,
         )
 
-    async def listar(self, *, cliente_id: int | None = None) -> list[dict]:
+    async def listar(
+        self, *, cliente_id: int | None = None, repartidor_id: int | None = None
+    ) -> list[dict]:
+        if repartidor_id is not None:
+            return await self.repo.listar(cliente_id=cliente_id, repartidor_id=repartidor_id)
         return await self.repo.listar(cliente_id=cliente_id)
 
     async def cambiar_estado(

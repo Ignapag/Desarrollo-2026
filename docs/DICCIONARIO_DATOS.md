@@ -48,6 +48,8 @@ columnas, tipos, obligatoriedad, relaciones y valores permitidos.
 
 **Whatsapp atencion** — [`whatsapp_atencion`](#whatsapp_atencion)
 
+**Clientes sin cuenta** — sin tablas nuevas
+
 Total: **34 tablas**.
 
 ---
@@ -92,10 +94,14 @@ _cliente: atributos propios del subtipo CLIENTE._
 
 | Columna | Tipo | Obligatoria | Notas |
 |---------|------|-------------|-------|
-| `usuario_id` | BIGINT | Sí | PK · FK → `usuario.id` |
+| `usuario_id` | BIGINT | No | único · FK → `usuario.id` |
 | `telefono_whatsapp` | TEXT | Sí | — |
 | `acepta_notif_wsp` | BOOLEAN | Sí | default `TRUE` |
 | `notas` | TEXT | No | — |
+| `id` | BIGINT | Sí | PK · default `nextval('cliente_id_seq')` |
+| `nombre` | TEXT | Sí | default `'Cliente'` |
+| `estado` | TEXT | Sí | valores: `ACTIVO`, `INACTIVO` · default `'ACTIVO'` |
+| `whatsapp_verificado` | TEXT | No | único |
 
 ### zona_cobertura
 
@@ -133,7 +139,7 @@ _direccion: se normaliza como entidad propia (el ER la tenia como atributo compu
 | Columna | Tipo | Obligatoria | Notas |
 |---------|------|-------------|-------|
 | `id` | BIGINT | Sí | PK · autonumérico |
-| `cliente_id` | BIGINT | Sí | FK → `cliente.usuario_id` |
+| `cliente_id` | BIGINT | Sí | FK → `cliente.id` |
 | `calle` | TEXT | Sí | — |
 | `numero` | TEXT | Sí | — |
 | `piso_depto` | TEXT | No | — |
@@ -222,6 +228,7 @@ _producto: sin columna stock. Su disponibilidad se deriva del stock de sus ingre
 | `orden` | INT | Sí | default `0` |
 | `creado_en` | TIMESTAMPTZ | Sí | default `now()` |
 | `actualizado_en` | TIMESTAMPTZ | Sí | default `now()` |
+| `variantes` | JSONB | Sí | default `'[]'::jsonb` |
 
 Únicos: `(categoria_id, nombre)`
 
@@ -264,7 +271,7 @@ _movimiento_stock: trazabilidad de cada consumo, reposicion o ajuste. El ER solo
 | `tipo` | TEXT | Sí | valores: `CONSUMO`, `REPOSICION`, `AJUSTE`, `DEVOLUCION`, `MERMA` |
 | `cantidad` | NUMERIC(12,3) | Sí | — |
 | `saldo_resultante` | NUMERIC(12,3) | Sí | — |
-| `pedido_id` | BIGINT | No | — |
+| `pedido_id` | BIGINT | No | FK → `pedido.id` |
 | `usuario_id` | BIGINT | No | FK → `usuario.id` |
 | `motivo` | TEXT | No | — |
 | `creado_en` | TIMESTAMPTZ | Sí | default `now()` |
@@ -294,7 +301,7 @@ _alerta_stock: alertas de reposicion (RF-07)._
 |---------|------|-------------|-------|
 | `id` | BIGINT | Sí | PK · autonumérico |
 | `numero` | BIGINT | Sí | único · default `nextval('pedido_numero_seq')` |
-| `cliente_id` | BIGINT | Sí | FK → `cliente.usuario_id` |
+| `cliente_id` | BIGINT | Sí | FK → `cliente.id` |
 | `tipo_entrega` | TEXT | Sí | valores: `DELIVERY`, `RETIRO` · default `'DELIVERY'` |
 | `direccion_id` | BIGINT | No | FK → `direccion.id` |
 | `punto_encuentro_id` | BIGINT | No | FK → `punto_encuentro.id` |
@@ -498,7 +505,7 @@ _===================================================================== 006 - Not
 | `plantilla_id` | BIGINT | No | FK → `notificacion_plantilla.id` |
 | `clave` | TEXT | Sí | — |
 | `destinatario` | TEXT | Sí | — |
-| `cliente_id` | BIGINT | No | FK → `cliente.usuario_id` |
+| `cliente_id` | BIGINT | No | FK → `cliente.id` |
 | `pedido_id` | BIGINT | No | FK → `pedido.id` |
 | `cuerpo_renderizado` | TEXT | Sí | — |
 | `canal` | TEXT | Sí | valores: `WHATSAPP`, `EMAIL`, `PANEL` · default `'WHATSAPP'` |
@@ -529,16 +536,16 @@ _Borradores separados del pedido operativo y colas transaccionales del bot._
 | Columna | Tipo | Obligatoria | Notas |
 |---------|------|-------------|-------|
 | `referencia_hash` | TEXT | Sí | PK |
-| `cliente_id` | BIGINT | Sí | FK → `cliente.usuario_id` |
-| `telefono` | TEXT | Sí | — |
+| `cliente_id` | BIGINT | No | FK → `cliente.id` |
+| `telefono` | TEXT | No | — |
 | `items` | JSONB | Sí | — |
 | `tipo_entrega` | TEXT | No | valores: `RETIRO`, `DELIVERY` |
 | `metodo_pago` | TEXT | No | valores: `EFECTIVO`, `TRANSFERENCIA` |
 | `direccion` | JSONB | No | — |
-| `estado` | TEXT | Sí | valores: `BORRADOR`, `VINCULADO`, `CREADO`, `HUMANO` · default `'BORRADOR' CHECK (estado IN ('BORRADOR','VINCULADO','CREADO','HUMANO'))` |
-| `estado_pago` | TEXT | Sí | valores: `PENDIENTE`, `APROBADO`, `RECHAZADO` · default `'PENDIENTE' CHECK (estado_pago IN ('PENDIENTE','APROBADO','RECHAZADO'))` |
+| `estado` | TEXT | Sí | valores: `BORRADOR`, `VINCULADO`, `CREADO`, `HUMANO` · default `'BORRADOR'` |
+| `estado_pago` | TEXT | Sí | valores: `PENDIENTE`, `APROBADO`, `RECHAZADO` · default `'PENDIENTE'` |
 | `pedido_id` | BIGINT | No | único · FK → `pedido.id` |
-| `version` | INT | Sí | default `1 CHECK (version > 0)` |
+| `version` | INT | Sí | default `1` |
 | `propuesta` | JSONB | No | — |
 | `creado_en` | TIMESTAMPTZ | Sí | default `now()` |
 | `expira_en` | TIMESTAMPTZ | Sí | default `now() + interval '30 minutes'` |
@@ -553,9 +560,10 @@ _Borradores separados del pedido operativo y colas transaccionales del bot._
 | `texto` | TEXT | Sí | — |
 | `media_id` | TEXT | No | — |
 | `referencia_hash` | TEXT | No | FK → `whatsapp_borrador.referencia_hash` |
-| `estado` | TEXT | Sí | valores: `PENDIENTE`, `PROCESADO` · default `'PENDIENTE' CHECK (estado IN ('PENDIENTE','PROCESADO'))` |
+| `estado` | TEXT | Sí | valores: `PENDIENTE`, `PROCESADO` · default `'PENDIENTE'` |
 | `respuesta` | TEXT | No | — |
 | `creado_en` | TIMESTAMPTZ | Sí | default `now()` |
+| `nombre_remitente` | TEXT | No | — |
 
 ### whatsapp_salida
 
@@ -565,12 +573,14 @@ _Borradores separados del pedido operativo y colas transaccionales del bot._
 | `clave` | TEXT | Sí | único |
 | `telefono` | TEXT | Sí | — |
 | `texto` | TEXT | Sí | — |
-| `estado` | TEXT | Sí | valores: `PENDIENTE`, `ENVIANDO`, `ACEPTADO`, `ENTREGADO`, `FALLIDO`, `INCIERTO`, `SIMULADO` · default `'PENDIENTE' CHECK (estado IN` |
+| `estado` | TEXT | Sí | valores: `PENDIENTE`, `ENVIANDO`, `ACEPTADO`, `ENTREGADO`, `FALLIDO`, `INCIERTO`, `SIMULADO` · default `'PENDIENTE'` |
 | `proveedor_id` | TEXT | No | único |
 | `intentos` | INT | Sí | default `0` |
 | `proximo_intento_en` | TIMESTAMPTZ | Sí | default `now()` |
 | `actualizado_en` | TIMESTAMPTZ | Sí | default `now()` |
 | `creado_en` | TIMESTAMPTZ | Sí | default `now()` |
+| `atencion_id` | BIGINT | No | FK → `whatsapp_atencion.id` |
+| `enviado_por` | BIGINT | No | FK → `usuario.id` |
 
 ### whatsapp_cambio
 
@@ -597,7 +607,7 @@ _Cambios propuestos, aplicados o derivados. La cocina lee pedido_item vigente._
 | `entrada_id` | TEXT | Sí | único · FK → `whatsapp_entrada.id` |
 | `pedido_id` | BIGINT | Sí | FK → `pedido.id` |
 | `media_id` | TEXT | Sí | — |
-| `estado` | TEXT | Sí | valores: `PENDIENTE`, `APROBADO`, `RECHAZADO` · default `'PENDIENTE' CHECK (estado IN ('PENDIENTE','APROBADO','RECHAZADO'))` |
+| `estado` | TEXT | Sí | valores: `PENDIENTE`, `APROBADO`, `RECHAZADO` · default `'PENDIENTE'` |
 | `revisado_por` | BIGINT | No | FK → `usuario.id` |
 | `revisado_en` | TIMESTAMPTZ | No | — |
 | `motivo` | TEXT | No | — |
@@ -634,9 +644,10 @@ _Derivaciones a personal: visibles en la bandeja hasta que un empleado las resue
 | `referencia_hash` | TEXT | Sí | FK → `whatsapp_borrador.referencia_hash` |
 | `entrada_id` | TEXT | Sí | FK → `whatsapp_entrada.id` |
 | `motivo` | TEXT | Sí | valores: `SOLICITUD`, `PROVEEDOR` |
-| `estado` | TEXT | Sí | valores: `PENDIENTE`, `RESUELTA` · default `'PENDIENTE' CHECK (estado IN ('PENDIENTE','RESUELTA'))` |
+| `estado` | TEXT | Sí | valores: `PENDIENTE`, `RESUELTA` · default `'PENDIENTE'` |
 | `resolucion` | TEXT | No | — |
 | `resuelta_por` | BIGINT | No | FK → `usuario.id` |
 | `resuelta_en` | TIMESTAMPTZ | No | — |
 | `creado_en` | TIMESTAMPTZ | Sí | default `now()` |
-| `resolucion` | IS | Sí | — |
+
+## 015_clientes_sin_cuenta — Clientes sin cuenta

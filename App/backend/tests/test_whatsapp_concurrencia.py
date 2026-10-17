@@ -219,7 +219,7 @@ async def worker_independiente(conexiones_locales, monkeypatch):
 
 
 async def borrador_listo(uow, telefono):
-    cliente = await uow.valor("SELECT usuario_id FROM cliente ORDER BY usuario_id LIMIT 1")
+    cliente = await uow.valor("SELECT id FROM cliente ORDER BY id LIMIT 1")
     producto = await uow.uno(
         "SELECT p.id,p.variantes FROM producto p JOIN producto_ingrediente pi "
         "ON pi.producto_id=p.id JOIN ingrediente i ON i.id=pi.ingrediente_id "
@@ -318,3 +318,88 @@ async def test_contexto_desactualizado_del_mismo_pedido_se_reinterpreta(worker_i
         "SELECT cantidad,aclaraciones FROM pedido_item WHERE pedido_id=%s", (pedido_a,)
     )
     assert item == {"cantidad": 2, "aclaraciones": "Sin Tomate"}
+
+
+@pytest.mark.parametrize(
+    "misma_referencia,mismo_telefono", [(True, False), (True, True), (False, True)]
+)
+async def test_reclamo_publico_concurrente_es_unico(
+    conexiones_locales, misma_referencia, mismo_telefono
+):
+    """Compiten remitentes o borradores distintos, con tx1 todavía sin confirmar."""
+    conn1, conn2 = conexiones_locales
+    uow1, uow2 = UnidadDeTrabajo(conn1), UnidadDeTrabajo(conn2)
+    sufijo = uuid4().hex
+    telefono = f"549221{int(sufijo[:10], 16) % 10000000:07d}"
+    otro = telefono if mismo_telefono else str(int(telefono) + 1)
+    ids = [f"publico-carrera-{sufijo}-1", f"publico-carrera-{sufijo}-2"]
+    referencias = []
+    tarea = None
+    try:
+        producto = await uow1.uno("SELECT id,variantes FROM producto WHERE activo LIMIT 1")
+        item = {"producto_id": producto["id"], "cantidad": 1,
+                "variante": (producto["variantes"] or [{}])[0].get("nombre")}
+        datos = {"items": [item], "tipo_entrega": "RETIRO", "metodo_pago": "EFECTIVO"}
+        servicio = construir_servicio(uow1)
+        a = await servicio.crear_borrador(None, datos)
+        b = a if misma_referencia else await servicio.crear_borrador(None, datos)
+        referencias = list({hash_referencia(d["referencia"][3:]) for d in (a, b)})
+        await servicio.recibir(ids[0], telefono, a["mensaje"])
+        await servicio.recibir(ids[1], otro, b["mensaje"])
+        await conn1.commit()
+
+        # tx1 retiene la referencia y la identidad. tx2 debe esperar su commit.
+        await servicio.procesar(ids[0], {"accion": "consulta"})
+
+        async def segunda():
+            async with conn2.transaction():
+                return await construir_servicio(uow2).procesar(ids[1], {"accion": "consulta"})
+
+        async with asyncio.timeout(10):
+            tarea = asyncio.create_task(segunda())
+            while not tarea.done():
+                if await uow1.valor(
+                    "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE pid=%s AND NOT granted)",
+                    (conn2.info.backend_pid,),
+                ):
+                    break
+            assert not tarea.done(), "El segundo reclamo debe serializarse con el primero"
+            await conn1.commit()
+            respuesta = await tarea
+
+        filas = await uow1.todos(
+            "SELECT cliente_id,telefono,pedido_id FROM whatsapp_borrador "
+            "WHERE referencia_hash=ANY(%s)", (referencias,),
+        )
+        assert len({f["cliente_id"] for f in filas}) == 1
+        assert all(f["telefono"] == telefono and f["pedido_id"] for f in filas)
+        assert len({f["pedido_id"] for f in filas}) == (1 if misma_referencia else 2)
+        if not mismo_telefono:
+            assert "referencia" in respuesta.lower()
+            assert await uow1.valor(
+                "SELECT id FROM cliente WHERE whatsapp_verificado=%s", (otro,)
+            ) is None
+    finally:
+        if tarea and not tarea.done():
+            tarea.cancel()
+            await asyncio.gather(tarea, return_exceptions=True)
+        await conn1.rollback()
+        await conn2.rollback()
+        filas = await uow1.todos(
+            "SELECT pedido_id,cliente_id FROM whatsapp_borrador WHERE referencia_hash=ANY(%s)",
+            (referencias,),
+        )
+        pedidos = [f["pedido_id"] for f in filas if f["pedido_id"]]
+        clientes = [f["cliente_id"] for f in filas if f["cliente_id"]]
+        await uow1.ejecutar(
+            "DELETE FROM whatsapp_salida WHERE telefono=ANY(%s)", ([telefono, otro],)
+        )
+        await uow1.ejecutar("DELETE FROM whatsapp_entrada WHERE id=ANY(%s)", (ids,))
+        await uow1.ejecutar(
+            "DELETE FROM whatsapp_borrador WHERE referencia_hash=ANY(%s)", (referencias,)
+        )
+        await uow1.ejecutar("DELETE FROM pedido WHERE id=ANY(%s)", (pedidos,))
+        await uow1.ejecutar(
+            "DELETE FROM cliente WHERE id=ANY(%s) AND usuario_id IS NULL", (clientes,)
+        )
+        await conn1.commit()

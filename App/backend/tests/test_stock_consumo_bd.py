@@ -30,8 +30,9 @@ async def escenario(unidad, *, saldo=Decimal("2"), dos_ingredientes=False):
         "VALUES ('Consumo', 'Prueba', %s, 'x', 'CLIENTE') RETURNING id",
         (f"consumo_{sufijo}",),
     )
-    await unidad.ejecutar(
-        "INSERT INTO cliente (usuario_id, telefono_whatsapp) VALUES (%s, '5492210000000')",
+    cliente_id = await unidad.valor(
+        "INSERT INTO cliente (usuario_id, telefono_whatsapp) "
+        "VALUES (%s, '5492210000000') RETURNING id",
         (usuario_id,),
     )
     categoria_id = await unidad.valor(
@@ -56,7 +57,7 @@ async def escenario(unidad, *, saldo=Decimal("2"), dos_ingredientes=False):
             (producto_id, ingrediente_id),
         )
         ingredientes.append(ingrediente_id)
-    return usuario_id, producto_id, ingredientes
+    return cliente_id, producto_id, ingredientes
 
 
 async def crear_pedido(unidad, cliente_id, producto_id):
@@ -238,8 +239,10 @@ async def escenario_concurrente():
                 await unidad.ejecutar("DELETE FROM producto WHERE id = %s", (producto_id,))
                 await unidad.ejecutar("DELETE FROM ingrediente WHERE id = %s", (ingrediente_id,))
                 await unidad.ejecutar("DELETE FROM categoria WHERE id = %s", (categoria_id,))
-                await unidad.ejecutar("DELETE FROM cliente WHERE usuario_id = %s", (cliente_id,))
-                await unidad.ejecutar("DELETE FROM usuario WHERE id = %s", (cliente_id,))
+                usuario_id = await unidad.valor(
+                    "DELETE FROM cliente WHERE id = %s RETURNING usuario_id", (cliente_id,)
+                )
+                await unidad.ejecutar("DELETE FROM usuario WHERE id = %s", (usuario_id,))
         await conn.close()
 
 

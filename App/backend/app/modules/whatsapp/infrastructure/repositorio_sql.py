@@ -1,5 +1,7 @@
 """Inbox, borradores, revisión y outbox en la unidad de trabajo del caso de uso."""
 
+from datetime import UTC, datetime
+
 from psycopg.types.json import Jsonb
 
 from app.core.db import UnidadDeTrabajo
@@ -17,7 +19,7 @@ class RepositorioBotSQL:
             (
                 referencia_hash,
                 cliente_id,
-                datos["telefono"],
+                datos.get("telefono") if cliente_id is not None else None,
                 Jsonb(datos["items"]),
                 datos.get("tipo_entrega"),
                 datos.get("metodo_pago"),
@@ -25,11 +27,11 @@ class RepositorioBotSQL:
             ),
         )
 
-    async def recibir(self, identificador, telefono, texto, media_id):
+    async def recibir(self, identificador, telefono, texto, media_id, nombre_remitente=None):
         await self.uow.ejecutar(
-            """INSERT INTO whatsapp_entrada (id,telefono,texto,media_id)
-            VALUES (%s,%s,%s,%s) ON CONFLICT (id) DO NOTHING""",
-            (identificador, telefono, texto, media_id),
+            """INSERT INTO whatsapp_entrada (id,telefono,texto,media_id,nombre_remitente)
+            VALUES (%s,%s,%s,%s,%s) ON CONFLICT (id) DO NOTHING""",
+            (identificador, telefono, texto, media_id, nombre_remitente),
         )
 
     async def entrada(self, identificador, bloquear=False):
@@ -38,12 +40,15 @@ class RepositorioBotSQL:
             sql += " FOR UPDATE"
         return await self.uow.uno(sql, (identificador,))
 
-    async def conversacion(self, telefono, referencia_hash=None, bloquear=False):
+    async def conversacion(
+        self, telefono, referencia_hash=None, bloquear=False, nombre_remitente=None
+    ):
         # Todas las mutaciones de una conversación se serializan también entre workers.
         if bloquear:
             await self.uow.valor("SELECT pg_advisory_xact_lock(hashtext(%s))", (telefono,))
         if referencia_hash:
-            sql = "SELECT * FROM whatsapp_borrador WHERE referencia_hash=%s AND telefono=%s"
+            sql = """SELECT * FROM whatsapp_borrador WHERE referencia_hash=%s
+                AND (telefono=%s OR telefono IS NULL)"""
             params = (referencia_hash, telefono)
         else:
             sql = """SELECT * FROM whatsapp_borrador WHERE telefono=%s
@@ -59,7 +64,28 @@ class RepositorioBotSQL:
             sql += " FOR UPDATE"
         filas = await self.uow.todos(sql, params)
         # Una conversación con dos pedidos requiere una referencia explícita.
-        return filas[0] if len(filas) == 1 else None
+        if len(filas) != 1:
+            return None
+        b = filas[0]
+        if bloquear and b["telefono"] is None and b["expira_en"] > datetime.now(UTC):
+            # Bajo el bloqueo del teléfono y de la referencia: dos workers no
+            # pueden reclamarla para remitentes distintos ni duplicar al cliente.
+            cliente_id = await self.uow.valor(
+                "SELECT id FROM cliente WHERE whatsapp_verificado=%s", (telefono,)
+            )
+            if cliente_id is None:
+                cliente_id = await self.uow.valor(
+                    """INSERT INTO cliente (nombre,telefono_whatsapp,whatsapp_verificado)
+                    VALUES (%s,%s,%s) RETURNING id""",
+                    (nombre_remitente or f"WhatsApp {telefono}", telefono, telefono),
+                )
+            await self.uow.ejecutar(
+                """UPDATE whatsapp_borrador SET telefono=%s,cliente_id=%s
+                WHERE referencia_hash=%s""",
+                (telefono, cliente_id, b["referencia_hash"]),
+            )
+            b.update(telefono=telefono, cliente_id=cliente_id)
+        return b
 
     async def actualizar_borrador(self, b):
         await self.uow.ejecutar(

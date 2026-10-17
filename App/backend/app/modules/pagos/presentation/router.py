@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Query, status
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Query, status
 
 from app.core.dependencias import IpCliente
 from app.modules.pagos.presentation.dependencias import ServicioConciliacionDep, ServicioPagosDep
@@ -20,9 +22,17 @@ from app.modules.pagos.presentation.esquemas import (
     ResultadoConciliacionLoteSalida,
     WebhookMercadoPagoEntrada,
 )
-from app.modules.usuarios.presentation.dependencias import PersonalInterno, Sesion
+from app.modules.usuarios.domain.entidades import ClaimsSesion, Rol
+from app.modules.usuarios.presentation.dependencias import requiere_rol
 
 router = APIRouter(prefix="/api/pagos", tags=["pagos"])
+SesionPagos = Annotated[
+    ClaimsSesion,
+    Depends(requiere_rol(Rol.CLIENTE, Rol.EMPLEADO, Rol.ADMINISTRADOR, Rol.DUENIO)),
+]
+PersonalPagos = Annotated[
+    ClaimsSesion, Depends(requiere_rol(Rol.EMPLEADO, Rol.ADMINISTRADOR, Rol.DUENIO)),
+]
 
 
 @router.post(
@@ -33,7 +43,7 @@ router = APIRouter(prefix="/api/pagos", tags=["pagos"])
 )
 async def registrar_pago_efectivo(
     datos: RegistrarPagoEfectivoEntrada,
-    sesion: PersonalInterno,
+    sesion: PersonalPagos,
     servicio: ServicioPagosDep,
     ip: IpCliente = None,
 ) -> ResultadoCobroEfectivoSalida:
@@ -65,7 +75,7 @@ async def registrar_pago_efectivo(
 )
 async def iniciar_cobro_digital(
     datos: IniciarCobroDigitalEntrada,
-    sesion: Sesion,
+    sesion: SesionPagos,
     servicio: ServicioPagosDep,
     ip: IpCliente = None,
 ) -> PreferenciaCobroSalida:
@@ -80,8 +90,12 @@ async def iniciar_cobro_digital(
         monto_a_pagar=datos.monto_a_pagar,
         propina=datos.propina,
         payer_email=datos.payer_email,
-        registrado_por=datos.registrado_por or sesion.usuario_id,
+        registrado_por=(
+            sesion.usuario_id if sesion.rol == Rol.CLIENTE
+            else datos.registrado_por or sesion.usuario_id
+        ),
         ip_cliente=ip,
+        cliente_usuario_id=sesion.usuario_id if sesion.rol == Rol.CLIENTE else None,
     )
     return PreferenciaCobroSalida(
         pago_id=resultado.pago.id,
@@ -139,12 +153,14 @@ async def webhook_mercadopago(
 )
 async def estado_financiero_pedido(
     pedido_id: int,
-    _sesion: Sesion,
+    sesion: SesionPagos,
     servicio: ServicioPagosDep,
 ) -> EstadoFinancieroPedidoSalida:
     """Retorna el balance de pagos, saldo pendiente, detalle de pagos y si el pedido \
 está saldado."""
-    estado = await servicio.obtener_estado_financiero(pedido_id)
+    estado = await servicio.obtener_estado_financiero(
+        pedido_id, cliente_usuario_id=sesion.usuario_id if sesion.rol == Rol.CLIENTE else None,
+    )
     return EstadoFinancieroPedidoSalida.desde_dominio(estado)
 
 
@@ -155,11 +171,13 @@ está saldado."""
 )
 async def listar_pagos_pedido(
     pedido_id: int,
-    _sesion: Sesion,
+    sesion: SesionPagos,
     servicio: ServicioPagosDep,
 ) -> list[PagoSalida]:
     """Retorna el historial completo de pagos y egresos/devoluciones asociados a un pedido."""
-    pagos = await servicio.listar_pagos_por_pedido(pedido_id)
+    pagos = await servicio.listar_pagos_por_pedido(
+        pedido_id, cliente_usuario_id=sesion.usuario_id if sesion.rol == Rol.CLIENTE else None,
+    )
     return [PagoSalida.desde_dominio(p) for p in pagos]
 
 
@@ -169,7 +187,7 @@ async def listar_pagos_pedido(
     summary="Listar pagos pendientes de conciliación",
 )
 async def listar_pendientes_conciliacion(
-    _sesion: PersonalInterno,
+    _sesion: PersonalPagos,
     servicio: ServicioConciliacionDep,
 ) -> list[PagoSalida]:
     """Recupera la lista de cobros que aún se encuentran pendientes de acreditación o arqueo."""
@@ -184,7 +202,7 @@ async def listar_pendientes_conciliacion(
 )
 async def conciliar_lote(
     datos: ConciliarLoteEntrada,
-    sesion: PersonalInterno,
+    sesion: PersonalPagos,
     servicio: ServicioConciliacionDep,
     ip: IpCliente = None,
 ) -> ResultadoConciliacionLoteSalida:
@@ -205,7 +223,7 @@ async def conciliar_lote(
 )
 async def registrar_devolucion(
     datos: RegistrarDevolucionEntrada,
-    sesion: PersonalInterno,
+    sesion: PersonalPagos,
     servicio: ServicioConciliacionDep,
     ip: IpCliente = None,
 ) -> PagoSalida:
@@ -234,11 +252,13 @@ async def registrar_devolucion(
 )
 async def obtener_pago(
     pago_id: int,
-    _sesion: Sesion,
+    sesion: SesionPagos,
     servicio: ServicioPagosDep,
 ) -> PagoSalida:
     """Obtiene los datos de un pago registrado por su identificador primario."""
-    pago = await servicio.obtener_pago(pago_id)
+    pago = await servicio.obtener_pago(
+        pago_id, cliente_usuario_id=sesion.usuario_id if sesion.rol == Rol.CLIENTE else None,
+    )
     return PagoSalida.desde_dominio(pago)
 
 
@@ -249,7 +269,7 @@ async def obtener_pago(
 )
 async def conciliar_pago(
     pago_id: int,
-    sesion: PersonalInterno,
+    sesion: PersonalPagos,
     servicio: ServicioConciliacionDep,
     datos: ConciliarPagoEntrada | None = None,
     ip: IpCliente = None,
@@ -277,7 +297,7 @@ async def conciliar_pago(
 async def anular_pago(
     pago_id: int,
     datos: AnularPagoEntrada,
-    sesion: PersonalInterno,
+    sesion: PersonalPagos,
     servicio: ServicioConciliacionDep,
     ip: IpCliente = None,
 ) -> PagoSalida:

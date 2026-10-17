@@ -123,7 +123,7 @@ def test_rechaza_cliente_inexistente_en_pedido(cur):
 
 def test_delivery_exige_direccion(cur):
     """Validacion del alcance: la direccion es obligatoria en delivery."""
-    cliente_id = valor(cur, "SELECT usuario_id FROM cliente LIMIT 1")
+    cliente_id = valor(cur, "SELECT id FROM cliente LIMIT 1")
     with pytest.raises(psycopg.errors.CheckViolation):
         cur.execute(
             "INSERT INTO pedido (cliente_id, tipo_entrega, direccion_id)"
@@ -185,7 +185,7 @@ def test_cierre_de_caja_unico_por_fecha_y_turno(cur):
 # --------------------------------------------------------------------
 
 def _crear_pedido(cur) -> int:
-    cliente_id = valor(cur, "SELECT usuario_id FROM cliente LIMIT 1")
+    cliente_id = valor(cur, "SELECT id FROM cliente LIMIT 1")
     return valor(
         cur,
         "INSERT INTO pedido (cliente_id, tipo_entrega) VALUES (%s, 'RETIRO') RETURNING id",
