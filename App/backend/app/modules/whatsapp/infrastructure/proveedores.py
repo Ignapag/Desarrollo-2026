@@ -334,7 +334,15 @@ class SimuladoTransporte:
 
 
 class WhatsAppCloud:
-    def __init__(self, token: str, phone_number_id: str, version: str, timeout: float = 15):
+    def __init__(
+        self,
+        token: str,
+        phone_number_id: str,
+        version: str,
+        timeout: float = 15,
+        *,
+        destinatarios_prueba_sin_9: list[str] | tuple[str, ...] = (),
+    ):
         if (
             not token
             or not re.fullmatch(r"\d+", phone_number_id)
@@ -346,6 +354,7 @@ class WhatsAppCloud:
         self._phone_number_id = phone_number_id
         self._version = version
         self._timeout = timeout
+        self._destinatarios_prueba_sin_9 = frozenset(destinatarios_prueba_sin_9)
 
     async def enviar(self, telefono: str, texto: str) -> str:
         if (
@@ -356,12 +365,19 @@ class WhatsAppCloud:
             or len(texto) > 4096
         ):
             raise ReglaDeNegocio("Destinatario o texto de WhatsApp inválido")
+        # Solo adapta el envío de los destinatarios de prueba configurados.
+        # El wa_id original se conserva en conversación, ventana y callbacks.
+        destino = (
+            telefono[:2] + telefono[3:]
+            if telefono in self._destinatarios_prueba_sin_9
+            else telefono
+        )
         solicitud = _post_json(
             f"https://graph.facebook.com/{self._version}/{self._phone_number_id}/messages",
             {
                 "messaging_product": "whatsapp",
                 "recipient_type": "individual",
-                "to": telefono,
+                "to": destino,
                 "type": "text",
                 "text": {"preview_url": False, "body": texto},
             },

@@ -60,6 +60,10 @@ class Settings(BaseSettings):
     whatsapp_app_secret: str = ""
     whatsapp_verify_token: str = ""
     whatsapp_graph_version: str = "v26.0"
+    # Remitentes 549... cuyo destinatario de prueba fue verificado en Meta como 54...
+    whatsapp_destinatarios_prueba_sin_9: list[
+        Annotated[str, Field(pattern=r"^549[0-9]{10}$")]
+    ] = Field(default_factory=list)
     whatsapp_transferencia_datos: str = ""
     gemini_api_key: str = ""
     gemini_modelo: str = "gemini-3.1-flash-lite"

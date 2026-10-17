@@ -43,5 +43,6 @@ def transporte():
             settings.whatsapp_token,
             settings.whatsapp_phone_number_id,
             settings.whatsapp_graph_version,
+            destinatarios_prueba_sin_9=settings.whatsapp_destinatarios_prueba_sin_9,
         )
     return SimuladoTransporte()

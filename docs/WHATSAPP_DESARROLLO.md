@@ -308,6 +308,7 @@ repositorio, `VITE_*`, capturas o logs. Variables del backend:
 | `WHATSAPP_APP_SECRET` | `<APP_SECRET_META>`; firma HMAC del POST del webhook. |
 | `WHATSAPP_VERIFY_TOKEN` | `<VALOR_ALEATORIO_ELEGIDO_PARA_EL_HANDSHAKE>`; distinto del app secret. |
 | `WHATSAPP_GRAPH_VERSION` | Versión explícita del recurso Meta; configuración inicial `v26.0`, revisable antes de probar. |
+| `WHATSAPP_DESTINATARIOS_PRUEBA_SIN_9` | Lista JSON de remitentes argentinos `549...` verificados en la lista de prueba de Meta como `54...`. Vacía por defecto: `[]`. Ver el caso de formato más abajo. |
 | `WHATSAPP_TRANSFERENCIA_DATOS` | Instrucciones ficticias para probar. Si está vacío, el bot deriva la consulta al personal. |
 | `GEMINI_MODO` | `simulado` por defecto; `real` para interpretar con Gemini. |
 | `GEMINI_API_KEY` | `<CLAVE_DE_GOOGLE_AI_STUDIO>`. |
@@ -402,6 +403,34 @@ No contratar otro plan ni agregar servicios para evitarlo automáticamente.
 Referencias: [variables de entorno](https://render.com/docs/configure-environment-variables),
 [FastAPI](https://render.com/docs/deploy-fastapi) y
 [limitaciones gratuitas](https://render.com/docs/free).
+
+### Destinatarios de prueba argentinos: diferencia entre `54...` y `549...`
+
+En la prueba real de esta instalación, un saludo entró con `wa_id` `549...`,
+pero Meta rechazó la respuesta a ese formato con `131030` (destinatario fuera
+de la lista permitida). Enviar al mismo celular verificado como `54...` fue
+aceptado; el callback devolvió el `wa_id` original `549...` y confirmó entrega.
+
+Para ese caso puntual, configurar en Environment del backend de Render:
+
+```text
+WHATSAPP_DESTINATARIOS_PRUEBA_SIN_9=["5492215550000"]
+```
+
+El número del ejemplo es ficticio: reemplazarlo por el **remitente completo
+que llega al webhook**, con `549`, sin `+`, espacios ni guiones. En Render,
+la clave y el valor JSON van en campos separados; no rodear el JSON con
+comillas adicionales. Agregar únicamente celulares propios de prueba cuya
+variante sin `9` ya esté verificada en Meta. Guardar y desplegar.
+
+La adaptación modifica solamente el campo `to` del envío. La conversación,
+la ventana de atención y la conciliación de estados conservan el `wa_id`
+recibido. Los demás números se envían tal como llegan. No hay un segundo
+envío automático a otra variante ante errores o resultados inciertos.
+No se debe activar esta excepción por rutina para números de producción.
+
+Luego enviar un **nuevo** saludo: los mensajes cuyos tres intentos ya se
+agotaron se conservan para revisión y no se reactivan al cambiar esta opción.
 
 ## Gemini: modelo y consumo
 

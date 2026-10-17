@@ -7,9 +7,12 @@ import json
 from urllib.error import HTTPError, URLError
 
 import pytest
+from pydantic import ValidationError
 
+from app.core.config import Settings
 from app.errores import ReglaDeNegocio
 from app.modules.whatsapp.infrastructure import proveedores
+from app.modules.whatsapp.presentation import dependencias
 
 
 def respuesta_funcion(nombre="quitar_ingrediente", argumentos=None):
@@ -289,6 +292,40 @@ async def test_cloud_envia_texto_y_devuelve_id_aceptado_no_entregado(http):
         "type": "text",
         "text": {"preview_url": False, "body": "Pedido recibido"},
     }
+
+
+@pytest.mark.parametrize(
+    ("telefono", "destino"),
+    [
+        ("5492215550000", "542215550000"),
+        ("5492215550001", "5492215550001"),
+        ("34600123456", "34600123456"),
+    ],
+)
+async def test_destinatarios_prueba_solo_adaptan_el_numero_configurado(
+    http, monkeypatch, telefono, destino
+):
+    llamadas, respuestas = http
+    respuestas.append({"messages": [{"id": "wamid.prueba"}]})
+    monkeypatch.setenv("WHATSAPP_DESTINATARIOS_PRUEBA_SIN_9", '["5492215550000"]')
+    configuracion = Settings(
+        _env_file=None,
+        whatsapp_modo="real",
+        whatsapp_token="token-ficticio",
+        whatsapp_phone_number_id="123456",
+    )
+    monkeypatch.setattr(dependencias, "settings", configuracion)
+
+    assert await dependencias.transporte().enviar(telefono, "Pedido recibido") == "wamid.prueba"
+    assert json.loads(llamadas[0][0].data)["to"] == destino
+    assert len(llamadas) == 1
+
+
+@pytest.mark.parametrize("numero", ["542215550000", "+5492215550000", "549123", "34600123456"])
+def test_destinatarios_prueba_rechazan_formato_ajeno_al_caso_argentino(monkeypatch, numero):
+    monkeypatch.setenv("WHATSAPP_DESTINATARIOS_PRUEBA_SIN_9", json.dumps([numero]))
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
 
 
 @pytest.mark.parametrize(
