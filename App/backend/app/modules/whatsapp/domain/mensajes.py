@@ -3,6 +3,8 @@
 import hashlib
 import re
 
+from app.modules.whatsapp.domain.textos import INICIO_WEB, resumen_pedido
+
 # Límite del texto que puede interpretarse; el receptor admite hasta 4096 caracteres.
 LIMITE_INTERPRETACION = 2000
 SALUDO_BORRADOR = "Hola Monu Burger, quiero confirmar mi borrador"
@@ -15,6 +17,32 @@ _TOKEN_REFERENCIA = re.compile(
     r"MB[\s\u2010-\u2015\u2212-]*[A-Za-z0-9_-]{30,}|\bMB-[A-Za-z0-9_-]*", re.I
 )
 _COMANDO_GUIADO = re.compile(r"producto\s+\d+(?:\s*;\s*variante:\s*.{1,60})?[.!]?", re.I)
+_NUMERO_PEDIDO = re.compile(r"\b(?:(?:para\s+el|del|el)\s+)?pedido\s*#\s*(\d+)\b", re.I)
+
+
+def telefono_canonico(telefono: str) -> str:
+    """La variante argentina 54/549 representa el mismo WhatsApp móvil."""
+    return "549" + telefono[2:] if telefono.startswith("54") and len(telefono) == 12 else telefono
+
+
+def huella_inicio(telefono: str, texto: str) -> str:
+    contenido = telefono_canonico(telefono) + "\n" + " ".join(texto.split()).casefold()
+    return hashlib.sha256(contenido.encode()).hexdigest()
+
+
+def es_inicio_web(texto: str) -> bool:
+    normal = " ".join(texto.split()).casefold()
+    return normal.startswith(" ".join(INICIO_WEB.split()).casefold()) or (
+        "subtotal estimado:" in normal and "armé mi pedido el" in normal
+    )
+
+
+def numeros_pedido_en(texto: str) -> set[int]:
+    return {int(n) for n in _NUMERO_PEDIDO.findall(texto)}
+
+
+def sin_selector_pedido(texto: str) -> str:
+    return " ".join(_NUMERO_PEDIDO.sub(" ", texto).split())
 
 
 def hash_referencia(referencia: str) -> str:
@@ -56,9 +84,4 @@ def es_saludo_borrador(texto: str) -> bool:
 
 
 def resumen(pedido: dict) -> str:
-    lineas = [f"Pedido #{pedido['numero']} registrado:"]
-    for item in pedido["items"]:
-        nota = f" ({item['aclaraciones']})" if item.get("aclaraciones") else ""
-        lineas.append(f"{item['cantidad']} × {item['nombre_producto']}{nota}")
-    lineas.append(f"Total: ${pedido['total']}. {pedido['tipo_entrega']}.")
-    return "\n".join(lineas)
+    return resumen_pedido(pedido)

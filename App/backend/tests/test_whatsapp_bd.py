@@ -82,7 +82,7 @@ async def test_transferencia_requiere_revision_aun_con_comprobante(uow):
     await s.procesar("test-transfer", {"accion": "consulta", "argumentos": {}})
     pedido_id = await pedido_borrador(uow, b)
     await s.recibir("test-foto", "5492215550000", "", media_id="imagen-prueba")
-    assert "revisión" in await s.procesar("test-foto", {})
+    assert "Un empleado va a revisar" in await s.procesar("test-foto", {})
     pedidos = obtener_servicio_pedidos(uow)
     with pytest.raises(ReglaDeNegocio):
         await pedidos.cambiar_estado(pedido_id, EstadoPedido.EN_PREPARACION, usuario_id=None)
@@ -258,7 +258,7 @@ async def test_opcion_obligatoria_faltante_se_pregunta_antes_de_crear(uow):
     )
     await s.recibir("incompleto", "5492215550000", b["mensaje"])
     respuesta = await s.procesar("incompleto", {"accion": "consulta", "argumentos": {}})
-    assert "variante:" in respuesta
+    assert "Opciones:" in respuesta and "Simple" in respuesta
     assert await pedido_borrador(uow, b) is None
     producto = await uow.uno("SELECT variantes FROM producto WHERE id=%s", (item["producto_id"],))
     variante = producto["variantes"][0]["nombre"]

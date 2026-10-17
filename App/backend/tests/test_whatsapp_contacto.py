@@ -72,7 +72,7 @@ async def test_checkout_publico_con_contacto_registra_un_solo_pedido_por_whatsap
     assert await uow.valor("SELECT count(*) FROM pedido") == pedidos_antes
     borrador = respuesta.json()
     for identificador in ("checkout-primero", "checkout-repetido"):
-        await servicio.recibir(identificador, "5492215550001", borrador["mensaje"])
+        await servicio.recibir(identificador, "5492215550000", borrador["mensaje"])
         await servicio.procesar(identificador, {"accion": "consulta", "argumentos": {}})
     assert await uow.valor("SELECT count(*) FROM pedido") == pedidos_antes + 1
     fila = await uow.uno(
@@ -82,7 +82,7 @@ async def test_checkout_publico_con_contacto_registra_un_solo_pedido_por_whatsap
     )
     assert fila == {
         "contacto": datos_contacto(), "nombre": "Ana Pérez",
-        "telefono_contacto": "542215550000", "whatsapp_verificado": "5492215550001",
+        "telefono_contacto": "542215550000", "whatsapp_verificado": "5492215550000",
         "usuario_id": None,
     }
 

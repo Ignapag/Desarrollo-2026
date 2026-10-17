@@ -59,8 +59,8 @@ async def _finalizar_fallido(identificador):
             await servicio.repo.finalizar(
                 entrada,
                 None,
-                "No pude aplicar la operación. Tu pedido se conserva; "
-                "solicitá atención de personal.",
+                "💬 No pude aplicar el cambio. Tu pedido sigue sin cambios. "
+                "Pedí hablar con un empleado y te ayudamos por acá.",
             )
 
 

@@ -52,6 +52,8 @@ columnas, tipos, obligatoriedad, relaciones y valores permitidos.
 
 **Contacto checkout** — sin tablas nuevas
 
+**Whatsapp mensajes amigables** — sin tablas nuevas
+
 Total: **34 tablas**.
 
 ---
@@ -554,6 +556,7 @@ _Borradores separados del pedido operativo y colas transaccionales del bot._
 | `expira_en` | TIMESTAMPTZ | Sí | default `now() + interval '30 minutes'` |
 | `ultimo_mensaje_en` | TIMESTAMPTZ | No | — |
 | `contacto` | JSONB | Sí | default `'{}'::jsonb` |
+| `inicio_hash` | TEXT | No | único |
 
 ### whatsapp_entrada
 
@@ -657,3 +660,7 @@ _Derivaciones a personal: visibles en la bandeja hasta que un empleado las resue
 ## 015_clientes_sin_cuenta — Clientes sin cuenta
 
 ## 016_contacto_checkout — Contacto checkout
+
+## 017_whatsapp_mensajes_amigables — Whatsapp mensajes amigables
+
+**Funciones:** `whatsapp_evento_estado`

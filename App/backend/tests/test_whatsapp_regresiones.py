@@ -150,7 +150,7 @@ async def test_comprobante_con_referencia_se_asocia_al_pedido_correcto(uow, work
     )
 
     respuesta = await enviar(uow, worker, s, "foto-b", f"Comprobante {ref_b}", "media-b")
-    assert "revisión humana" in respuesta
+    assert "Un empleado va a revisar" in respuesta
     assert (
         await uow.valor("SELECT pedido_id FROM whatsapp_comprobante WHERE entrada_id='foto-b'")
         == pid_b
@@ -166,7 +166,7 @@ async def test_dos_referencias_distintas_no_eligen_pedido(uow, worker):
     ref_a, pid_a = await nuevo_pedido(uow, worker, s, "a")
     ref_b, pid_b = await nuevo_pedido(uow, worker, s, "b")
     respuesta = await enviar(uow, worker, s, "dos-ref", f"sin tomate {ref_a} {ref_b}")
-    assert "una sola referencia" in respuesta
+    assert "un solo pedido" in respuesta
     assert await notas(uow, pid_a) is None and await notas(uow, pid_b) is None
 
 
@@ -438,8 +438,8 @@ async def test_mensaje_largo_no_ejecuta_el_prefijo(uow, worker, monkeypatch):
     assert await notas(uow, pid) is None
     # Ni el prefijo ni el mensaje completo llegan al intérprete.
     assert interpretador.textos == []
-    assert "2000" in respuesta and "no apliqué" in respuesta.lower()
-    assert "Reformulalo" in respuesta
+    assert "2000" in respuesta and "sin cambios" in respuesta.lower()
+    assert "más corto" in respuesta
     # Pedir reformulación no bloquea la conversación con una atención.
     assert await uow.valor("SELECT count(*) FROM whatsapp_atencion WHERE entrada_id='largo'") == 0
     respuesta = await enviar(uow, worker, s, "corto", "sin tomate")
