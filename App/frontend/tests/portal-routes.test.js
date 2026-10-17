@@ -6,6 +6,25 @@ import { renderToPipeableStream, renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
 import { createServer } from 'vite';
 
+test('el checkout completa el pais para WhatsApp y conserva el mismo celular', async (t) => {
+  const servidor = await createServer({
+    server: { middlewareMode: true, hmr: false }, logLevel: 'silent',
+  });
+  t.after(() => servidor.close());
+  const { buildWhatsAppDraftPayload } = await servidor.ssrLoadModule('/src/ordering/whatsapp.js');
+  const telefonoDe = (telefono) => buildWhatsAppDraftPayload({
+    cart: [], delivery: 'RETIRO', payment: 'EFECTIVO',
+    contact: { nombre: 'Ana', apellido: 'Pérez', telefono },
+  }).contacto.telefono;
+  for (const telefono of ['11 1234-5678', '(011) 1234 5678', '+54 11 1234 5678', '+54 9 11 1234 5678']) {
+    assert.equal(telefonoDe(telefono), '5491112345678', telefono);
+  }
+  assert.equal(telefonoDe('221 555 0123'), '5492215550123');
+  for (const telefono of ['', '12345', '11 15 1234 5678', '5495491112345678']) {
+    assert.equal(telefonoDe(telefono), '', telefono);
+  }
+});
+
 async function menuConEstado(t, estado) {
   const servidor = await createServer({
     mode: 'clientes', server: { middlewareMode: true, hmr: false }, logLevel: 'silent',

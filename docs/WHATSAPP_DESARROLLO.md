@@ -131,7 +131,9 @@ la web; otros cambios se consultan por WhatsApp.
 
 1. Abrir `/` o `/menu` sin sesión, agregar La Típica Doble al carrito y elegir
    nombre, apellido y **el mismo WhatsApp desde el que enviará el pedido**, con
-   código de país, entrega y pago. No requiere
+   código de área y número (10 dígitos, sin 0 ni 15), entrega y pago. La web
+   completa el prefijo argentino automáticamente; también acepta pegar el número
+   completo con `+54`. No requiere
    cuenta. El carrito se abre como modal centrado; **Continuar por WhatsApp**
    guarda un borrador y habilita **Abrir WhatsApp**. El pedido se registra al
    enviar el mensaje. Conserva el carrito y permite copiar el mensaje desde

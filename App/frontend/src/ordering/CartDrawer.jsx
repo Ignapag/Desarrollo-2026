@@ -110,7 +110,7 @@ export default function CartDrawer({ isOpen, onClose }) {
     for (const field of ['nombre', 'apellido', 'telefono']) {
       const input = event.currentTarget.elements.namedItem(field);
       const valid = field === 'telefono' ? /^[0-9]{11,15}$/.test(payload.contacto.telefono) : Boolean(contact[field].trim());
-      input.setCustomValidity(valid ? '' : field === 'telefono' ? 'Ingresá entre 11 y 15 dígitos, con código de país.' : 'Completá este campo.');
+      input.setCustomValidity(valid ? '' : field === 'telefono' ? 'Ingresá código de área y número (10 dígitos), sin 0 ni 15.' : 'Completá este campo.');
       if (!valid) { input.reportValidity(); return; }
     }
     void prepareWhatsApp();
@@ -184,9 +184,9 @@ export default function CartDrawer({ isOpen, onClose }) {
                       </label>
                     </div>
                     <label htmlFor="checkout-phone" className={labelClass}><span>Tu WhatsApp</span>
-                      <input id="checkout-phone" name="telefono" type="tel" inputMode="tel" required maxLength={25} pattern="[+0-9\(\) .\-]+" autoComplete="tel" aria-describedby="checkout-phone-help" placeholder="+54 9 11 1234 5678" value={contact.telefono} onChange={updateContact} className={inputClass} />
+                      <input id="checkout-phone" name="telefono" type="tel" inputMode="tel" required maxLength={25} pattern="[+0-9\(\) .\-]+" autoComplete="tel-national" aria-describedby="checkout-phone-help" placeholder="11 1234 5678" value={contact.telefono} onChange={updateContact} className={inputClass} />
                     </label>
-                    <p id="checkout-phone-help" className="!mt-1.5 text-xs text-monu-text/70">El mismo WhatsApp desde el que vas a enviar el pedido. Con código de país, sin 0 ni 15.</p>
+                    <p id="checkout-phone-help" className="!mt-1.5 text-xs text-monu-text/70">Código de área y número, sin 0 ni 15. Usá el WhatsApp desde el que vas a enviar el pedido.</p>
                   </fieldset>
                   <fieldset disabled={busy} className="space-y-4 border-t border-monu-green/10 pt-5">
                     <legend className="sr-only">Entrega y pago</legend>
