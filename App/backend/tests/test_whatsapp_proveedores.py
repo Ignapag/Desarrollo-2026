@@ -346,6 +346,40 @@ async def test_cloud_distingue_rechazo_de_resultado_incierto(http, codigo, tipo_
 
 
 @pytest.mark.parametrize(
+    ("cuerpo", "codigo_meta"),
+    [
+        (b'{"error":{"code":131030,"message":"token-secreto"}}', 131030),
+        (b'{"error":{"code":190,"message":"token-secreto"}}', 190),
+        (b'{"error":{"code":"token-secreto"}}', None),
+        (b'{"error":{"code":true}}', None),
+        (b'[]', None),
+        (b'no-json token-secreto', None),
+        (b'x' * 32769, None),
+    ],
+    ids=["no-permitido", "token", "codigo-texto", "codigo-bool", "lista", "no-json", "excesivo"],
+)
+async def test_cloud_informa_codigo_http_sin_filtrar_datos_del_proveedor(
+    http, caplog, cuerpo, codigo_meta
+):
+    llamadas, respuestas = http
+    respuestas.append(
+        HTTPError("https://graph.facebook.com", 400, "token-secreto", {}, io.BytesIO(cuerpo))
+    )
+    transporte = proveedores.WhatsAppCloud(
+        "token-secreto", "123", "v24.0", destinatarios_prueba_sin_9=["5492215550000"]
+    )
+    with pytest.raises(ReglaDeNegocio):
+        await transporte.enviar("5492215550000", "mensaje-privado")
+    registros = [r for r in caplog.records if r.name == "monuburger.whatsapp.proveedor"]
+    assert len(registros) == 1
+    assert registros[0].args == (400, codigo_meta, True)
+    assert "token-secreto" not in caplog.text
+    assert "mensaje-privado" not in caplog.text
+    assert "5492215550000" not in caplog.text
+    assert len(llamadas) == 1
+
+
+@pytest.mark.parametrize(
     "respuesta",
     [TimeoutError("token-secreto"), {}, {"messages": []}, (b"x" * 32769, {}), (b"no-json", {})],
 )

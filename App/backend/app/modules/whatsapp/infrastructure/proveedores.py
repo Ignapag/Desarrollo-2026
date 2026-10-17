@@ -15,6 +15,7 @@ import hashlib
 import hmac
 import http.client
 import json
+import logging
 import re
 import unicodedata
 from urllib.error import HTTPError
@@ -53,6 +54,20 @@ class _SinRedirecciones(HTTPRedirectHandler):
 
 
 _HTTP = build_opener(_SinRedirecciones())
+_log = logging.getLogger("monuburger.whatsapp.proveedor")
+
+
+def _codigo_error_meta(error: HTTPError) -> int | None:
+    """Extrae solo el código numérico; nunca registra el cuerpo del proveedor."""
+    try:
+        with error:
+            cuerpo = error.read(_MAX_RESPUESTA + 1)
+        if len(cuerpo) > _MAX_RESPUESTA:
+            return None
+        codigo = json.loads(cuerpo).get("error", {}).get("code")
+        return codigo if type(codigo) is int else None
+    except _ERRORES_PROVEEDOR:
+        return None
 
 
 def _leer_json(solicitud: Request, timeout: float) -> dict:
@@ -390,6 +405,12 @@ class WhatsAppCloud:
                 raise ValueError("ID de proveedor ausente")
             return identificador
         except HTTPError as error:
+            _log.warning(
+                "whatsapp_envio_http http=%s codigo_meta=%s destino_prueba_adaptado=%s",
+                error.code,
+                _codigo_error_meta(error),
+                destino != telefono,
+            )
             if error.code == 408 or error.code >= 500:
                 raise ErrorEnvioIncierto("Resultado de envío de WhatsApp incierto") from None
             raise ReglaDeNegocio("WhatsApp rechazó el envío del mensaje") from None

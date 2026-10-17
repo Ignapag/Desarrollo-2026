@@ -432,6 +432,13 @@ No se debe activar esta excepción por rutina para números de producción.
 Luego enviar un **nuevo** saludo: los mensajes cuyos tres intentos ya se
 agotaron se conservan para revisión y no se reactivan al cambiar esta opción.
 
+Si Meta rechaza una salida, buscar en los logs del backend la línea
+`whatsapp_envio_http`: informa `http`, `codigo_meta` (o `None` si no se pudo
+leer un código numérico) y `destino_prueba_adaptado`. No incluye teléfono,
+texto, token ni cuerpo del proveedor. `destino_prueba_adaptado=True` permite
+comprobar que la excepción configurada se aplicó al envío que falló. Esta
+observación conserva los estados y las reglas de reintento del worker.
+
 ## Gemini: modelo y consumo
 
 La documentación oficial consultada el 17 de octubre de 2026 publica
