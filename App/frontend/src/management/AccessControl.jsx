@@ -1,4 +1,4 @@
-﻿import { ShieldCheck, Users, Key } from 'lucide-react';
+﻿import { Users, Key } from 'lucide-react';
 export default function AccessControl() {
   return (
     <div className='space-y-6'>

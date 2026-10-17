@@ -60,10 +60,6 @@ export function AuthProvider({ children }) {
     }
   };
 
-  const register = async () => ({
-    error: 'El alta publica de clientes aun no esta habilitada. Solicitala al administrador.',
-  });
-
   const logout = async () => {
     try {
       await apiFetch('/api/auth/logout', { method: 'POST' });
@@ -74,7 +70,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

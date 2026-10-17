@@ -1,5 +1,5 @@
 ﻿import { useData } from '../shared/store/DataContext';
-import { Mail, Phone, Calendar, Star } from 'lucide-react';
+import { Phone, Star } from 'lucide-react';
 
 export default function Customers() {
   const { state } = useData();

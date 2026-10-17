@@ -1,4 +1,4 @@
-﻿import { BarChart2, PieChart, TrendingUp } from 'lucide-react';
+﻿import { BarChart2, PieChart } from 'lucide-react';
 export default function Analytics() {
   return (
     <div className='space-y-6'>
