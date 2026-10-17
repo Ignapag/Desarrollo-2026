@@ -25,7 +25,9 @@ def respuesta_funcion(nombre="quitar_ingrediente", argumentos=None):
                         {
                             "functionCall": {
                                 "name": nombre,
-                                "args": argumentos or {"ingrediente": "tomate"},
+                                "args": argumentos
+                                if argumentos is not None
+                                else {"ingrediente": "tomate"},
                             },
                         }
                     ]
@@ -85,6 +87,8 @@ def http(monkeypatch):
         ),
         ("¿cuál es el estado?", "consulta", {}),
         ("quiero hablar con una persona", "humano", {}),
+        ("quiero cambiar la dirección", "preguntar", {"campo": "direccion"}),
+        ("quiero cambiar la dir", "preguntar", {"campo": "direccion"}),
     ],
 )
 async def test_simulador_devuelve_intenciones_sin_inventar_producto(texto, accion, argumentos):
@@ -165,6 +169,7 @@ async def test_gemini_solo_pide_una_accion_y_omite_contexto_personal(http):
         "confirmar",
         "consulta",
         "humano",
+        "preguntar",
     }
     contexto_enviado = datos["contents"][0]["parts"][0]["text"]
     assert "Doble" in contexto_enviado
@@ -184,6 +189,9 @@ async def test_gemini_solo_pide_una_accion_y_omite_contexto_personal(http):
         respuesta_funcion("cantidad", {"cantidad": 2, "precio": 1}),
         respuesta_funcion("datos", {"metodo_pago": "gratis"}),
         respuesta_funcion("datos", {"direccion": "x" * 301}),
+        respuesta_funcion("preguntar", {}),
+        respuesta_funcion("preguntar", {"campo": "telefono"}),
+        respuesta_funcion("preguntar", {"campo": "direccion", "texto": "calle privada"}),
         {"candidates": [{"content": {"parts": [{"text": "Confirmado y pagado"}]}}]},
         {
             "candidates": [
@@ -260,6 +268,211 @@ async def test_gemini_no_inventa_confirmacion_a_partir_del_modelo(http):
     )
     resultado = await proveedores.GeminiInterpretador("ficticia", "modelo").interpretar("hola", {})
     assert resultado == {"accion": "humano", "argumentos": {}, "motivo": "PROVEEDOR"}
+
+
+@pytest.mark.parametrize(
+    ("campo", "texto"),
+    [("direccion", "Calle 43"), ("numero", "123"), ("localidad", "Villa Elisa")],
+)
+async def test_simulado_usa_pregunta_pendiente_para_respuesta_corta(campo, texto):
+    resultado = await proveedores.SimuladoInterpretador().interpretar(
+        texto, {"conversacion": {"solicitud_pendiente": campo}}
+    )
+    assert resultado == {"accion": "datos", "argumentos": {campo: texto}}
+
+
+async def test_simulado_pregunta_pendiente_no_sustituye_pedido_de_personal():
+    resultado = await proveedores.SimuladoInterpretador().interpretar(
+        "quiero hablar con una persona", {"conversacion": {"solicitud_pendiente": "direccion"}}
+    )
+    assert resultado == {"accion": "humano", "argumentos": {}}
+
+
+def test_contexto_proyecta_solo_memoria_segura_acotada():
+    contexto = {
+        "estado_pedido": "CONFIRMADO",
+        "tipo_entrega": "DELIVERY",
+        "metodo_pago": "EFECTIVO",
+        "telefono": "telefono-privado",
+        "direccion": "calle-privada",
+        "conversacion": {
+            "solicitud_pendiente": "numero",
+            "datos_presentes": [
+                "direccion",
+                "numero",
+                "localidad",
+                "referencias",
+                "tipo_entrega",
+                "metodo_pago",
+                "telefono",
+                {"secreto": "oculto"},
+            ],
+            "datos": {"direccion": "calle-privada"},
+            "ultimos_turnos": [
+                {"cliente": "turno-viejo", "asistente": "turno-viejo"},
+                *[{"cliente": "c" * 300, "asistente": "a" * 500, "telefono": "telefono-privado"}]
+                * 4,
+            ],
+        },
+    }
+    seguro = proveedores._contexto_acotado(contexto)
+    assert seguro["estado_pedido"] == "CONFIRMADO"
+    assert seguro["tipo_entrega"] == "DELIVERY" and seguro["metodo_pago"] == "EFECTIVO"
+    memoria = seguro["conversacion"]
+    assert memoria["solicitud_pendiente"] == "numero"
+    assert memoria["datos_presentes"] == [
+        "direccion",
+        "numero",
+        "localidad",
+        "referencias",
+        "tipo_entrega",
+        "metodo_pago",
+    ]
+    assert len(memoria["ultimos_turnos"]) == 4
+    assert all(
+        turno == {"cliente": "c" * 240, "asistente": "a" * 400}
+        for turno in memoria["ultimos_turnos"]
+    )
+    assert all(
+        privado not in json.dumps(seguro)
+        for privado in ("calle-privada", "telefono-privado", "oculto", "turno-viejo")
+    )
+
+
+def test_contexto_rechaza_objetos_y_enumeraciones_no_admitidas():
+    seguro = proveedores._contexto_acotado(
+        {
+            "items": None,
+            "estado_pedido": "estado-inventado",
+            "tipo_entrega": "donde sea",
+            "metodo_pago": {"token": "privado"},
+            "conversacion": {
+                "solicitud_pendiente": "telefono",
+                "datos_presentes": {"direccion": "privada"},
+                "ultimos_turnos": [
+                    {"cliente": {"direccion": "privada"}, "asistente": ["privado"]},
+                    "privado",
+                ],
+            },
+        }
+    )
+    assert seguro["conversacion"] == {
+        "solicitud_pendiente": None,
+        "datos_presentes": [],
+        "ultimos_turnos": [],
+    }
+    assert all(campo not in seguro for campo in ("estado_pedido", "tipo_entrega", "metodo_pago"))
+    assert "privad" not in json.dumps(seguro)
+
+
+async def test_gemini_pregunta_datos_faltantes_y_usa_memoria_sin_confirmar(http):
+    llamadas, respuestas = http
+    respuestas.append(respuesta_funcion("preguntar", {"campo": "numero"}))
+    contexto = {
+        "conversacion": {
+            "solicitud_pendiente": "direccion",
+            "datos_presentes": ["direccion"],
+            "ultimos_turnos": [
+                {"cliente": "Solicitó cambiar dirección", "asistente": "¿Cuál es la calle?"}
+            ],
+        }
+    }
+    resultado = await proveedores.GeminiInterpretador("ficticia", "modelo").interpretar(
+        "Calle 43", contexto
+    )
+    assert resultado == {"accion": "preguntar", "argumentos": {"campo": "numero"}}
+    enviado = json.loads(llamadas[0][0].data)
+    instrucciones = enviado["systemInstruction"]["parts"][0]["text"]
+    assert "pregunta pendiente" in instrucciones and "historial" in instrucciones
+    assert "preguntar" in instrucciones
+    assert "solicitud_pendiente" in enviado["contents"][0]["parts"][0]["text"]
+    respuestas.append(respuesta_funcion("confirmar", {}))
+    contexto["conversacion"]["ultimos_turnos"] = [{"cliente": "confirmar", "asistente": "resumen"}]
+    resultado = await proveedores.GeminiInterpretador("ficticia", "modelo").interpretar(
+        "sí", contexto
+    )
+    assert resultado["motivo"] == "PROVEEDOR"
+
+
+async def test_gemini_acepta_confirmacion_explicita_solo_del_turno_actual(http):
+    _, respuestas = http
+    respuestas.append(respuesta_funcion("confirmar", {}))
+    resultado = await proveedores.GeminiInterpretador("ficticia", "modelo").interpretar(
+        "confirmar",
+        {
+            "conversacion": {
+                "solicitud_pendiente": "numero",
+                "datos_presentes": [],
+                "ultimos_turnos": [
+                    {"cliente": "Solicitó una consulta", "asistente": "Consulta atendida"}
+                ],
+            }
+        },
+    )
+    assert resultado == {"accion": "confirmar", "argumentos": {}}
+
+
+@pytest.mark.parametrize("codigo", [500, 502, 503, 504])
+async def test_gemini_reintenta_una_vez_error_transitorio_sin_filtrar_datos(
+    http, monkeypatch, caplog, codigo
+):
+    llamadas, respuestas = http
+    pausas = []
+
+    async def pausa(demora):
+        pausas.append(demora)
+
+    monkeypatch.setattr(proveedores.asyncio, "sleep", pausa)
+    respuestas.extend(
+        [
+            HTTPError(
+                "https://proveedor.test/clave-secreta",
+                codigo,
+                "texto-privado",
+                {},
+                io.BytesIO(b"cuerpo-secreto"),
+            ),
+            respuesta_funcion("preguntar", {"campo": "direccion"}),
+        ]
+    )
+    resultado = await proveedores.GeminiInterpretador("api-key-secreta", "modelo").interpretar(
+        "mensaje-privado", {}
+    )
+    assert resultado == {"accion": "preguntar", "argumentos": {"campo": "direccion"}}
+    assert len(llamadas) == 2 and len(pausas) == 1 and 0 < pausas[0] <= 0.5
+    assert f"http={codigo}" in caplog.text and "HTTPError" in caplog.text
+    assert all(
+        privado not in caplog.text
+        for privado in (
+            "clave-secreta",
+            "texto-privado",
+            "cuerpo-secreto",
+            "api-key-secreta",
+            "mensaje-privado",
+        )
+    )
+
+
+@pytest.mark.parametrize("codigo", [400, 401, 403, 408, 429, 501])
+async def test_gemini_no_reintenta_otros_errores_http(http, codigo):
+    llamadas, respuestas = http
+    respuestas.append(HTTPError("https://proveedor.test", codigo, "privado", {}, None))
+    resultado = await proveedores.GeminiInterpretador("ficticia", "modelo").interpretar("hola", {})
+    assert resultado["motivo"] == "PROVEEDOR" and len(llamadas) == 1
+
+
+async def test_gemini_agota_un_solo_reintento_transitorio(http, monkeypatch):
+    llamadas, respuestas = http
+
+    async def pausa(_):
+        return None
+
+    monkeypatch.setattr(proveedores.asyncio, "sleep", pausa)
+    respuestas.extend(
+        [HTTPError("https://proveedor.test", 503, "privado", {}, None) for _ in range(2)]
+    )
+    resultado = await proveedores.GeminiInterpretador("ficticia", "modelo").interpretar("hola", {})
+    assert resultado["motivo"] == "PROVEEDOR" and len(llamadas) == 2
 
 
 async def test_gemini_acota_contexto_y_rechaza_mensaje_excesivo(http):
@@ -352,9 +565,9 @@ async def test_cloud_distingue_rechazo_de_resultado_incierto(http, codigo, tipo_
         (b'{"error":{"code":190,"message":"token-secreto"}}', 190),
         (b'{"error":{"code":"token-secreto"}}', None),
         (b'{"error":{"code":true}}', None),
-        (b'[]', None),
-        (b'no-json token-secreto', None),
-        (b'x' * 32769, None),
+        (b"[]", None),
+        (b"no-json token-secreto", None),
+        (b"x" * 32769, None),
     ],
     ids=["no-permitido", "token", "codigo-texto", "codigo-bool", "lista", "no-json", "excesivo"],
 )

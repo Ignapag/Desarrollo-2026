@@ -106,9 +106,10 @@ class ColaWhatsAppSQL:
     async def _atenciones(self):
         """Derivaciones pendientes con lo necesario para contactar y resolver."""
         atenciones = await self.uow.todos(
-            """SELECT a.id,a.referencia_hash,a.motivo,a.estado,a.creado_en,
+            """SELECT a.id,a.referencia_hash,a.motivo,a.estado,a.creado_en,a.entrada_id,
             b.telefono,b.estado estado_conversacion,b.tipo_entrega,b.metodo_pago,b.items,
-            b.pedido_id,(b.pedido_id IS NULL AND b.expira_en<=now()) borrador_vencido,
+            b.pedido_id,b.contexto_chat,
+            (b.pedido_id IS NULL AND b.expira_en<=now()) borrador_vencido,
             p.numero,p.estado estado_pedido,p.total,
             COALESCE(NULLIF(concat_ws(' ',u.nombre,u.apellido), ''), c.nombre) cliente,
             e.texto mensaje
@@ -155,6 +156,26 @@ class ColaWhatsAppSQL:
             items_borrador = a.pop("items")
             # El personal ve el mensaje completo; nunca la referencia de acceso.
             a["mensaje"] = ocultar_referencias(a["mensaje"])
+            chat = a.pop("contexto_chat") or {}
+            origen = a.pop("entrada_id")
+            if a["motivo"] == "SOLICITUD" and (
+                chat.get("solicitud_id") == origen
+                or chat.get("pregunta") in {"direccion", "numero", "localidad"}
+            ):
+                datos = chat.get("datos") or {}
+                detalle = [
+                    f"{etiqueta}: {datos[campo]}"
+                    for campo, etiqueta in (
+                        ("direccion", "Calle"), ("numero", "Número"), ("localidad", "Localidad"),
+                        ("referencias", "Referencia"), ("tipo_entrega", "Entrega solicitada"),
+                        ("metodo_pago", "Pago solicitado"),
+                    ) if isinstance(datos.get(campo), str)
+                ]
+                if detalle:
+                    a["mensaje"] += (
+                        "\n\nDatos solicitados por el cliente (sin aplicar):\n"
+                        + "\n".join(ocultar_referencias(d) for d in detalle)
+                    )
             a["mensajes"] = [
                 {
                     "texto": ocultar_referencias(m["texto"]),

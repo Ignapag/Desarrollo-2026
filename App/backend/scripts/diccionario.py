@@ -106,6 +106,21 @@ def _agregar_restriccion(tabla: Tabla, definicion: str) -> None:
                     columna.referencia = ".".join(referencia.groups())
         if clase == "UNIQUE" and len(nombres) > 1:
             tabla.unicos.append(", ".join(nombres))
+    elif re.match(r"CHECK\s*\(", definicion, re.I):
+        # PostgreSQL usa tabla_check cuando el CHECK abarca varias columnas.
+        expresion = re.sub(r"'[^']*'", "", definicion)
+        nombres = [
+            c.nombre for c in tabla.columnas
+            if re.search(rf"\b{re.escape(c.nombre)}\b", expresion, re.I)
+        ]
+        base = tabla.nombre + (f"_{nombres[0]}" if len(nombres) == 1 else "") + "_check"
+        if nombre is None:
+            nombre = base
+            indice = 1
+            while nombre in tabla.restricciones:
+                nombre = f"{base}{indice}"
+                indice += 1
+        tabla.restricciones[nombre] = ("CHECK", nombres)
     # Los CHECK enumerados se muestran en la columna, igual que en CREATE.
     for columna in tabla.columnas:
         valores = _valores_de_check(definicion, columna.nombre)

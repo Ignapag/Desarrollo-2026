@@ -12,6 +12,40 @@ class RepositorioBotSQL:
     def __init__(self, uow: UnidadDeTrabajo):
         self.uow = uow
 
+    async def memoria(self, telefono, referencia_hash):
+        filas = await self.uow.todos(
+            """SELECT memoria_ia FROM whatsapp_entrada
+            WHERE telefono=%s AND referencia_hash=%s AND estado='PROCESADO'
+            AND memoria_ia IS NOT NULL AND creado_en>now()-interval '30 minutes'
+            ORDER BY orden_recibido DESC LIMIT 4""", (telefono, referencia_hash),
+        )
+        return [fila["memoria_ia"] for fila in reversed(filas)]
+
+    async def recuperar_proveedor(self, b):
+        fila = await self.uow.uno(
+            """WITH elegible AS (
+                SELECT a.id FROM whatsapp_atencion a WHERE a.referencia_hash=%s
+                AND a.estado='PENDIENTE' AND a.motivo='PROVEEDOR' AND NOT EXISTS (
+                    SELECT 1 FROM whatsapp_salida s WHERE s.atencion_id=a.id
+                ) FOR UPDATE OF a SKIP LOCKED
+            ) UPDATE whatsapp_atencion a SET estado='RESUELTA',
+            resolucion='El bot retomó la conversación; incidente técnico sin intervención humana',
+            resuelta_en=now() WHERE a.id IN (SELECT id FROM elegible)
+            RETURNING a.id""", (b["referencia_hash"],),
+        )
+        if fila:
+            b["estado"] = "CREADO" if b["pedido_id"] else "VINCULADO"
+        return fila is not None
+
+    async def atencion_humana(self, referencia_hash):
+        return await self.uow.valor(
+            """SELECT EXISTS (SELECT 1 FROM whatsapp_atencion a
+            WHERE a.referencia_hash=%s AND a.estado='PENDIENTE'
+            AND (a.motivo='SOLICITUD' OR EXISTS (
+                SELECT 1 FROM whatsapp_salida s WHERE s.atencion_id=a.id
+            )))""", (referencia_hash,),
+        )
+
     async def sesion(self, telefono, bloquear=False):
         if bloquear:
             await self.uow.valor("SELECT pg_advisory_xact_lock(hashtext(%s))", (telefono,))
@@ -157,7 +191,8 @@ class RepositorioBotSQL:
     async def actualizar_borrador(self, b):
         await self.uow.ejecutar(
             """UPDATE whatsapp_borrador SET items=%s,tipo_entrega=%s,metodo_pago=%s,direccion=%s,
-            estado=%s,pedido_id=%s,version=%s,propuesta=%s,estado_pago=%s,ultimo_mensaje_en=now()
+            estado=%s,pedido_id=%s,version=%s,propuesta=%s,estado_pago=%s,
+            contexto_chat=%s,ultimo_mensaje_en=now()
             WHERE referencia_hash=%s""",
             (
                 Jsonb(b["items"]),
@@ -169,6 +204,7 @@ class RepositorioBotSQL:
                 b["version"],
                 Jsonb(b["propuesta"]),
                 b["estado_pago"],
+                Jsonb(b.get("contexto_chat") or {}),
                 b["referencia_hash"],
             ),
         )
@@ -177,9 +213,11 @@ class RepositorioBotSQL:
         if b:
             await self.actualizar_borrador(b)
         await self.uow.ejecutar(
-            """UPDATE whatsapp_entrada SET estado='PROCESADO',respuesta=%s,referencia_hash=%s
+            """UPDATE whatsapp_entrada SET estado='PROCESADO',respuesta=%s,referencia_hash=%s,
+            memoria_ia=%s
             WHERE id=%s""",
-            (respuesta, b["referencia_hash"] if b else None, entrada["id"]),
+            (respuesta, b["referencia_hash"] if b else None,
+             Jsonb(entrada["_memoria_ia"]) if entrada.get("_memoria_ia") else None, entrada["id"]),
         )
         await self.encolar("respuesta:" + entrada["id"], entrada["telefono"], respuesta)
 

@@ -5,6 +5,7 @@ from app.modules.whatsapp.domain.conversacion import (
     pregunta_pedido,
     respuesta_cortesia,
 )
+from app.modules.whatsapp.domain.memoria import pregunta_actual
 from app.modules.whatsapp.domain.mensajes import (
     es_inicio_web,
     hash_referencia,
@@ -68,13 +69,18 @@ async def resolver_conversacion(repo, entrada, bloquear=False):
     if not opciones:
         return None, BIENVENIDA
     por_ref = {o["referencia_hash"]: o for o in opciones}
+    foco = None
+    if sesion and sesion["referencia_hash"] in por_ref:
+        foco = await repo.conversacion(telefono, sesion["referencia_hash"], **kwargs)
+        if foco and pregunta_actual(foco):
+            return foco, None
     if not (sesion and sesion["solicitud_id"]) and texto.strip().casefold().startswith("el "):
         elegida = elegir_conversacion(texto, opciones)
         if elegida:
             entrada["_eleccion"] = True
             return await repo.conversacion(telefono, elegida["referencia_hash"], **kwargs), None
-    if sesion and sesion["referencia_hash"] in por_ref:
-        return await repo.conversacion(telefono, sesion["referencia_hash"], **kwargs), None
+    if foco:
+        return foco, None
     refs = list(por_ref)
     if sesion and sesion["solicitud_id"]:
         # Nunca reinterpretar «1» contra una lista que cambió desde la pregunta.
