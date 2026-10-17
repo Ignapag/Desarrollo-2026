@@ -98,8 +98,22 @@ class ServicioBot:
         self.stock = stock
 
     async def crear_borrador(self, cliente_id: int | None, datos: dict) -> dict:
-        # El endpoint público nunca acepta identidad ni teléfono declarados. Los
-        # borradores internos anteriores conservan su asociación autenticada.
+        # El contacto declarado no autentica al cliente: solo Meta vincula el remitente.
+        # Los borradores internos anteriores conservan su asociación autenticada.
+        contacto = datos.get("contacto")
+        if contacto is not None:
+            if not isinstance(contacto, dict) or set(contacto) != {
+                "nombre", "apellido", "telefono"
+            }:
+                raise DatosInvalidos("Completá nombre, apellido y teléfono de contacto")
+            if any(
+                not isinstance(contacto[campo], str) or not 1 <= len(contacto[campo].strip()) <= 80
+                for campo in ("nombre", "apellido")
+            ) or not isinstance(contacto["telefono"], str) or not re.fullmatch(
+                r"[0-9]{11,15}", contacto["telefono"]
+            ):
+                raise DatosInvalidos("Revisá el nombre, apellido y teléfono internacional")
+            datos = {**datos, "contacto": {k: v.strip() for k, v in contacto.items()}}
         if cliente_id is not None:
             if not re.fullmatch(r"[0-9]{11,15}", datos.get("telefono", "")):
                 raise DatosInvalidos("Usá teléfono internacional, solo 11 a 15 dígitos")

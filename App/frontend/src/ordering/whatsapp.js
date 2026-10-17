@@ -1,9 +1,14 @@
 import { apiFetch } from '../shared/api/http';
 
-export function buildWhatsAppDraftPayload({ cart, delivery, payment, address, number, zone }) {
+export function buildWhatsAppDraftPayload({ cart, delivery, payment, address, number, zone, contact }) {
   return {
     tipo_entrega: delivery,
     metodo_pago: payment,
+    contacto: contact ? {
+      nombre: contact.nombre.trim(),
+      apellido: contact.apellido.trim(),
+      telefono: contact.telefono.replace(/\D/g, ''),
+    } : null,
     direccion_nueva: delivery === 'DELIVERY'
       ? { calle: address.trim(), numero: number.trim(), localidad: zone }
       : null,

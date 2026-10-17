@@ -14,8 +14,8 @@ class RepositorioBotSQL:
     async def crear_borrador(self, referencia_hash, cliente_id, datos):
         return await self.uow.uno(
             """INSERT INTO whatsapp_borrador
-            (referencia_hash,cliente_id,telefono,items,tipo_entrega,metodo_pago,direccion)
-            VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
+            (referencia_hash,cliente_id,telefono,items,tipo_entrega,metodo_pago,direccion,contacto)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
             (
                 referencia_hash,
                 cliente_id,
@@ -24,6 +24,7 @@ class RepositorioBotSQL:
                 datos.get("tipo_entrega"),
                 datos.get("metodo_pago"),
                 Jsonb(datos.get("direccion_nueva")),
+                Jsonb(datos.get("contacto") or {}),
             ),
         )
 
@@ -73,11 +74,26 @@ class RepositorioBotSQL:
             cliente_id = await self.uow.valor(
                 "SELECT id FROM cliente WHERE whatsapp_verificado=%s", (telefono,)
             )
+            contacto = b.get("contacto") or {}
+            nombre_contacto = " ".join(
+                contacto.get(campo, "") for campo in ("nombre", "apellido")
+            ).strip()
             if cliente_id is None:
                 cliente_id = await self.uow.valor(
-                    """INSERT INTO cliente (nombre,telefono_whatsapp,whatsapp_verificado)
-                    VALUES (%s,%s,%s) RETURNING id""",
-                    (nombre_remitente or f"WhatsApp {telefono}", telefono, telefono),
+                    """INSERT INTO cliente
+                    (nombre,telefono_whatsapp,whatsapp_verificado,telefono_contacto)
+                    VALUES (%s,%s,%s,%s) RETURNING id""",
+                    (
+                        nombre_contacto or nombre_remitente or f"WhatsApp {telefono}",
+                        telefono,
+                        telefono,
+                        contacto.get("telefono"),
+                    ),
+                )
+            elif nombre_contacto:
+                await self.uow.ejecutar(
+                    "UPDATE cliente SET nombre=%s,telefono_contacto=%s WHERE id=%s",
+                    (nombre_contacto, contacto.get("telefono"), cliente_id),
                 )
             await self.uow.ejecutar(
                 """UPDATE whatsapp_borrador SET telefono=%s,cliente_id=%s

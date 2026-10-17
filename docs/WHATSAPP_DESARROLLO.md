@@ -121,9 +121,11 @@ permite inspeccionar las operaciones internas.
 Recorrido manual:
 
 1. Abrir `/` o `/menu` sin sesión, agregar La Típica Doble al carrito y elegir
-   entrega y pago. No se pide nombre, teléfono ni credenciales. **Preparar mensaje de
-   WhatsApp** guarda un borrador; conserva el carrito y permite copiar el
-   mensaje. En simulación sin número de negocio no se abre un chat conectado.
+   nombre, apellido y teléfono con código de país, entrega y pago. No requiere
+   cuenta. El carrito se abre como modal centrado; **Continuar por WhatsApp**
+   guarda un borrador y habilita **Abrir WhatsApp**. El pedido se registra al
+   enviar el mensaje. Conserva el carrito y permite copiar el mensaje desde
+   **Ver o copiar mensaje**. En simulación sin número de negocio no se abre un chat conectado.
    Para una recompra idéntica, **Preparar otro pedido igual** genera otra
    referencia; reenviar el mensaje anterior conserva el pedido original.
 2. En una sesión independiente de empleado o administrador, usar `/docs` y
@@ -171,7 +173,7 @@ Los contratos y permisos efectivos están en
 
 | Endpoint | Acceso y comportamiento |
 | --- | --- |
-| `POST /api/whatsapp/borradores` | Público, sin sesión; `201`. Acepta items y, opcionalmente, modalidad, pago y dirección nueva. Rechaza teléfono, cliente_id, precios y campos extra. Devuelve referencia, mensaje, vencimiento y enlace si hay número configurado. No crea cliente ni pedido operativo. |
+| `POST /api/whatsapp/borradores` | Público, sin sesión; `201`. Acepta items y, opcionalmente, modalidad, pago, dirección nueva y `contacto` con `nombre`, `apellido` (1–80 caracteres) y `telefono` (11–15 dígitos internacionales). El frontend requiere los tres datos; el contacto es opcional en la API para compatibilidad. Rechaza teléfono de identidad en la raíz, cliente_id, precios y campos extra. Devuelve referencia, mensaje, vencimiento y enlace si hay número configurado. No crea cliente ni pedido operativo. |
 | `POST /api/whatsapp/simular` | Empleado, administrador o dueño; solo entorno no productivo con WhatsApp simulado. `202`, guarda una entrada con `id`, `telefono`, `texto` y `media_id` opcional. |
 | `GET /api/whatsapp/bandeja` | Empleado, administrador o dueño. Devuelve `comprobantes` con total vigente, `cambios` pendientes, `atenciones` pendientes y `salidas`. Cada atención incluye `id`, `motivo` (`SOLICITUD` o `PROVEEDOR`), `telefono`, `cliente`, `pedido_id`/`numero`/`estado_pedido`/`total` (nulos sin pedido), `tipo_entrega`, `metodo_pago`, `borrador_vencido`, `productos`, `mensaje` que la originó, hasta cinco `mensajes` recientes y sus `respuestas` con el estado de la outbox. Las referencias `MB-` se reemplazan por `[referencia]`. |
 | `POST /api/whatsapp/atenciones/{id}/respuesta` | Mismos roles internos. Cuerpo `texto` (1 a 1000 caracteres) y `solicitud_id` (UUID). `202`: crea una salida en `whatsapp_salida` con `atencion_id` y `enviado_por`; devuelve `id`, `atencion_id` y `estado` (`PENDIENTE`). No significa enviado. Repetir el mismo `solicitud_id` devuelve la misma salida; una atención resuelta responde `409`. |
@@ -199,9 +201,14 @@ reparto y atenciones del bot con su identificación comercial.
 El borrador público nace con `cliente_id` y `telefono` nulos. Su referencia aleatoria
 de 256 bits es secreta y solo se guarda su hash. Al procesar el primer mensaje
 con esa referencia vigente, el worker reclama el borrador para el `from` recibido
-por el webhook firmado de Meta. Usa el nombre de perfil del contacto cuyo
-`wa_id` coincide, si viene disponible; en su ausencia identifica por WhatsApp y
-número. No es necesario volver a pedir esos datos en la web.
+por el webhook firmado de Meta. La migración `016_contacto_checkout.sql` agrega
+`whatsapp_borrador.contacto` para conservar los datos declarados en la web.
+Al vincular el borrador usa nombre y apellido para la identificación comercial y
+guarda el número declarado en `cliente.telefono_contacto`. En una recompra,
+actualiza esos datos solo en el cliente identificado por el remitente real.
+El contacto declarado nunca se usa para autenticar, buscar historiales ni fijar
+`whatsapp_verificado` o `telefono_whatsapp`. En borradores anteriores sin contacto,
+conserva el nombre de perfil de Meta cuyo `wa_id` coincide, o WhatsApp y número.
 
 El bloqueo transaccional del teléfono y de la fila del borrador serializa reclamos
 concurrentes. Una referencia reclamada queda limitada a ese remitente. El campo
