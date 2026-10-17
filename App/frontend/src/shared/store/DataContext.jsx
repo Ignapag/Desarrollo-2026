@@ -5,45 +5,13 @@ import { useAuth } from '../../auth/AuthContext';
 import { apiFetch } from '../api/http';
 
 // ==========================================
-// Datos de demostracion mientras la API carga o si el backend esta fuera de linea.
-// Una respuesta exitosa reemplaza catalogo, pedidos e inventario.
+// El cat?logo de compra siempre viene de la API. Los datos de demostraci?n
+// restantes solo pertenecen a paneles internos pendientes de integraci?n.
 // ==========================================
 const initialState = {
-  catalog: [
-    { id: 1, name: 'Cheese', description: 'Ingredientes: Carne, cheddar, salsa monu.', variants: [{name: 'Simple', price: 11000}, {name: 'Doble', price: 13500}, {name: 'Triple', price: 15500}], category: 'Nuestras Burgers', image: '/menu/chesee burger.jpg' },
-    { id: 2, name: 'Bacon', description: 'Ingredientes: Carne, cheddar, bacon, salsa monu.', variants: [{name: 'Simple', price: 12000}, {name: 'Doble', price: 14500}, {name: 'Triple', price: 16500}], category: 'Nuestras Burgers', image: '/menu/BaconBurger.jpg' },
-    { id: 3, name: 'Crispy', description: 'Ingredientes: Carne, cheddar, bacon, cebolla crispy, alioli.', variants: [{name: 'Simple', price: 13000}, {name: 'Doble', price: 15500}, {name: 'Triple', price: 17500}], category: 'Nuestras Burgers', image: '/menu/CrispyBurger.jpg' },
-    { id: 4, name: 'Monulibra', description: 'Ingredientes: Carne, cheddar, cebolla en cubos, ketchup, mostaza.', variants: [{name: 'Simple', price: 13000}, {name: 'Doble', price: 15500}, {name: 'Triple', price: 17500}], category: 'Nuestras Burgers', image: '/menu/MonuLibraBurgerjpg.jpg' },
-    { id: 5, name: 'Monuburger', description: 'Ingredientes: Carne, cheddar, cebolla caramelizada, bacon, huevo, barbacoa.', variants: [{name: 'Simple', price: 14000}, {name: 'Doble', price: 16500}, {name: 'Triple', price: 18500}], category: 'Nuestras Burgers', image: '/menu/MonuBurger.jpg' },
-    { id: 6, name: 'La Típica', description: 'Ingredientes: Carne, cheddar, lechuga, tomate, mayonesa.', variants: [{name: 'Simple', price: 12500}, {name: 'Doble', price: 15000}, {name: 'Triple', price: 17000}], category: 'Nuestras Burgers', image: '/menu/LaTipicaBurger.jpg' },
-    { id: 7, name: 'Witcher', description: 'Ingredientes: Carne, cheddar, bacon, tomate, lechuga, cebolla, pepinillos, mayonesa, ketchup.', variants: [{name: 'Simple', price: 13500}, {name: 'Doble', price: 16000}, {name: 'Triple', price: 18000}], category: 'Nuestras Burgers', image: '/menu/WitcherBurger.jpg' },
-    { id: 8, name: '18 Supermash', description: 'Ingredientes: Carne smasheada, cheddar, panceta, pepinillo, salsa smash.', variants: [{name: 'Simple', price: 14000}, {name: 'Doble', price: 16500}, {name: 'Triple', price: 18500}], category: 'Nuestras Burgers', image: '/menu/18supersmash.jpg' },
-    { id: 9, name: 'Oklahoma', description: 'Ingredientes: Carne smasheada con cebolla cruda, cheddar, salsa monu.', variants: [{name: 'Simple', price: 13500}, {name: 'Doble', price: 16000}, {name: 'Triple', price: 18000}], category: 'Nuestras Burgers', image: '/menu/oklahomaBurger.jpg' },
-    { id: 10, name: 'Provoteca', description: 'Ingredientes: Carne, provoleta, cebolla caramelizada, rúcula, alioli.', variants: [{name: 'Simple', price: 12500}, {name: 'Doble', price: 15000}, {name: 'Triple', price: 17000}], category: 'Nuestras Burgers', image: '/menu/ProvotecaBurger.jpg' },
-    { id: 11, name: 'Big Monu', description: 'Ingredientes: Carne, cheddar, cebolla, lechuga, pepinillos, salsa monu.', variants: [{name: 'Simple', price: 13000}, {name: 'Doble', price: 15500}, {name: 'Triple', price: 17500}], category: 'Nuestras Burgers', image: '/menu/BigMonuBurger.jpg' },
-    { id: 12, name: 'Not Monu', description: 'Ingredientes: Medallón NotCo, cheddar, mayonesa, tomate y lechuga.', variants: [{name: 'Simple', price: 13500}, {name: 'Doble', price: 16000}, {name: 'Triple', price: 18000}], category: 'Nuestras Burgers', image: '/menu/notMonu.jpg' },
-    { id: 13, name: 'Nueva Jersey', description: 'Ingredientes: Carne, cheddar, bacon en cubos tiernizado y mayonesa ahumada.', variants: [{name: 'Simple', price: 14000}, {name: 'Doble', price: 16500}, {name: 'Triple', price: 18500}], category: 'Nuestras Burgers', image: null },
-    { id: 14, name: 'Baconhoma', description: 'Ingredientes: Carne smasheada con cebolla cruda, cheddar, bacon, salsa monu.', variants: [{name: 'Simple', price: 14000}, {name: 'Doble', price: 16500}, {name: 'Triple', price: 18500}], category: 'Monufusión', image: null },
-    { id: 15, name: 'Tipiteca', description: 'Ingredientes: Carne, provoleta, tomate, rúcula, mayonesa.', variants: [{name: 'Simple', price: 12500}, {name: 'Doble', price: 15000}, {name: 'Triple', price: 17000}], category: 'Monufusión', image: null },
-    { id: 16, name: 'Keco', description: 'Ingredientes: Una carne smasheada, cheddar, cebolla crispy y alioli. (NO INCLUYE PAPAS)', price: 9500, category: 'Opciones Individuales', image: null },
-    { id: 17, name: 'Cito', description: 'Ingredientes: Un medallón de carne, cheddar, cebolla en cubos, ketchup, mostaza, bacon. (NO INCLUYE PAPAS)', price: 9500, category: 'Opciones Individuales', image: null },
-    { id: 18, name: 'Tino Andino', description: 'Ingredientes: Un medallón de carne, provoleta en medallón, cheddar en pan y mayonesa. (NO INCLUYE PAPAS)', price: 9500, category: 'Opciones Individuales', image: null },
-    { id: 19, name: 'Santi', description: 'Ingredientes: Un medallón de carne, cheddar, cebolla crispy, lechuga y alioli. (NO INCLUYE PAPAS)', price: 9500, category: 'Opciones Individuales', image: null },
-    { id: 20, name: 'Combo: Típica + Bacon', description: 'La Típica doble + Bacon simple + 1 Porción de Papas', price: 23000, category: 'Combos', image: null },
-    { id: 21, name: 'Combo: Bacon + Típica', description: 'Bacon doble + La Típica simple + 1 Porción de Papas', price: 23000, category: 'Combos', image: null },
-    { id: 22, name: 'Combo: Nuggets + Papas', description: 'Nuggets + Papas Fritas', price: 15000, category: 'Combos', image: '/menu/nuggetsmonu.jpg' },
-    { id: 23, name: 'Papas Fritas (Porción)', description: 'Porción de papas fritas.', price: 8000, category: 'Acompañamientos', image: '/menu/papasfritasMonu.jpg' },
-    { id: 24, name: 'Nuggets', description: '10 unidades. Incluye 2 dips (salsa monu y barbacoa)', price: 11000, category: 'Acompañamientos', image: '/menu/nuggetsmonu.jpg' },
-    { id: 25, name: 'Coca Cola', description: '500ml', price: 2200, category: 'Bebidas', image: '/menu/cocacolamonu.jpg' },
-    { id: 26, name: 'Sprite', description: '500ml', price: 2200, category: 'Bebidas', image: '/menu/sprite.jpg' },
-    { id: 27, name: 'Fanta', description: '500ml', price: 2200, category: 'Bebidas', image: '/menu/fantamonu.jpg' },
-    { id: 28, name: 'Salsa Monu', description: 'Dip extra', price: 1000, category: 'Dips Extra', image: null },
-    { id: 29, name: 'Alioli', description: 'Dip extra', price: 1000, category: 'Dips Extra', image: null },
-    { id: 30, name: 'Barbacoa', description: 'Dip extra', price: 1000, category: 'Dips Extra', image: null },
-    { id: 31, name: 'Mayonesa', description: 'Dip extra', price: 1000, category: 'Dips Extra', image: null },
-    { id: 32, name: 'Ketchup', description: 'Dip extra', price: 1000, category: 'Dips Extra', image: null },
-    { id: 33, name: 'Mostaza', description: 'Dip extra', price: 1000, category: 'Dips Extra', image: null },
-  ],
+  catalog: [],
+  catalogStatus: 'loading',
+  catalogError: null,
   cart: [],
   orders: [],
   ordersOwner: null,
@@ -141,7 +109,11 @@ function dataReducer(state, action) {
     case 'RESET_PRIVATE_DATA':
       return { ...state, orders: [], ordersOwner: null, inventory: initialState.inventory };
     case 'SYNC_CATALOG':
-      return { ...state, catalog: action.payload };
+      return { ...state, catalog: action.payload, catalogStatus: 'ready', catalogError: null };
+    case 'CATALOG_LOADING':
+      return { ...state, catalogStatus: 'loading', catalogError: null };
+    case 'CATALOG_ERROR':
+      return { ...state, catalogStatus: 'error', catalogError: action.payload };
     case 'SYNC_INVENTORY':
       return { ...state, inventory: action.payload };
     case 'ADD_TO_CART': {
@@ -247,8 +219,17 @@ export function DataProvider({ children }) {
 
   const refreshData = useCallback(async (signal) => {
     setLoading(true);
+    dispatch({ type: 'CATALOG_LOADING' });
     try {
-      const products = await apiFetch('/api/productos', { signal });
+      let products;
+      try {
+        products = await apiFetch('/api/productos', { signal });
+      } catch (error) {
+        if (!signal?.aborted && userRef.current === user) {
+          dispatch({ type: 'CATALOG_ERROR', payload: 'No pudimos cargar el menú. Intentá nuevamente.' });
+        }
+        throw error;
+      }
       if (signal?.aborted || userRef.current !== user) return;
       dispatch({ type: 'SYNC_CATALOG', payload: products.map(mapProduct) });
       if (user) {

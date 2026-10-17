@@ -120,6 +120,10 @@ permite inspeccionar las operaciones internas.
 
 Recorrido manual:
 
+El menú espera el catálogo real de la API antes de habilitar compras; no usa
+productos de demostración como respaldo. Si falla la carga, ofrece **Reintentar**.
+Los productos sin disponibilidad no se pueden agregar al carrito.
+
 1. Abrir `/` o `/menu` sin sesión, agregar La Típica Doble al carrito y elegir
    nombre, apellido y teléfono con código de país, entrega y pago. No requiere
    cuenta. El carrito se abre como modal centrado; **Continuar por WhatsApp**

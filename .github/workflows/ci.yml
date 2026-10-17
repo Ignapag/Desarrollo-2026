@@ -31,6 +31,9 @@ jobs:
       - name: Estilo del codigo
         run: npm run lint
 
+      - name: Pruebas de portales y catalogo
+        run: npm run test:portales
+
       - name: Compilar frontend
         run: npm run build
 
