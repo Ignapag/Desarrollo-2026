@@ -1,6 +1,6 @@
 import { Plus, LoaderCircle, RefreshCw } from 'lucide-react';
 import { useData } from '../shared/store/DataContext';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Settings2 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -9,8 +9,11 @@ const CATEGORIES = ['Todas', 'Nuestras Burgers', 'Monufusión', 'Opciones Indivi
 
 function ProductCard({ product, addToCart }) {
   const [selectedVariantIndex, setSelectedVariantIndex] = useState(0);
-  const [showOptions, setShowOptions] = useState(false);
-  const [notes, setNotes] = useState('');
+  const [removedIngredients, setRemovedIngredients] = useState([]);
+  const optionsRef = useRef(null);
+  const removableIngredients = product.removableIngredients || [];
+  const notes = removedIngredients.filter((name) => removableIngredients.includes(name))
+    .map((name) => `Sin ${name}`).join(', ');
 
   const hasVariants = product.variants && product.variants.length > 0;
   const canOrder = product.active === true && product.available === true;
@@ -33,8 +36,8 @@ function ProductCard({ product, addToCart }) {
     
     addToCart(itemToAdd);
     toast.success('Agregado al carrito', { description: itemToAdd.name });
-    setNotes('');
-    setShowOptions(false);
+    setRemovedIngredients([]);
+    if (optionsRef.current) optionsRef.current.open = false;
   };
 
   return (
@@ -83,51 +86,34 @@ function ProductCard({ product, addToCart }) {
                   <option key={i} value={i}>{v.name} - ${v.price}</option>
                 ))}
               </select>
-            ) : (
-              <div className="flex-1 h-[38px]"></div>
-            )}
-            <button 
-              onClick={() => setShowOptions(!showOptions)}
-              disabled={!canOrder}
-              aria-label={`Personalizar ${product.name}`}
-              aria-expanded={showOptions}
-              className={`min-w-11 min-h-11 p-2 rounded-xl transition-colors focus-visible:ring-2 focus-visible:ring-monu-green ${showOptions ? 'bg-monu-green text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
-            >
-              <Settings2 className="w-5 h-5" />
-            </button>
+            ) : null}
           </div>
           
-          {showOptions && (
-            <div className="mt-3 animate-in slide-in-from-top-2 bg-yellow-50 border border-yellow-200 rounded-xl p-3">
-              <p className="text-xs font-bold text-yellow-800 mb-2">Sacar ingredientes:</p>
-              <div className="flex flex-wrap gap-2 mb-3">
-                {['Sin Cebolla', 'Sin Tomate', 'Sin Lechuga', 'Sin Pepinillos', 'Sin Bacon', 'Sin Cheddar'].map(ing => (
-                  <label key={ing} className="flex items-center gap-1.5 text-xs font-bold text-yellow-900 bg-yellow-100/50 px-2 py-1 rounded-md cursor-pointer hover:bg-yellow-200 transition">
-                    <input 
-                      type="checkbox" 
-                      className="accent-monu-orange"
-                      checked={notes.includes(ing)}
-                      onChange={(e) => {
-                        if(e.target.checked) {
-                          setNotes(notes ? notes + ', ' + ing : ing);
-                        } else {
-                          setNotes(notes.replace(ing + ', ', '').replace(', ' + ing, '').replace(ing, ''));
-                        }
-                      }}
-                    />
-                    {ing}
-                  </label>
-                ))}
-              </div>
-              <input 
-                type="text" 
-                aria-label={`Otras notas para ${product.name}`}
-                placeholder="Otras notas / extras..."
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                className="w-full bg-white border border-yellow-300 rounded-lg px-3 py-2 text-sm text-monu-dark placeholder:text-gray-400 focus:outline-none focus:border-monu-orange"
-              />
-            </div>
+          {canOrder && removableIngredients.length > 0 && (
+            <details ref={optionsRef} className="mt-3 rounded-xl border border-monu-green/10 bg-monu-cream/25">
+              <summary aria-label={`Personalizar ${product.name}`} className="min-h-11 cursor-pointer rounded-xl px-3 py-3 text-sm font-bold text-monu-green focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-monu-green">
+                <Settings2 aria-hidden="true" className="mr-2 inline size-4" />Personalizar
+              </summary>
+              <fieldset className="px-3 pb-3">
+                <legend className="mb-2 text-sm font-bold text-monu-dark">Quitar ingredientes</legend>
+                <div className="flex flex-wrap gap-2">
+                  {removableIngredients.map((ingredient) => (
+                    <label key={ingredient} className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-monu-green/15 bg-white px-3 py-2 text-sm font-medium text-monu-dark hover:bg-monu-cream/50">
+                      <input type="checkbox" className="size-4 accent-monu-green focus-visible:ring-2 focus-visible:ring-monu-green"
+                        checked={removedIngredients.includes(ingredient)}
+                        onChange={(event) => {
+                          const checked = event.target.checked;
+                          setRemovedIngredients((previous) => checked
+                            ? [...previous, ingredient]
+                            : previous.filter((name) => name !== ingredient));
+                        }} />
+                      {`Sin ${ingredient}`}
+                    </label>
+                  ))}
+                </div>
+                <p className="mt-3 text-xs text-monu-text/70">Otros cambios se consultan por WhatsApp.</p>
+              </fieldset>
+            </details>
           )}
         </div>
       </div>

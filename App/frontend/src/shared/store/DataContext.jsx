@@ -75,6 +75,7 @@ function mapProduct(product) {
     })),
     active: product.activo,
     available: product.disponible,
+    removableIngredients: product.ingredientes_quitables || [],
   };
 }
 

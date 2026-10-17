@@ -13,7 +13,11 @@ class RepositorioProductosSQL:
             """
             SELECT p.id, p.categoria_id, c.nombre AS categoria, p.nombre,
                    p.descripcion, p.precio_base, p.imagen_url, p.variantes, p.activo,
-                   pd.disponible
+                   pd.disponible,
+                   ARRAY(SELECT i.nombre FROM producto_ingrediente pi
+                         JOIN ingrediente i ON i.id=pi.ingrediente_id
+                         WHERE pi.producto_id=p.id ORDER BY lower(i.nombre),i.id)
+                   AS ingredientes_receta
             FROM producto p
             JOIN categoria c ON c.id = p.categoria_id
             JOIN producto_disponible pd ON pd.producto_id = p.id
@@ -87,7 +91,11 @@ class RepositorioProductosSQL:
             """
             SELECT p.id, p.categoria_id, c.nombre AS categoria, p.nombre,
                    p.descripcion, p.precio_base, p.imagen_url, p.variantes, p.activo,
-                   pd.disponible
+                   pd.disponible,
+                   ARRAY(SELECT i.nombre FROM producto_ingrediente pi
+                         JOIN ingrediente i ON i.id=pi.ingrediente_id
+                         WHERE pi.producto_id=p.id ORDER BY lower(i.nombre),i.id)
+                   AS ingredientes_receta
             FROM producto p
             JOIN categoria c ON c.id = p.categoria_id
             JOIN producto_disponible pd ON pd.producto_id = p.id
@@ -110,7 +118,11 @@ class RepositorioProductosSQL:
             """
             SELECT p.id, p.categoria_id, c.nombre AS categoria, p.nombre,
                    p.descripcion, p.precio_base, p.imagen_url, p.variantes, p.activo,
-                   pd.disponible
+                   pd.disponible,
+                   ARRAY(SELECT i.nombre FROM producto_ingrediente pi
+                         JOIN ingrediente i ON i.id=pi.ingrediente_id
+                         WHERE pi.producto_id=p.id ORDER BY lower(i.nombre),i.id)
+                   AS ingredientes_receta
             FROM producto p
             JOIN categoria c ON c.id = p.categoria_id
             JOIN producto_disponible pd ON pd.producto_id = p.id

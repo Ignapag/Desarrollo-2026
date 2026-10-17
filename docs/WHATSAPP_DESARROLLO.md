@@ -123,6 +123,10 @@ Recorrido manual:
 El menú espera el catálogo real de la API antes de habilitar compras; no usa
 productos de demostración como respaldo. Si falla la carga, ofrece **Reintentar**.
 Los productos sin disponibilidad no se pueden agregar al carrito.
+El catálogo incluye `ingredientes_quitables`: nombres de la receta que comparten
+las reglas del bot y stock. **Personalizar** ofrece únicamente esos retiros y
+no aparece en productos sin opciones. No hay campo de extras o texto libre en
+la web; otros cambios se consultan por WhatsApp.
 
 1. Abrir `/` o `/menu` sin sesión, agregar La Típica Doble al carrito y elegir
    nombre, apellido y teléfono con código de país, entrega y pago. No requiere
