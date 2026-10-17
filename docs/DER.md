@@ -484,6 +484,7 @@ erDiagram
         timestamptz ultimo_mensaje_en
         jsonb contacto
         text inicio_hash UK
+        jsonb contexto_chat
     }
     WHATSAPP_ENTRADA {
         text id PK
@@ -495,6 +496,8 @@ erDiagram
         text respuesta
         timestamptz creado_en
         text nombre_remitente
+        jsonb memoria_ia
+        bigint orden_recibido
     }
     WHATSAPP_SALIDA {
         bigint id PK

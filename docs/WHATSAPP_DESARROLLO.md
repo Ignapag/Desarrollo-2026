@@ -36,7 +36,7 @@ $env:WHATSAPP_TRANSFERENCIA_DATOS = ''
 
 La preparación aplica las migraciones, incluidas `011_whatsapp.sql`,
 `012_whatsapp_estados_envio.sql`, `013_whatsapp_saldo_transferencia.sql` y
-`014_whatsapp_atencion.sql` hasta `018_whatsapp_contexto_chat.sql`, y carga
+`014_whatsapp_atencion.sql` hasta `019_whatsapp_memoria_ia.sql`, y carga
 usuarios, catálogo y recetas de prueba.
 Estas variables prevalecen sobre `App/.env`, que puede apuntar a la base
 compartida. No aplicar estos comandos a esa base ni habilitar excepciones para
@@ -258,7 +258,7 @@ el seguimiento y las modificaciones de compras sin cuenta se hacen por WhatsApp.
 Las consultas financieras y el inicio de cobro verifican titularidad para clientes
 autenticados; el repartidor usa sus rutas de reparto y no el historial global.
 
-Para desplegar, coordinar la aplicación de las migraciones hasta la 018 en la base destino
+Para desplegar, coordinar la aplicación de las migraciones hasta la 019 en la base destino
 sin ejecutar el seed de desarrollo. Actualizar API y workers juntos antes de
 publicar el frontend público: un worker anterior presupone que todo cliente tiene
 usuario y no es compatible con nuevos borradores anónimos. Conservar las variables
@@ -290,11 +290,26 @@ Los comprobantes conservan el ID de su mensaje original y solo se asocian al ped
 seleccionado; recibirlos nunca acredita el pago. El vínculo entre preparación y
 ejecución se revalida también para adjuntos y comandos que no consumen Gemini.
 
+La migración `019_whatsapp_memoria_ia.sql` agrega memoria semántica por entrada y
+datos parciales locales por conversación. Gemini recibe los últimos cuatro turnos
+resumidos del mismo teléfono y pedido, la pregunta pendiente y los nombres de los
+campos ya aportados. Los resúmenes se generan con acciones validadas: no copian
+mensajes libres, contactos ni valores de direcciones anteriores. El orden usa una
+secuencia de recepción; no depende de ordenar los IDs de Meta. No hay historial
+remoto ni una segunda aplicación de instrucciones anteriores.
+
+La acción `preguntar` pide un campo concreto cuando falta información. Por ejemplo,
+tras «quiero cambiar la dirección», pregunta calle, número y localidad; conserva cada
+dato en el backend y pregunta solo lo que falta. El modelo recibe los campos presentes,
+sin esos valores privados, y propone datos del turno actual para combinarlos localmente.
+Una respuesta a esa pregunta no se confunde con una selección de otro pedido.
+
 El cambio de dirección o de otros datos de un pedido ya registrado todavía requiere
-atención del personal. Una acción `datos` en esa etapa crea la derivación y conserva
-el mensaje para el empleado; no responde solo con un resumen ni afirma que actualizó
-la dirección. Los datos faltantes de un borrador siguen completándose antes de crear
-el pedido.
+atención del personal. Al reunir los datos, crea la derivación: la bandeja incluye un
+resumen completo marcado **sin aplicar**, aunque la calle haya quedado fuera de los
+últimos cinco mensajes. El bot no afirma haber actualizado la dirección. Los datos
+faltantes de un borrador, incluida modalidad y pago aportados en turnos anteriores,
+se conservan antes de crear el pedido.
 
 Las respuestas usan importes argentinos (`$ 12.000`), resúmenes con separaciones
 y emojis, y estados en lenguaje natural. Los avisos de retiro indican cuándo
@@ -322,16 +337,23 @@ no confirma el pago. Las salidas conservan sus claves de idempotencia.
    redirige a otro pedido. Si es la misma conversación pero cambió su contexto,
    el worker reinterpreta una vez con el contexto vigente y, si vuelve a
    cambiar, rechaza sin modificar.
-4. La acción `humano`, explícita o producida por un fallo de Gemini (motivo
-   `PROVEEDOR`), se atiende antes de completar un borrador o modificar un
+4. La acción `humano` solicitada por el cliente se atiende antes de completar un borrador o modificar un
    pedido: registra una atención `PENDIENTE` en `whatsapp_atencion`, deja la
    conversación en `HUMANO`, descarta una propuesta de importe sin confirmar,
    conserva los datos y no crea el pedido. Hay como máximo una atención
    pendiente por conversación.
-5. Mientras la atención esté pendiente, el bot registra los mensajes siguientes
+5. Mientras haya una atención humana pendiente, el bot registra los mensajes siguientes
    (visibles en la bandeja) y responde que un empleado está atendiendo, sin crear
    ni modificar el pedido. Solo sigue aceptando comprobantes, que quedan para
-   revisión humana. Al resolver la atención, el bot retoma la conversación.
+   revisión humana, y no consume Gemini en esos turnos. Al resolver la atención,
+   el bot retoma la conversación.
+6. Un fallo del proveedor ya no se presenta como falta de comprensión ni crea
+   automáticamente una atención humana: informa indisponibilidad, conserva el contexto
+   y permite intentar nuevamente o pedir un empleado. Las atenciones técnicas
+   `PROVEEDOR` creadas por versiones anteriores solo se cierran automáticamente al
+   retomar el bot si no tuvieron intervención del personal. Se conserva el motivo,
+   una resolución técnica y fecha, con `resuelta_por` nulo. Las solicitudes humanas
+   y las atenciones con respuestas del personal nunca se cierran por este mecanismo.
 
 La revisión de comprobantes **registra una decisión humana**, no una validación
 bancaria. `total_verificado` obliga a aprobar el importe observado; si cambia
@@ -571,19 +593,24 @@ Google anuncia su retiro para el 7 de mayo de 2027 y propone
 de pedidos al migrarlo; aún se debe evaluar su interpretación con casos reales
 del negocio, sin datos personales.
 
-El adaptador hace como máximo una llamada `generateContent` por turno, sin
-reintentos ni historial remoto, con hasta 256 tokens de salida. Proyecta un
+El adaptador hace una llamada `generateContent` por turno y permite **un solo
+reintento** tras 250 ms para HTTP 500, 502, 503 o 504. No reintenta cuotas, credenciales,
+timeouts ni salidas inválidas. Ambas llamadas ocurren fuera de la transacción, sin
+historial remoto, con hasta 256 tokens de salida. Proyecta un
 contexto pequeño de catálogo y pedido, sin teléfono, dirección ni nombre del
 cliente. El texto del propio turno sí puede contener datos que haya escrito la
 persona; no usar información personal en la prueba. Referencias y adjuntos se
 procesan de forma determinista sin consumir Gemini.
 
-Solo admite una llamada a `datos`, `quitar_ingrediente`, `cantidad`, `confirmar`,
+Solo admite una llamada a `datos`, `preguntar`, `quitar_ingrediente`, `cantidad`, `confirmar`,
 `consulta` o `humano`, con argumentos validados. Nunca ejecuta funciones del
 modelo directamente ni usa su texto para confirmar pagos, precios o estados.
 Si falla la cuota, conexión o estructura de salida, devuelve `humano` con
-`motivo: "PROVEEDOR"`: el bot registra una atención para el personal y conserva
-el pedido o borrador sin cambios. Un texto de más de 2000 caracteres devuelve
+`motivo: "PROVEEDOR"`: el bot informa indisponibilidad y conserva el pedido y la
+memoria, sin bloquear la conversación con una atención nueva. Los logs de
+`whatsapp_interpretacion_error` solo incluyen HTTP o clase de excepción, nunca
+clave, URL con credencial, cuerpo del proveedor ni texto del cliente.
+Un texto de más de 2000 caracteres devuelve
 `motivo: "MENSAJE_LARGO"` sin llamar al proveedor; el bot pide reformularlo.
 No utiliza grounding, búsquedas ni lectura de comprobantes.
 

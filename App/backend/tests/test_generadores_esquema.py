@@ -53,3 +53,27 @@ def test_alter_respeta_orden_defaults_y_comas_en_expresiones(tmp_path, monkeypat
 
     assert "| `codigo` | TEXT | Sí | — |" in documento
     assert "| `monto` | NUMERIC(12,2) | No | default `2` |" in documento
+
+
+def test_alter_reemplaza_check_de_tabla_sin_perder_restricciones(tmp_path):
+    original = tmp_path / "001_original.sql"
+    original.write_text(
+        "CREATE TABLE ejemplo (\n"
+        "    id BIGINT PRIMARY KEY,\n"
+        "    estado TEXT,\n"
+        "    responsable BIGINT,\n"
+        "    CHECK ((estado = 'RESUELTA') = (responsable IS NOT NULL))\n"
+        ");\n", encoding="utf-8",
+    )
+    cambio = tmp_path / "002_check.sql"
+    cambio.write_text(
+        "ALTER TABLE ejemplo DROP CONSTRAINT ejemplo_check;\n"
+        "ALTER TABLE ejemplo ADD CONSTRAINT ejemplo_resolucion_chk "
+        "CHECK (estado IS NOT NULL OR responsable IS NULL);\n", encoding="utf-8",
+    )
+
+    tabla, = diccionario.parsear_esquema([original, cambio])
+
+    assert "ejemplo_check" not in tabla.restricciones
+    assert tabla.restricciones["ejemplo_resolucion_chk"][0] == "CHECK"
+    assert tabla.columnas[0].es_pk

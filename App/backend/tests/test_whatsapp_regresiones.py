@@ -311,7 +311,7 @@ def gemini_caido(worker, monkeypatch):
     return worker
 
 
-async def test_fallo_de_gemini_en_borrador_incompleto_registra_atencion(uow, gemini_caido):
+async def test_fallo_de_gemini_en_borrador_incompleto_no_bloquea_el_chat(uow, gemini_caido):
     s = construir_servicio(uow)
     b = await borrador(uow, s, completo=False)
     await enviar(uow, gemini_caido, s, "inicio", b["mensaje"])
@@ -319,7 +319,8 @@ async def test_fallo_de_gemini_en_borrador_incompleto_registra_atencion(uow, gem
     assert "empleado" in respuesta
     fila = await estado_borrador(uow, b)
     assert fila["pedido_id"] is None and fila["tipo_entrega"] is None
-    assert (await atencion(uow, b))["motivo"] == "PROVEEDOR"
+    assert await atencion(uow, b) is None
+    assert "disponible" in respuesta
 
 
 async def test_fallo_de_gemini_en_borrador_completo_no_crea_pedido(uow, gemini_caido):
@@ -330,7 +331,8 @@ async def test_fallo_de_gemini_en_borrador_completo_no_crea_pedido(uow, gemini_c
     )
     assert "empleado" in respuesta
     assert await pedido_de(uow, b) is None
-    assert (await atencion(uow, b))["motivo"] == "PROVEEDOR"
+    assert await atencion(uow, b) is None
+    assert "disponible" in respuesta
 
 
 async def test_derivacion_en_pedido_registra_atencion(uow, worker):

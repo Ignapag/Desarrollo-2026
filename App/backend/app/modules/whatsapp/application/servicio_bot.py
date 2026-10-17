@@ -16,6 +16,12 @@ from app.errores import DatosInvalidos, ErrorDominio, NoEncontrado, ReglaDeNegoc
 from app.modules.pedidos.application.servicio_pedidos import ItemNuevoPedido, ServicioPedidos
 from app.modules.stock.application.servicio_stock import INGREDIENTES_QUITABLES, ServicioStock
 from app.modules.whatsapp.application.conversacion import resolver_conversacion
+from app.modules.whatsapp.domain.memoria import (
+    CAMPOS_DATOS,
+    PREGUNTAS,
+    pregunta_actual,
+    resumir_turno,
+)
 from app.modules.whatsapp.domain.mensajes import (
     LIMITE_INTERPRETACION,
     SALUDO_BORRADOR,
@@ -38,6 +44,9 @@ from app.modules.whatsapp.domain.textos import (
 
 
 class RepositorioBot(Protocol):
+    async def memoria(self, telefono, referencia_hash) -> list[dict]: ...
+    async def recuperar_proveedor(self, b) -> bool: ...
+    async def atencion_humana(self, referencia_hash) -> bool: ...
     async def sesion(self, telefono, bloquear=False) -> dict | None: ...
     async def conversaciones(self, telefono) -> list[dict]: ...
     async def guardar_contexto(self, entrada, b) -> None: ...
@@ -245,7 +254,10 @@ class ServicioBot:
         return {
             "texto": texto,
             # Sin conversación la respuesta es fija: el mensaje no se envía al proveedor.
-            "interpretar": b is not None and await self._requiere_interpretacion(entrada, texto, b),
+            "interpretar": (
+                b is not None and not await self.repo.atencion_humana(b["referencia_hash"])
+                and await self._requiere_interpretacion(entrada, texto, b)
+            ),
             "contexto": contexto,
             "vinculo": self._vinculo(b, contexto, entrada),
         }
@@ -278,10 +290,12 @@ class ServicioBot:
         if not b:
             return {}
         items = b["items"]
+        estado_pedido_actual = None
         if b["pedido_id"]:
             # Contexto sin bloqueo de larga duración ni PII; se vuelve a comprobar al aplicar.
             pedido = await self.repo.pedido(b["pedido_id"])
             items = pedido["items"]
+            estado_pedido_actual = pedido["estado"]
         contexto_items = []
         for indice, item in enumerate(items, 1):
             contexto_items.append(
@@ -295,7 +309,17 @@ class ServicioBot:
                     ],
                 }
             )
-        return {"estado": b["estado"], "items": contexto_items}
+        chat = b.get("contexto_chat") or {}
+        return {
+            "estado": b["estado"], "estado_pedido": estado_pedido_actual,
+            "tipo_entrega": b["tipo_entrega"], "metodo_pago": b["metodo_pago"],
+            "items": contexto_items,
+            "conversacion": {
+                "solicitud_pendiente": pregunta_actual(b),
+                "datos_presentes": sorted(set(chat.get("datos", {})) & CAMPOS_DATOS),
+                "ultimos_turnos": await self.repo.memoria(b["telefono"], b["referencia_hash"]),
+            },
+        }
 
     @staticmethod
     def _vinculo(b, contexto, entrada=None) -> dict:
@@ -343,6 +367,9 @@ class ServicioBot:
                 mismo = b is not None and b["referencia_hash"] == vinculo.get("referencia_hash")
                 await self.repo.finalizar(entrada, b if mismo else None, rechazo)
                 return rechazo
+        fallo_proveedor = accion.get("motivo") == "PROVEEDOR"
+        if b and not fallo_proveedor and not entrada["media_id"]:
+            await self.repo.recuperar_proveedor(b)
         # Nunca se ejecuta una interpretación parcial de un mensaje extenso.
         largo = len(texto) > LIMITE_INTERPRETACION and await self._requiere_interpretacion(
             entrada, texto, b
@@ -371,9 +398,16 @@ class ServicioBot:
                 )
         elif largo:
             respuesta = self._prefijo_derivacion("MENSAJE_LARGO").strip()
+        elif fallo_proveedor and not await self.repo.atencion_humana(b["referencia_hash"]):
+            respuesta = self._prefijo_derivacion("PROVEEDOR").strip()
         elif await self.repo.atencion_pendiente(b["referencia_hash"]):
             # Mientras el personal atiende, el bot no crea ni modifica el pedido.
             respuesta = EN_ATENCION
+        elif fallo_proveedor:
+            respuesta = self._prefijo_derivacion("PROVEEDOR").strip()
+        elif accion.get("accion") == "preguntar":
+            campo = (accion.get("argumentos") or {}).get("campo")
+            respuesta = self._preguntar(b, campo, entrada)
         elif accion.get("accion") == "humano" and not (
             es_comando_guiado(texto) or await self._es_eleccion_variante(b, texto)
         ):
@@ -382,19 +416,30 @@ class ServicioBot:
                 b, {**entrada, "id": entrada.get("_solicitud_id", entrada["id"])}, accion
             )
         elif not b["pedido_id"]:
-            respuesta = await self._completar(b, accion, texto)
+            respuesta = self._recoger_datos(b, accion, entrada)
+            if respuesta is None:
+                respuesta = await self._completar(b, accion, texto)
         elif accion.get("accion") == "datos":
-            detalle = await self._derivar(
-                b, {**entrada, "id": entrada.get("_solicitud_id", entrada["id"])},
-                {"accion": "humano"},
-            )
-            respuesta = "💬 Para actualizar esos datos, un empleado va a ayudarte. " + detalle
+            respuesta = self._recoger_datos(b, accion, entrada)
+            if respuesta is None:
+                origen = (b.get("contexto_chat") or {}).get("solicitud_id")
+                detalle = await self._derivar(
+                    b, {**entrada, "id": origen or entrada.get("_solicitud_id", entrada["id"])},
+                    {"accion": "humano"},
+                )
+                respuesta = (
+                    "💬 Ya tengo los datos. Un empleado va a ayudarte a actualizarlos. " + detalle
+                )
         else:
+            if accion.get("accion") in {"cantidad", "quitar_ingrediente"}:
+                self._marcar_pregunta(b, None)
             respuesta = await self._operar(
                 b, texto, accion, con_referencia=bool(
                     referencias_en(entrada["texto"]) or numeros_pedido_en(entrada["texto"])
                 )
             )
+        if b:
+            entrada["_memoria_ia"] = resumir_turno(accion, b, QUITABLES)
         await self.repo.guardar_contexto(entrada, b)
         await self.repo.finalizar(entrada, b, respuesta)
         return respuesta
@@ -407,8 +452,78 @@ class ServicioBot:
                 "¿Podés mandarlo en uno más corto? Tu pedido sigue sin cambios. "
             )
         if motivo == "PROVEEDOR":
-            return "💬 No pude entender tu mensaje en este momento. Tu pedido sigue sin cambios. "
+            return (
+                "💬 El asistente de IA no está disponible en este momento. "
+                "Intentá nuevamente en unos instantes; tu pedido y el contexto se conservan. "
+                "Si preferís, podés pedir hablar con un empleado. "
+            )
         return ""
+
+    def _preguntar(self, b, campo, entrada):
+        if campo not in PREGUNTAS:
+            return PREGUNTAS["consulta"]
+        anterior = b.get("contexto_chat") or {}
+        chat = dict(anterior)
+        if campo == "direccion":
+            chat["datos"] = {}
+            chat["solicitud_id"] = entrada.get("_solicitud_id", entrada["id"])
+        chat["pregunta"] = campo
+        if chat != anterior:
+            b["contexto_chat"] = chat
+            b["version"] += 1
+        return PREGUNTAS[campo]
+
+    @staticmethod
+    def _marcar_pregunta(b, campo):
+        chat = dict(b.get("contexto_chat") or {})
+        if chat.get("pregunta") != campo:
+            chat["pregunta"] = campo
+            b["contexto_chat"] = chat
+            b["version"] += 1
+
+    def _recoger_datos(self, b, accion, entrada):
+        if accion.get("accion") != "datos":
+            return None
+        args = accion.get("argumentos") or {}
+        chat = dict(b.get("contexto_chat") or {})
+        datos = dict(chat.get("datos") or {})
+        limites = {"direccion": 160, "numero": 30, "localidad": 100, "referencias": 300}
+        for campo in CAMPOS_DATOS:
+            if isinstance(args.get(campo), str) and 1 <= len(args[campo].strip()) <= limites.get(
+                campo, 30
+            ):
+                datos[campo] = args[campo].strip()
+        if not datos:
+            return None
+        chat.update(datos=datos)
+        chat.setdefault("solicitud_id", entrada.get("_solicitud_id", entrada["id"]))
+        b["contexto_chat"] = chat
+        b["version"] += 1
+        if not b["pedido_id"]:
+            b["estado"] = "VINCULADO"
+            for campo, permitidos in (
+                ("tipo_entrega", {"RETIRO", "DELIVERY"}),
+                ("metodo_pago", {"EFECTIVO", "TRANSFERENCIA"}),
+            ):
+                if str(datos.get(campo, "")).upper() in permitidos:
+                    b[campo] = datos[campo].upper()
+        # Los valores permanecen en el servidor; Gemini solo recibe los campos presentes.
+        if set(datos) & {"direccion", "numero", "localidad", "referencias"}:
+            for campo in ("direccion", "numero", "localidad"):
+                if not datos.get(campo):
+                    chat["pregunta"] = campo
+                    return PREGUNTAS[campo]
+            if datos["localidad"].casefold() not in {"ensenada", "punta lara"}:
+                datos.pop("localidad")
+                chat["pregunta"] = "localidad"
+                return "📍 Por ahora llegamos a Ensenada y Punta Lara. ¿En cuál es la entrega?"
+            if not b["pedido_id"]:
+                b["direccion"] = {
+                    "calle": datos["direccion"], "numero": datos["numero"],
+                    "localidad": datos["localidad"], "referencia": datos.get("referencias", ""),
+                }
+        chat["pregunta"] = None
+        return None
 
     async def _derivar(self, b, entrada, accion) -> str:
         motivo = accion.get("motivo")
@@ -456,7 +571,10 @@ class ServicioBot:
             if elegida:
                 item["variante"] = elegida
         if accion.get("accion") == "datos":
-            argumentos = accion.get("argumentos", {})
+            argumentos = {
+                **(b.get("contexto_chat") or {}).get("datos", {}),
+                **accion.get("argumentos", {}),
+            }
             for clave in ("tipo_entrega", "metodo_pago"):
                 valor = str(argumentos.get(clave, "")).upper()
                 if valor in (
@@ -474,17 +592,21 @@ class ServicioBot:
                 }
         b["estado"] = "VINCULADO"
         if not b["tipo_entrega"]:
+            self._marcar_pregunta(b, "entrega")
             return "🛍️ ¿Retiro o delivery? Contame si pasás por el local o te lo llevamos. 🛵"
         if b["tipo_entrega"] == "DELIVERY" and not b["direccion"]:
+            self._marcar_pregunta(b, "direccion")
             return (
                 "📍 ¿A qué dirección te lo llevamos? Pasanos calle, número y localidad "
                 "(Ensenada o Punta Lara). Si hay alguna referencia para encontrarte, sumala. 😊"
             )
         if not b["metodo_pago"]:
+            self._marcar_pregunta(b, "pago")
             return "💵 ¿Preferís pagar en efectivo o por transferencia? 🏦"
         for item in b["items"]:
             opciones = por_id.get(item["producto_id"], {}).get("variantes") or []
             if opciones and item.get("variante") not in {v["nombre"] for v in opciones}:
+                self._marcar_pregunta(b, "variante")
                 nombres = ", ".join(v["nombre"] for v in opciones)
                 nombre = por_id.get(item["producto_id"], {}).get("nombre", "hamburguesa")
                 return f"🍔 ¿Cómo querés tu {nombre}? Opciones: *{nombres}*. " + (
@@ -508,6 +630,7 @@ class ServicioBot:
             )
         b["pedido_id"] = pedido["id"]
         b["estado"] = "CREADO"
+        self._marcar_pregunta(b, None)
         instrucciones = instrucciones_pago(b["metodo_pago"], self.transferencia, b["tipo_entrega"])
         return (
             "✅ ¡Recibimos tu pedido!\n\n" + resumen(pedido) + "\n\n" + instrucciones

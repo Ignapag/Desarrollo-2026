@@ -56,6 +56,8 @@ columnas, tipos, obligatoriedad, relaciones y valores permitidos.
 
 **Whatsapp contexto chat** — [`whatsapp_sesion`](#whatsapp_sesion)
 
+**Whatsapp memoria ia** — sin tablas nuevas
+
 Total: **35 tablas**.
 
 ---
@@ -559,6 +561,7 @@ _Borradores separados del pedido operativo y colas transaccionales del bot._
 | `ultimo_mensaje_en` | TIMESTAMPTZ | No | — |
 | `contacto` | JSONB | Sí | default `'{}'::jsonb` |
 | `inicio_hash` | TEXT | No | único |
+| `contexto_chat` | JSONB | Sí | default `'{}'::jsonb` |
 
 ### whatsapp_entrada
 
@@ -573,6 +576,8 @@ _Borradores separados del pedido operativo y colas transaccionales del bot._
 | `respuesta` | TEXT | No | — |
 | `creado_en` | TIMESTAMPTZ | Sí | default `now()` |
 | `nombre_remitente` | TEXT | No | — |
+| `memoria_ia` | JSONB | No | — |
+| `orden_recibido` | BIGINT | No | autonumérico |
 
 ### whatsapp_salida
 
@@ -681,3 +686,5 @@ _Foco y pregunta de selección por remitente; no almacena credenciales ni histor
 | `opciones` | JSONB | Sí | default `'[]'::jsonb` |
 | `version` | INT | Sí | default `1` |
 | `expira_en` | TIMESTAMPTZ | Sí | default `now() + interval '30 minutes'` |
+
+## 019_whatsapp_memoria_ia — Whatsapp memoria ia
