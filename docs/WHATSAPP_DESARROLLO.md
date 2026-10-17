@@ -439,6 +439,13 @@ texto, token ni cuerpo del proveedor. `destino_prueba_adaptado=True` permite
 comprobar que la excepción configurada se aplicó al envío que falló. Esta
 observación conserva los estados y las reglas de reintento del worker.
 
+La misma línea incluye `emisor_id`, `version`, `revision` y `proceso_ref` para
+identificar la configuración y el proceso que hizo la petición. `token_ref`
+es una huella SHA-256 de 16 caracteres con el prefijo de dominio
+`monuburger-whatsapp-v1:`; permite comparar la credencial efectiva con la local
+sin registrar el token ni parte de él. Revisar estos campos cuando los valores
+guardados en el panel coinciden pero el proceso sigue recibiendo `131005`.
+
 ## Gemini: modelo y consumo
 
 La documentación oficial consultada el 17 de octubre de 2026 publica

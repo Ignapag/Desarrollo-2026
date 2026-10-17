@@ -372,11 +372,32 @@ async def test_cloud_informa_codigo_http_sin_filtrar_datos_del_proveedor(
         await transporte.enviar("5492215550000", "mensaje-privado")
     registros = [r for r in caplog.records if r.name == "monuburger.whatsapp.proveedor"]
     assert len(registros) == 1
-    assert registros[0].args == (400, codigo_meta, True)
+    assert registros[0].args[:3] == (400, codigo_meta, True)
     assert "token-secreto" not in caplog.text
     assert "mensaje-privado" not in caplog.text
     assert "5492215550000" not in caplog.text
     assert len(llamadas) == 1
+
+
+async def test_cloud_diagnostico_distingue_credenciales_y_conserva_contexto_real(http, caplog):
+    _, respuestas = http
+    for token in ("token-ficticio-a", "token-ficticio-b", "token-ficticio-a"):
+        respuestas.append(HTTPError("https://graph.facebook.com", 403, "rechazo", {}, None))
+        with pytest.raises(ReglaDeNegocio):
+            await proveedores.WhatsAppCloud(token, "123456", "v26.0").enviar(
+                "5492215550000", "mensaje-privado"
+            )
+    registros = [r for r in caplog.records if r.name == "monuburger.whatsapp.proveedor"]
+    assert len(registros) == 3
+    assert all(len(r.args) == 8 for r in registros)
+    huellas = [r.args[3] for r in registros]
+    assert huellas[0] == huellas[2] and huellas[0] != huellas[1]
+    assert all(len(h) == 16 and all(c in "0123456789abcdef" for c in h) for h in huellas)
+    assert all(r.args[4:6] == ("123456", "v26.0") for r in registros)
+    assert len({r.args[6] for r in registros}) == 1
+    assert "token-ficticio" not in caplog.text
+    assert "mensaje-privado" not in caplog.text
+    assert "5492215550000" not in caplog.text
 
 
 @pytest.mark.parametrize(

@@ -16,6 +16,7 @@ import hmac
 import http.client
 import json
 import logging
+import os
 import re
 import unicodedata
 from urllib.error import HTTPError
@@ -55,6 +56,7 @@ class _SinRedirecciones(HTTPRedirectHandler):
 
 _HTTP = build_opener(_SinRedirecciones())
 _log = logging.getLogger("monuburger.whatsapp.proveedor")
+_PROCESO_REF = uuid4().hex[:12]
 
 
 def _codigo_error_meta(error: HTTPError) -> int | None:
@@ -405,11 +407,18 @@ class WhatsAppCloud:
                 raise ValueError("ID de proveedor ausente")
             return identificador
         except HTTPError as error:
+            revision = os.environ.get("RENDER_GIT_COMMIT", "")
             _log.warning(
-                "whatsapp_envio_http http=%s codigo_meta=%s destino_prueba_adaptado=%s",
+                "whatsapp_envio_http http=%s codigo_meta=%s destino_prueba_adaptado=%s "
+                "token_ref=%s emisor_id=%s version=%s proceso_ref=%s revision=%s",
                 error.code,
                 _codigo_error_meta(error),
                 destino != telefono,
+                hashlib.sha256(("monuburger-whatsapp-v1:" + self._token).encode()).hexdigest()[:16],
+                self._phone_number_id,
+                self._version,
+                _PROCESO_REF,
+                revision if re.fullmatch(r"[0-9a-f]{40}", revision) else "desconocida",
             )
             if error.code == 408 or error.code >= 500:
                 raise ErrorEnvioIncierto("Resultado de envío de WhatsApp incierto") from None
