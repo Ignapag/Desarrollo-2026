@@ -183,10 +183,10 @@ export default function CartDrawer({ isOpen, onClose }) {
                         <input id="checkout-last-name" name="apellido" required maxLength={80} autoComplete="family-name" value={contact.apellido} onChange={updateContact} className={inputClass} />
                       </label>
                     </div>
-                    <label htmlFor="checkout-phone" className={labelClass}><span>Teléfono</span>
+                    <label htmlFor="checkout-phone" className={labelClass}><span>Tu WhatsApp</span>
                       <input id="checkout-phone" name="telefono" type="tel" inputMode="tel" required maxLength={25} pattern="[+0-9\(\) .\-]+" autoComplete="tel" aria-describedby="checkout-phone-help" placeholder="+54 9 11 1234 5678" value={contact.telefono} onChange={updateContact} className={inputClass} />
                     </label>
-                    <p id="checkout-phone-help" className="!mt-1.5 text-xs text-monu-text/70">Con código de país, sin 0 ni 15.</p>
+                    <p id="checkout-phone-help" className="!mt-1.5 text-xs text-monu-text/70">El mismo WhatsApp desde el que vas a enviar el pedido. Con código de país, sin 0 ni 15.</p>
                   </fieldset>
                   <fieldset disabled={busy} className="space-y-4 border-t border-monu-green/10 pt-5">
                     <legend className="sr-only">Entrega y pago</legend>
@@ -230,7 +230,7 @@ export default function CartDrawer({ isOpen, onClose }) {
                       {!currentDraft.url_whatsapp && <p className="mt-2 text-sm">WhatsApp no está conectado. Copiá el mensaje para usar el simulador.</p>}
                     </div>
                   )}
-                  {draft?.key === payloadKey && draft.data.referencia === expiredReference && <p role="status" className="text-sm text-monu-text/70">El mensaje venció. Prepará uno nuevo para continuar.</p>}
+                  {draft?.key === payloadKey && draft.data.referencia === expiredReference && <p role="status" className="text-sm text-monu-text/70">El resumen venció. Prepará uno nuevo para continuar.</p>}
                 </section>
               </div>
             </div>

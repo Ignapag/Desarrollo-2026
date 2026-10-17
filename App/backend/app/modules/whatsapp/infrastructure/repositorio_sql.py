@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from psycopg.types.json import Jsonb
 
 from app.core.db import UnidadDeTrabajo
+from app.modules.whatsapp.domain.textos import resultado_transferencia
 
 
 class RepositorioBotSQL:
@@ -14,8 +15,11 @@ class RepositorioBotSQL:
     async def crear_borrador(self, referencia_hash, cliente_id, datos):
         return await self.uow.uno(
             """INSERT INTO whatsapp_borrador
-            (referencia_hash,cliente_id,telefono,items,tipo_entrega,metodo_pago,direccion,contacto)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
+            (referencia_hash,cliente_id,telefono,items,tipo_entrega,metodo_pago,direccion,contacto,
+             inicio_hash)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (inicio_hash) DO UPDATE SET inicio_hash=EXCLUDED.inicio_hash
+            RETURNING *""",
             (
                 referencia_hash,
                 cliente_id,
@@ -25,6 +29,7 @@ class RepositorioBotSQL:
                 datos.get("metodo_pago"),
                 Jsonb(datos.get("direccion_nueva")),
                 Jsonb(datos.get("contacto") or {}),
+                datos.get("inicio_hash"),
             ),
         )
 
@@ -42,14 +47,24 @@ class RepositorioBotSQL:
         return await self.uow.uno(sql, (identificador,))
 
     async def conversacion(
-        self, telefono, referencia_hash=None, bloquear=False, nombre_remitente=None
+        self, telefono, referencia_hash=None, bloquear=False, nombre_remitente=None,
+        inicio_hash=None, numero_pedido=None,
     ):
         # Todas las mutaciones de una conversación se serializan también entre workers.
         if bloquear:
             await self.uow.valor("SELECT pg_advisory_xact_lock(hashtext(%s))", (telefono,))
-        if referencia_hash:
-            sql = """SELECT * FROM whatsapp_borrador WHERE referencia_hash=%s
+        if inicio_hash:
+            sql = """SELECT * FROM whatsapp_borrador WHERE inicio_hash=%s
                 AND (telefono=%s OR telefono IS NULL)"""
+            params = (inicio_hash, telefono)
+        elif numero_pedido is not None:
+            sql = """SELECT b.* FROM whatsapp_borrador b JOIN pedido p ON p.id=b.pedido_id
+                WHERE b.telefono=%s AND p.numero=%s"""
+            params = (telefono, numero_pedido)
+        elif referencia_hash:
+            sql = """SELECT * FROM whatsapp_borrador WHERE referencia_hash=%s
+                AND (telefono=%s OR telefono IS NULL)
+                AND (inicio_hash IS NULL OR telefono IS NOT NULL)"""
             params = (referencia_hash, telefono)
         else:
             sql = """SELECT * FROM whatsapp_borrador WHERE telefono=%s
@@ -246,7 +261,7 @@ class RepositorioBotSQL:
         await self.encolar(
             f"revision:{comprobante['id']}",
             telefono,
-            f"Pedido #{pedido['numero']}: transferencia {estado.lower()} por personal.",
+            resultado_transferencia(pedido["numero"], aprobar),
         )
         return {"id": comprobante["id"], "estado": estado, "pedido_id": pedido["id"]}
 

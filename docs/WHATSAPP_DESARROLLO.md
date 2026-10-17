@@ -36,7 +36,8 @@ $env:WHATSAPP_TRANSFERENCIA_DATOS = ''
 
 La preparación aplica las migraciones, incluidas `011_whatsapp.sql`,
 `012_whatsapp_estados_envio.sql`, `013_whatsapp_saldo_transferencia.sql` y
-`014_whatsapp_atencion.sql`, y carga usuarios, catálogo y recetas de prueba.
+`014_whatsapp_atencion.sql` hasta `017_whatsapp_mensajes_amigables.sql`, y carga
+usuarios, catálogo y recetas de prueba.
 Estas variables prevalecen sobre `App/.env`, que puede apuntar a la base
 compartida. No aplicar estos comandos a esa base ni habilitar excepciones para
 aceptar destinos remotos. No hace falta cambiar el `.env` existente.
@@ -129,13 +130,15 @@ no aparece en productos sin opciones. No hay campo de extras o texto libre en
 la web; otros cambios se consultan por WhatsApp.
 
 1. Abrir `/` o `/menu` sin sesión, agregar La Típica Doble al carrito y elegir
-   nombre, apellido y teléfono con código de país, entrega y pago. No requiere
+   nombre, apellido y **el mismo WhatsApp desde el que enviará el pedido**, con
+   código de país, entrega y pago. No requiere
    cuenta. El carrito se abre como modal centrado; **Continuar por WhatsApp**
    guarda un borrador y habilita **Abrir WhatsApp**. El pedido se registra al
    enviar el mensaje. Conserva el carrito y permite copiar el mensaje desde
    **Ver o copiar mensaje**. En simulación sin número de negocio no se abre un chat conectado.
    Para una recompra idéntica, **Preparar otro pedido igual** genera otra
-   referencia; reenviar el mensaje anterior conserva el pedido original.
+   resumen con la hora de preparación; reenviar el mensaje anterior conserva
+   el pedido original. Preparaciones idénticas dentro del mismo segundo se reutilizan.
 2. En una sesión independiente de empleado o administrador, usar `/docs` y
    `POST /api/auth/login` con credenciales del seed. Las llamadas posteriores
    usan la cookie HttpOnly; no copiarla ni exponerla en la consola.
@@ -206,20 +209,39 @@ usuario, sin modificar sus credenciales. Los clientes nuevos de WhatsApp no
 tienen usuario ni contraseña. Sus pedidos aparecen en los listados internos,
 reparto y atenciones del bot con su identificación comercial.
 
-El borrador público nace con `cliente_id` y `telefono` nulos. Su referencia aleatoria
-de 256 bits es secreta y solo se guarda su hash. Al procesar el primer mensaje
-con esa referencia vigente, el worker reclama el borrador para el `from` recibido
-por el webhook firmado de Meta. La migración `016_contacto_checkout.sql` agrega
-`whatsapp_borrador.contacto` para conservar los datos declarados en la web.
-Al vincular el borrador usa nombre y apellido para la identificación comercial y
+El borrador público nace con `cliente_id` y `telefono` nulos. Con `contacto`, la
+web prepara un mensaje legible con productos, aclaraciones, subtotal estimado,
+nombre, entrega, pago y fecha/hora argentina de preparación. No incluye códigos
+internos ni el teléfono. La migración `017_whatsapp_mensajes_amigables.sql` agrega
+`inicio_hash`: SHA-256 del teléfono declarado normalizado y del mensaje, ignorando
+mayúsculas y espacios repetidos. La variante móvil argentina `54…`/`549…` se
+normaliza únicamente para esta comparación. La API conserva `referencia` como
+metadato interno compatible; no se muestra ni permite reclamar un borrador nuevo
+sin vincular por el mensaje legible.
+
+El worker calcula la huella con el **remitente del webhook firmado de Meta**:
+solo reclama un resumen vigente enviado desde el WhatsApp declarado. Con otro
+número o un resumen editado no registra ese pedido. El texto inicial se procesa
+sin Gemini, incluidos los datos personales. Reenviar el mismo resumen no duplica
+el pedido; dos preparaciones idénticas del mismo teléfono en el mismo segundo
+reutilizan el borrador mediante la restricción única y el UPSERT. Una recompra
+posterior lleva otra hora. El contenido de WhatsApp no decide precios ni stock:
+se revalidan al crear el pedido.
+
+La migración `016_contacto_checkout.sql` agrega `whatsapp_borrador.contacto`
+para conservar los datos declarados en la web. Al vincular el borrador usa nombre
+y apellido para la identificación comercial y
 guarda el número declarado en `cliente.telefono_contacto`. En una recompra,
 actualiza esos datos solo en el cliente identificado por el remitente real.
-El contacto declarado nunca se usa para autenticar, buscar historiales ni fijar
+El contacto declarado por sí solo nunca permite autenticar, buscar historiales ni fijar
 `whatsapp_verificado` o `telefono_whatsapp`. En borradores anteriores sin contacto,
 conserva el nombre de perfil de Meta cuyo `wa_id` coincide, o WhatsApp y número.
 
-El bloqueo transaccional del teléfono y de la fila del borrador serializa reclamos
-concurrentes. Una referencia reclamada queda limitada a ese remitente. El campo
+Los borradores antiguos o internos sin contacto conservan sus referencias
+aleatorias de 256 bits, de las que solo se guarda el hash, y el reclamo con
+referencia vigente y remitente firmado. El bloqueo transaccional del teléfono y
+de la fila del borrador serializa reclamos concurrentes. Una conversación
+reclamada queda limitada a ese remitente. El campo
 único `cliente.whatsapp_verificado` permite recomprar desde el mismo WhatsApp;
 el teléfono histórico declarado no se copia a ese campo ni fusiona identidades.
 Los historiales anteriores se conservan asociados a sus clientes: no se unen
@@ -234,7 +256,7 @@ el seguimiento y las modificaciones de compras sin cuenta se hacen por WhatsApp.
 Las consultas financieras y el inicio de cobro verifican titularidad para clientes
 autenticados; el repartidor usa sus rutas de reparto y no el historial global.
 
-Para desplegar, coordinar la aplicación de la migración 015 en la base destino
+Para desplegar, coordinar la aplicación de las migraciones hasta la 017 en la base destino
 sin ejecutar el seed de desarrollo. Actualizar API y workers juntos antes de
 publicar el frontend público: un worker anterior presupone que todo cliente tiene
 usuario y no es compatible con nuevos borradores anónimos. Conservar las variables
@@ -243,22 +265,30 @@ destinatarios de prueba. El cambio de código no demuestra un despliegue: despu�
 corresponde comprobar compra, recompra y mensajes repetidos con WhatsApp real.
 
 Para continuar una conversación se valida el remitente firmado. Con un único
-pedido activo alcanza ese remitente; con varios, cada mensaje que consulte o
-modifique un pedido debe incluir su referencia `MB-`, por ejemplo
-`sin tomate MB-…` o `confirmar MB-…`. El bot nunca elige entre pedidos. Dos
-referencias distintas o un token `MB-` mal formado no seleccionan ninguno. Los
-comprobantes se asocian por la referencia incluida en el pie de la imagen o
-documento. La referencia es de acceso: se retira del texto antes de enviarlo a
-Gemini, se oculta en la bandeja y no se registra en logs de la demo. También se
-retiran sus variantes de escritura (minúsculas, espacio o guiones Unicode).
+pedido activo alcanza ese remitente; con varios, se usa el número habitual de la
+compra, por ejemplo `sin tomate para el pedido #123` o `confirmar para el pedido #123`.
+El número nunca da acceso desde otro WhatsApp. El bot no elige entre pedidos y
+rechaza mensajes con más de un número. Con varias compras, el comprobante debe
+identificar el pedido en el pie de la imagen o documento. Los selectores se
+retiran antes de enviar el texto a Gemini. Las referencias `MB-` siguen aceptadas
+solo para compatibilidad, se ocultan en la bandeja y se retiran también en sus
+variantes de escritura antes de interpretar.
+
+Las respuestas usan importes argentinos (`$ 12.000`), resúmenes con separaciones
+y emojis, y estados en lenguaje natural. Los avisos de retiro indican cuándo
+pasar por el local; los de delivery distinguen listo y en camino. Las instrucciones
+de transferencia piden comprobante y aclaran la revisión del empleado; recibirlo
+no confirma el pago. Las salidas conservan sus claves de idempotencia.
 
 ### Interpretación, derivación y límites
 
 1. El worker lee la entrada y su contexto en una transacción breve y la cierra.
    El saludo preparado por la web, los adjuntos y los comandos guiados
-   (`producto N` o `producto N; variante: X`) no consumen Gemini. Tampoco los
+   (`producto N` o `producto N; variante: X`), y una respuesta exacta de variante
+   pendiente (por ejemplo `Doble`), no consumen Gemini. Tampoco los
    mensajes de un teléfono sin conversación identificable: reciben una respuesta
-   fija que pide la referencia.
+   fija que indica cómo enviar el resumen desde el WhatsApp declarado o cómo
+   seleccionar una compra por su número habitual.
 2. El resto se interpreta **completo**, sin la referencia. Si supera 2000
    caracteres no se interpreta ningún fragmento: se pide reformularlo en un
    mensaje más corto y no se modifica el pedido. El servicio aplica la misma
@@ -318,8 +348,9 @@ cada ocho segundos, con pausa en pestañas ocultas; la bandeja se actualiza
 manualmente.
 
 Un borrador puede omitir modalidad, método, dirección y variante obligatoria.
-El bot pregunta antes de crear el pedido. Para variantes usa un comando guiado
-validado contra el catálogo, por ejemplo `producto 1; variante: Doble`. Las notas
+El bot pregunta antes de crear el pedido. Para variantes acepta el nombre de
+una opción del catálogo (por ejemplo `Doble`) para el primer producto pendiente;
+también conserva el comando guiado `producto 1; variante: Doble`. Las notas
 del borrador admiten retiros `Sin ingrediente` pertenecientes a la receta;
 extras y texto libre requieren atención humana.
 

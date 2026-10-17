@@ -481,6 +481,7 @@ erDiagram
         timestamptz expira_en
         timestamptz ultimo_mensaje_en
         jsonb contacto
+        text inicio_hash UK
     }
     WHATSAPP_ENTRADA {
         text id PK

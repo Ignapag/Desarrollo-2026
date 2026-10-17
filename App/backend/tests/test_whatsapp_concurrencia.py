@@ -323,8 +323,9 @@ async def test_contexto_desactualizado_del_mismo_pedido_se_reinterpreta(worker_i
 @pytest.mark.parametrize(
     "misma_referencia,mismo_telefono", [(True, False), (True, True), (False, True)]
 )
+@pytest.mark.parametrize("inicio_legible", [False, True])
 async def test_reclamo_publico_concurrente_es_unico(
-    conexiones_locales, misma_referencia, mismo_telefono
+    conexiones_locales, misma_referencia, mismo_telefono, inicio_legible
 ):
     """Compiten remitentes o borradores distintos, con tx1 todavía sin confirmar."""
     conn1, conn2 = conexiones_locales
@@ -340,9 +341,12 @@ async def test_reclamo_publico_concurrente_es_unico(
         item = {"producto_id": producto["id"], "cantidad": 1,
                 "variante": (producto["variantes"] or [{}])[0].get("nombre")}
         datos = {"items": [item], "tipo_entrega": "RETIRO", "metodo_pago": "EFECTIVO"}
+        if inicio_legible:
+            datos["contacto"] = {"nombre": "Prueba", "apellido": "Carrera", "telefono": telefono}
         servicio = construir_servicio(uow1)
         a = await servicio.crear_borrador(None, datos)
-        b = a if misma_referencia else await servicio.crear_borrador(None, datos)
+        segunda_compra = {**datos, "items": [{**item, "cantidad": 2}]} if inicio_legible else datos
+        b = a if misma_referencia else await servicio.crear_borrador(None, segunda_compra)
         referencias = list({hash_referencia(d["referencia"][3:]) for d in (a, b)})
         await servicio.recibir(ids[0], telefono, a["mensaje"])
         await servicio.recibir(ids[1], otro, b["mensaje"])
@@ -363,7 +367,8 @@ async def test_reclamo_publico_concurrente_es_unico(
                     (conn2.info.backend_pid,),
                 ):
                     break
-            assert not tarea.done(), "El segundo reclamo debe serializarse con el primero"
+            if not inicio_legible or mismo_telefono:
+                assert not tarea.done(), "El segundo reclamo debe serializarse con el primero"
             await conn1.commit()
             respuesta = await tarea
 
