@@ -9,11 +9,21 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.modules.pedidos.presentation.esquemas import DireccionPedidoEntrada, ItemPedidoEntrada
 
 
+class ContactoEntrada(BaseModel):
+    """Datos comerciales declarados, sin valor de autenticación."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    nombre: str = Field(min_length=1, max_length=80)
+    apellido: str = Field(min_length=1, max_length=80)
+    telefono: str = Field(pattern=r"^[0-9]{11,15}$")
+
+
 class BorradorEntrada(BaseModel):
     model_config = ConfigDict(extra="forbid")
     tipo_entrega: Literal["RETIRO", "DELIVERY"] | None = None
     metodo_pago: Literal["EFECTIVO", "TRANSFERENCIA"] | None = None
     direccion_nueva: DireccionPedidoEntrada | None = None
+    contacto: ContactoEntrada | None = None
     items: list[ItemPedidoEntrada] = Field(min_length=1, max_length=50)
 
 

@@ -137,6 +137,7 @@ erDiagram
         text nombre
         text estado
         text whatsapp_verificado UK
+        text telefono_contacto
     }
     ZONA_COBERTURA {
         bigint id PK
@@ -479,6 +480,7 @@ erDiagram
         timestamptz creado_en
         timestamptz expira_en
         timestamptz ultimo_mensaje_en
+        jsonb contacto
     }
     WHATSAPP_ENTRADA {
         text id PK

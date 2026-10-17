@@ -50,6 +50,8 @@ columnas, tipos, obligatoriedad, relaciones y valores permitidos.
 
 **Clientes sin cuenta** — sin tablas nuevas
 
+**Contacto checkout** — sin tablas nuevas
+
 Total: **34 tablas**.
 
 ---
@@ -102,6 +104,7 @@ _cliente: atributos propios del subtipo CLIENTE._
 | `nombre` | TEXT | Sí | default `'Cliente'` |
 | `estado` | TEXT | Sí | valores: `ACTIVO`, `INACTIVO` · default `'ACTIVO'` |
 | `whatsapp_verificado` | TEXT | No | único |
+| `telefono_contacto` | TEXT | No | — |
 
 ### zona_cobertura
 
@@ -550,6 +553,7 @@ _Borradores separados del pedido operativo y colas transaccionales del bot._
 | `creado_en` | TIMESTAMPTZ | Sí | default `now()` |
 | `expira_en` | TIMESTAMPTZ | Sí | default `now() + interval '30 minutes'` |
 | `ultimo_mensaje_en` | TIMESTAMPTZ | No | — |
+| `contacto` | JSONB | Sí | default `'{}'::jsonb` |
 
 ### whatsapp_entrada
 
@@ -651,3 +655,5 @@ _Derivaciones a personal: visibles en la bandeja hasta que un empleado las resue
 | `creado_en` | TIMESTAMPTZ | Sí | default `now()` |
 
 ## 015_clientes_sin_cuenta — Clientes sin cuenta
+
+## 016_contacto_checkout — Contacto checkout
