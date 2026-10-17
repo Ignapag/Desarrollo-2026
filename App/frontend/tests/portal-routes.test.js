@@ -97,3 +97,26 @@ for (const disponible of [true, false]) {
     if (!disponible) assert.match(html, /No disponible/);
   });
 }
+
+test('personalizar Cheese solo ofrece los retiros de su receta', async (t) => {
+  const html = await menuConEstado(t, {
+    catalogStatus: 'ready', catalog: [{
+      id: 54, name: 'Cheese', category: 'Nuestras Burgers', active: true,
+      available: true, price: 11000, variants: [],
+      removableIngredients: ['Queso Cheddar', 'Salsa Monu'],
+    }],
+  });
+  assert.match(html, /Sin Queso Cheddar/);
+  assert.match(html, /Sin Salsa Monu/);
+  assert.doesNotMatch(html, /Sin Cebolla|Sin Pepinillos|Otras notas|extras\.\.\./);
+});
+
+test('los productos sin ingredientes quitables no ofrecen personalizacion', async (t) => {
+  const html = await menuConEstado(t, {
+    catalogStatus: 'ready', catalog: [{
+      id: 80, name: 'Fanta', category: 'Bebidas', active: true,
+      available: true, price: 2200, variants: [], removableIngredients: [],
+    }],
+  });
+  assert.doesNotMatch(html, /Personalizar Fanta|Sacar ingredientes/);
+});

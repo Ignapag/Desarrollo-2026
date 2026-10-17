@@ -6,6 +6,16 @@ from typing import Protocol
 
 from app.errores import DatosInvalidos, NoEncontrado, ReglaDeNegocio
 from app.modules.productos.domain.entidades import DatosProducto, validar_producto
+from app.modules.stock.application.servicio_stock import INGREDIENTES_QUITABLES
+
+
+def _con_personalizaciones(fila: dict) -> dict:
+    producto = dict(fila)
+    receta = producto.pop("ingredientes_receta", [])
+    producto["ingredientes_quitables"] = [
+        nombre for nombre in receta if nombre.casefold() in INGREDIENTES_QUITABLES
+    ]
+    return producto
 
 
 class RepositorioProductos(Protocol):
@@ -22,7 +32,8 @@ class ServicioProductos:
         self.repo = repo
 
     async def listar(self, *, solo_activos: bool = True) -> list[dict]:
-        return await self.repo.listar(solo_activos=solo_activos)
+        filas = await self.repo.listar(solo_activos=solo_activos)
+        return [_con_personalizaciones(p) for p in filas]
 
     async def crear(self, datos: DatosProducto) -> dict:
         try:
@@ -37,10 +48,10 @@ class ServicioProductos:
             [item.ingrediente_id for item in datos.ingredientes]
         ):
             raise DatosInvalidos("La receta contiene ingredientes inexistentes o inactivos")
-        return await self.repo.crear(datos)
+        return _con_personalizaciones(await self.repo.crear(datos))
 
     async def cambiar_estado(self, producto_id: int, *, activo: bool) -> dict:
         fila = await self.repo.cambiar_estado(producto_id, activo)
         if fila is None:
             raise NoEncontrado("El producto no existe")
-        return fila
+        return _con_personalizaciones(fila)

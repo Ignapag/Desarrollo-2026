@@ -40,6 +40,7 @@ class ProductoSalida(BaseModel):
     precio_base: Decimal
     imagen_url: str | None
     variantes: list[VarianteProductoSalida] = Field(default_factory=list)
+    ingredientes_quitables: list[str] = Field(default_factory=list)
     activo: bool
     disponible: bool
 
