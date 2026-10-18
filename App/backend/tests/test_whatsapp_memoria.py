@@ -60,12 +60,14 @@ async def test_direccion_en_partes_conserva_datos_locales_sin_exportarlos(uow, w
     respuesta = await actuar(s, "partes-localidad", "Ensenada", {
         "accion": "datos", "argumentos": {"localidad": "Ensenada"},
     })
-    assert "empleado" in respuesta
+    assert "Cambio guardado" in respuesta
     b = await uow.uno("SELECT contexto_chat FROM whatsapp_borrador WHERE pedido_id=%s", (pid,))
-    assert b["contexto_chat"]["datos"] == {
-        "direccion": "Calle Privada", "numero": "123", "localidad": "Ensenada",
-    }
-    assert await uow.valor("SELECT direccion_id FROM pedido WHERE id=%s", (pid,)) is None
+    assert not b["contexto_chat"].get("datos")
+    direccion = await uow.uno(
+        "SELECT d.calle,d.numero,d.localidad FROM pedido p JOIN direccion d ON d.id=p.direccion_id "
+        "WHERE p.id=%s", (pid,),
+    )
+    assert direccion == {"calle": "Calle Privada", "numero": "123", "localidad": "Ensenada"}
 
 
 async def test_caida_del_proveedor_no_deriva_ni_borra_el_contexto(uow, worker):
@@ -141,6 +143,8 @@ async def test_personal_recibe_datos_fuera_de_los_ultimos_turnos(uow, worker):
 
     s = construir_servicio(uow)
     _, pid = await nuevo_pedido(uow, worker, s, "detalle")
+    # La asignación exige coordinación humana y mantiene los datos para la bandeja.
+    await uow.ejecutar("INSERT INTO envio(pedido_id,estado) VALUES (%s,'ASIGNADO')", (pid,))
     await actuar(s, "detalle-pregunta", "quiero cambiar la dirección", {
         "accion": "preguntar", "argumentos": {"campo": "direccion"},
     })

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, status
 
 from app.core.dependencias import IpCliente
 from app.modules.pagos.presentation.dependencias import ServicioConciliacionDep, ServicioPagosDep
@@ -13,14 +13,12 @@ from app.modules.pagos.presentation.esquemas import (
     ConciliarLoteEntrada,
     ConciliarPagoEntrada,
     EstadoFinancieroPedidoSalida,
-    IniciarCobroDigitalEntrada,
     PagoSalida,
-    PreferenciaCobroSalida,
     RegistrarDevolucionEntrada,
     RegistrarPagoEfectivoEntrada,
+    RegistrarTransferenciaEntrada,
     ResultadoCobroEfectivoSalida,
     ResultadoConciliacionLoteSalida,
-    WebhookMercadoPagoEntrada,
 )
 from app.modules.usuarios.domain.entidades import ClaimsSesion, Rol
 from app.modules.usuarios.presentation.dependencias import requiere_rol
@@ -51,8 +49,7 @@ async def registrar_pago_efectivo(
 
     - Bloqueo pesimista sobre el pedido (FOR UPDATE) para prevenir dobles cobros simultáneos.
     - Si `conciliar_inmediato` es True, el pago queda en estado `CONCILIADO` inmediatamente.
-    - Si el cobro cubre el total del pedido pendiente, el pedido pasa a estado `CONFIRMADO`
-      y se asienta en el historial de estados (`pedido_estado_historial`).
+    - Registra dinero sin cambiar el estado físico del pedido.
     - Registra el evento en auditoría con la IP del cliente.
     """
     resultado = await servicio.registrar_pago_efectivo(
@@ -61,89 +58,28 @@ async def registrar_pago_efectivo(
         monto_a_pagar=datos.monto_a_pagar,
         propina=datos.propina,
         conciliar_inmediato=datos.conciliar_inmediato,
-        registrado_por=datos.registrado_por or sesion.usuario_id,
+        registrado_por=sesion.usuario_id,
+        clave_operacion=str(datos.clave_operacion),
         ip_cliente=ip,
     )
     return ResultadoCobroEfectivoSalida.desde_dominio(resultado)
 
 
 @router.post(
-    "/billetera/iniciar",
-    response_model=PreferenciaCobroSalida,
-    status_code=status.HTTP_201_CREATED,
-    summary="Iniciar cobro digital (Mercado Pago / Billeteras)",
+    "/transferencia", response_model=PagoSalida, status_code=status.HTTP_201_CREATED,
+    summary="Registrar transferencia para revisión humana",
 )
-async def iniciar_cobro_digital(
-    datos: IniciarCobroDigitalEntrada,
-    sesion: SesionPagos,
+async def registrar_transferencia(
+    datos: RegistrarTransferenciaEntrada,
+    sesion: PersonalPagos,
     servicio: ServicioPagosDep,
     ip: IpCliente = None,
-) -> PreferenciaCobroSalida:
-    """Genera la orden de cobro digital (Checkout / QR dinámico de Mercado Pago o billeteras).
-
-    - Asienta un pago PENDIENTE vinculado a la preferencia generada.
-    - Devuelve el init_point para redirección web y el payload qr_data para pago con QR.
-    """
-    resultado = await servicio.iniciar_cobro_digital(
-        pedido_id=datos.pedido_id,
-        metodo_pago=datos.metodo_pago,
-        monto_a_pagar=datos.monto_a_pagar,
-        propina=datos.propina,
-        payer_email=datos.payer_email,
-        registrado_por=(
-            sesion.usuario_id if sesion.rol == Rol.CLIENTE
-            else datos.registrado_por or sesion.usuario_id
-        ),
-        ip_cliente=ip,
-        cliente_usuario_id=sesion.usuario_id if sesion.rol == Rol.CLIENTE else None,
+) -> PagoSalida:
+    pago = await servicio.registrar_transferencia(
+        pedido_id=datos.pedido_id, monto=datos.monto, comprobante=datos.comprobante,
+        registrado_por=sesion.usuario_id, ip_cliente=ip, clave_operacion=str(datos.clave_operacion),
     )
-    return PreferenciaCobroSalida(
-        pago_id=resultado.pago.id,
-        pedido_id=resultado.pago.pedido_id,
-        metodo_pago=resultado.pago.metodo_pago,
-        preference_id=resultado.preferencia.preference_id,
-        init_point=resultado.preferencia.init_point,
-        qr_data=resultado.preferencia.qr_data,
-        monto=resultado.pago.monto,
-        propina=resultado.pago.propina,
-        estado=resultado.pago.estado,
-    )
-
-
-@router.post(
-    "/webhook/mercadopago",
-    summary="Receptor de notificaciones de pago (Webhook IPN)",
-    status_code=status.HTTP_200_OK,
-)
-async def webhook_mercadopago(
-    servicio: ServicioPagosDep,
-    payload: WebhookMercadoPagoEntrada | None = None,
-    topic: str | None = Query(default=None),
-    id: str | None = Query(default=None),
-    ip: IpCliente = None,
-) -> dict:
-    """Receptor oficial de webhooks e IPN de Mercado Pago.
-
-    - Procesa eventos de tipo 'payment' de forma idempotente.
-    - Si el pago fue acreditado ('approved'), actualiza el pago a CONCILIADO y confirma el pedido.
-    - Si el pago fue rechazado, lo marca como ANULADO con su motivo.
-    """
-    # Mercado Pago envía el ID a través del query param o dentro de data.id del body
-    payment_id = id
-    if not payment_id and payload:
-        if payload.data and "id" in payload.data:
-            payment_id = str(payload.data["id"])
-        elif payload.id:
-            payment_id = str(payload.id)
-
-    if not payment_id:
-        return {"status": "ignorado", "motivo": "No se recibió identificador de recurso de pago"}
-
-    return await servicio.procesar_webhook_mercadopago(
-        payment_id=payment_id,
-        topic=topic or (payload.type if payload else None),
-        ip_cliente=ip,
-    )
+    return PagoSalida.desde_dominio(pago)
 
 
 @router.get(
@@ -209,7 +145,7 @@ async def conciliar_lote(
     """Concilia de forma masiva una lista de pagos pendientes (ej. arqueo diario o extracto)."""
     resultado = await servicio.conciliar_lote(
         pago_ids=datos.pago_ids,
-        conciliar_por=datos.conciliar_por or sesion.usuario_id,
+        conciliar_por=sesion.usuario_id,
         ip_cliente=ip,
     )
     return ResultadoConciliacionLoteSalida(**resultado)
@@ -239,7 +175,8 @@ async def registrar_devolucion(
         monto=datos.monto,
         motivo=datos.motivo,
         metodo_pago=datos.metodo_pago,
-        registrado_por=datos.registrado_por or sesion.usuario_id,
+        registrado_por=sesion.usuario_id,
+        clave_operacion=str(datos.clave_operacion),
         ip_cliente=ip,
     )
     return PagoSalida.desde_dominio(devolucion)
@@ -276,9 +213,9 @@ async def conciliar_pago(
 ) -> PagoSalida:
     """Marca un pago individual como CONCILIADO.
 
-    Si el pago salda la totalidad del pedido pendiente, actualiza el pedido a CONFIRMADO.
+    La acreditación humana no cambia el estado físico del pedido.
     """
-    conciliar_por = datos.conciliar_por if datos and datos.conciliar_por else sesion.usuario_id
+    conciliar_por = sesion.usuario_id
     comprobante = datos.comprobante if datos else None
     pago = await servicio.conciliar_pago(
         pago_id=pago_id,
@@ -308,7 +245,7 @@ async def anular_pago(
     pago = await servicio.anular_pago(
         pago_id=pago_id,
         motivo=datos.motivo,
-        anulado_por=datos.anulado_por or sesion.usuario_id,
+        anulado_por=sesion.usuario_id,
         ip_cliente=ip,
     )
     return PagoSalida.desde_dominio(pago)

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -27,18 +29,22 @@ class RegistrarPagoEfectivoEntrada(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    clave_operacion: UUID
     pedido_id: int = Field(..., gt=0, description="ID del pedido que se abona")
     monto_recibido: Decimal = Field(
         ...,
         gt=0,
+        decimal_places=2,
+        max_digits=12,
         description=(
-            "Monto en efectivo entregado físicamente por el cliente "
-            "(para calcular el vuelto)"
+            "Monto en efectivo entregado físicamente por el cliente " "(para calcular el vuelto)"
         ),
     )
     monto_a_pagar: Decimal | None = Field(
         default=None,
         gt=0,
+        decimal_places=2,
+        max_digits=12,
         description=(
             "Monto específico a cobrar. Si no se envía, se toma el saldo pendiente completo"
         ),
@@ -46,6 +52,8 @@ class RegistrarPagoEfectivoEntrada(BaseModel):
     propina: Decimal = Field(
         default=Decimal("0.00"),
         ge=0,
+        decimal_places=2,
+        max_digits=12,
         description="Monto de propina voluntaria entregada por el cliente",
     )
     conciliar_inmediato: bool = Field(
@@ -60,6 +68,17 @@ class RegistrarPagoEfectivoEntrada(BaseModel):
         gt=0,
         description="ID del usuario/empleado que recibe el dinero",
     )
+
+
+class RegistrarTransferenciaEntrada(BaseModel):
+    """Comprobante registrado por personal: queda pendiente de acreditación humana."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    clave_operacion: UUID
+    pedido_id: int = Field(gt=0)
+    monto: Decimal = Field(gt=0, decimal_places=2, max_digits=12)
+    comprobante: str | None = Field(default=None, max_length=1000)
 
 
 class IniciarCobroDigitalEntrada(BaseModel):
@@ -393,12 +412,19 @@ class RegistrarDevolucionEntrada(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    clave_operacion: UUID
     pedido_id: int = Field(
         ..., gt=0, description="ID del pedido sobre el que se efectúa la devolución"
     )
-    monto: Decimal = Field(..., gt=0, description="Monto a devolver/reintegrar")
+    monto: Decimal = Field(
+        ...,
+        gt=0,
+        decimal_places=2,
+        max_digits=12,
+        description="Monto a devolver/reintegrar",
+    )
     motivo: str = Field(..., min_length=3, description="Explicación detallada del reintegro")
-    metodo_pago: MetodoPago = Field(
+    metodo_pago: Literal[MetodoPago.EFECTIVO, MetodoPago.TRANSFERENCIA] = Field(
         default=MetodoPago.EFECTIVO,
         description="Medio por el cual se reintegra el dinero",
     )
@@ -424,7 +450,3 @@ class ResultadoConciliacionLoteSalida(BaseModel):
     conciliados: list[int]
     fallidos: list[dict]
     total_procesados: int
-
-
-
-

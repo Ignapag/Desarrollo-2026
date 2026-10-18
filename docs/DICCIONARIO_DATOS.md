@@ -58,6 +58,10 @@ columnas, tipos, obligatoriedad, relaciones y valores permitidos.
 
 **Whatsapp memoria ia** — sin tablas nuevas
 
+**Operacion segura** — sin tablas nuevas
+
+**Mensajes operacion segura** — sin tablas nuevas
+
 Total: **35 tablas**.
 
 ---
@@ -328,6 +332,10 @@ _alerta_stock: alertas de reposicion (RF-07)._
 | `entregado_en` | TIMESTAMPTZ | No | — |
 | `cancelado_en` | TIMESTAMPTZ | No | — |
 | `motivo_cancelacion` | TEXT | No | — |
+| `version` | INT | Sí | default `1` |
+| `metodo_pago_acordado` | TEXT | Sí | valores: `EFECTIVO`, `TRANSFERENCIA` · default `'EFECTIVO'` |
+| `preparacion_en` | TIMESTAMPTZ | No | — |
+| `listo_en` | TIMESTAMPTZ | No | — |
 
 ### pedido_item
 
@@ -373,6 +381,10 @@ _pedido_estado_historial: el alcance exige timestamp de CADA cambio de estado y 
 | `usuario_id` | BIGINT | No | FK → `usuario.id` |
 | `observacion` | TEXT | No | — |
 | `creado_en` | TIMESTAMPTZ | Sí | default `now()` |
+| `origen` | TEXT | Sí | default `'HISTORICO'` |
+| `version` | INT | No | — |
+| `cambios` | JSONB | No | — |
+| `tratamiento_stock` | TEXT | No | — |
 
 ### promocion
 
@@ -485,6 +497,8 @@ _pago: se agrega tipo (COBRO / DEVOLUCION) para registrar el egreso con referenc
 | `registrado_en` | TIMESTAMPTZ | Sí | default `now()` |
 | `conciliado_en` | TIMESTAMPTZ | No | — |
 | `motivo` | TEXT | No | — |
+| `clave_operacion` | UUID | No | único |
+| `datos_operacion` | JSONB | No | — |
 
 **Funciones:** `protege_pago_conciliado`, `protege_cierre_aprobado`
 
@@ -688,3 +702,11 @@ _Foco y pregunta de selección por remitente; no almacena credenciales ni histor
 | `expira_en` | TIMESTAMPTZ | Sí | default `now() + interval '30 minutes'` |
 
 ## 019_whatsapp_memoria_ia — Whatsapp memoria ia
+
+## 020_operacion_segura — Operacion segura
+
+**Funciones:** `whatsapp_evento_estado`
+
+## 021_mensajes_operacion_segura — Mensajes operacion segura
+
+**Funciones:** `whatsapp_evento_estado`

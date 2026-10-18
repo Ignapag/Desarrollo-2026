@@ -161,7 +161,7 @@ async def test_borrador_no_admite_identidad_parcial(uow):
 
 @pytest.mark.asyncio
 async def test_migracion_preserva_identidad_y_referencias_historicas(uow):
-    """Ejecuta 001..014 y 015 reales en un esquema aislado que el fixture revierte."""
+    """Verifica identidad en 015 y lectura actual tras migrar el esquema aislado."""
     esquema = sql.Identifier("identidad_" + uuid4().hex)
     await uow.conn.execute(sql.SQL("CREATE SCHEMA {}").format(esquema))
     await uow.conn.execute(sql.SQL("SET LOCAL search_path TO {}, public").format(esquema))
@@ -218,7 +218,13 @@ async def test_migracion_preserva_identidad_y_referencias_historicas(uow):
         "VALUES ('Huésped', '5492211234567') RETURNING id"
     )
     assert nuevo > usuario_id
-    assert (await RepositorioPedidosSQL(uow).detalle(pedido_id))["id"] == pedido_id
+    for archivo in sorted(migraciones.glob("*.sql")):
+        if int(archivo.name.split("_", 1)[0]) > 15:
+            await uow.conn.execute(archivo.read_text(encoding="utf-8"))
+    pedido = await RepositorioPedidosSQL(uow).detalle(pedido_id)
+    assert pedido["id"] == pedido_id
+    assert pedido["cliente_id"] == usuario_id
+    assert pedido["cliente"] == "Ana Histórica"
 
 
 @pytest.mark.asyncio

@@ -10,6 +10,7 @@
     "build:personal": "vite build --mode personal",
     "test:portales": "node --test tests/portal.test.js tests/api-proxy.test.js tests/portal-routes.test.js",
     "test:panel": "node --test tests/panel-datos.test.js",
+    "test:operacion": "node --test tests/operacion-pedidos.test.js tests/operacion-ui.test.js tests/operacion-regresiones.test.js",
     "lint": "oxlint",
     "preview": "vite preview"
   },

@@ -8,18 +8,18 @@ auditoria.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Protocol
 
 from app.core import auditoria
 from app.core.db import UnidadDeTrabajo
-from app.errores import NoEncontrado, ReglaDeNegocio
+from app.errores import NoEncontrado, ReglaDeNegocio, SinPermiso
 from app.modules.delivery.domain.entidades import (
     AsignacionPropuesta,
-    EstadoEnvio,
     EstadoRepartidor,
-    EstadoViaje,
     planificar,
 )
 from app.modules.delivery.infrastructure.repositorio_sql import RepositorioDeliverySQL
+from app.modules.pedidos.domain.entidades import EstadoPedido
 
 MAX_POR_VIAJE_POR_DEFECTO = 2
 RADIO_AGRUPACION_POR_DEFECTO = 1.5
@@ -50,10 +50,17 @@ class ResultadoPlanificacion:
     repartidores_disponibles: int
 
 
+class AutoridadPedidos(Protocol):
+    async def cambiar_estado(self, pedido_id: int, nuevo: EstadoPedido, **opciones) -> dict: ...
+
+
 class ServicioDelivery:
-    def __init__(self, uow: UnidadDeTrabajo, repositorio: RepositorioDeliverySQL) -> None:
+    def __init__(
+        self, uow: UnidadDeTrabajo, repositorio: RepositorioDeliverySQL, pedidos: AutoridadPedidos
+    ) -> None:
         self.uow = uow
         self.repo = repositorio
+        self.pedidos = pedidos
 
     # ------------------------------ planificacion ---------------------
 
@@ -69,9 +76,7 @@ class ServicioDelivery:
             )
         )
         max_por_viaje = int(
-            await self.repo.parametro(
-                "delivery.pedidos_por_viaje", str(MAX_POR_VIAJE_POR_DEFECTO)
-            )
+            await self.repo.parametro("delivery.pedidos_por_viaje", str(MAX_POR_VIAJE_POR_DEFECTO))
         )
         return radio_agrupacion, radio_busqueda, max_por_viaje
 
@@ -93,14 +98,24 @@ class ServicioDelivery:
         )
 
     async def planificar_y_asignar(
-        self, *, usuario_id: int | None = None
+        self, *, usuario_id: int | None = None, rol: str | None = None
     ) -> ResultadoPlanificacion:
         """Arma los viajes y los persiste (RF-04).
 
         Se ejecuta cuando hay pedidos listos para despacho. Los pedidos que no
         consiguen repartidor quedan esperando a la proxima corrida.
         """
-        propuestas = await self.previsualizar()
+        self._personal(rol)
+        radio_agrupacion, radio_busqueda, max_por_viaje = await self._parametros()
+        candidatos = await self.repo.pedidos_para_despachar(bloquear=True)
+        repartidores = await self.repo.repartidores_disponibles(bloquear=True)
+        propuestas = planificar(
+            candidatos,
+            repartidores,
+            radio_agrupacion_km=radio_agrupacion,
+            radio_busqueda_km=radio_busqueda,
+            max_por_viaje=max_por_viaje,
+        )
 
         viajes: list[ViajeCreado] = []
         sin_asignar: list[int] = []
@@ -166,57 +181,93 @@ class ServicioDelivery:
 
     # ------------------------------ operacion -------------------------
 
-    async def iniciar_viaje(self, viaje_id: int, *, usuario_id: int | None = None) -> dict:
-        """El repartidor sale del local: todo el viaje pasa a 'en camino'.
+    @staticmethod
+    def _personal(rol: str | None) -> None:
+        if rol is not None and rol not in {"EMPLEADO", "ADMINISTRADOR", "DUENIO"}:
+            raise SinPermiso("Esta operacion requiere personal del local")
 
-        Es el disparador de la notificacion de WhatsApp al cliente (RF-10),
-        que envia el modulo del bot cuando se integre.
-        """
-        viaje = await self.repo.viaje(viaje_id)
+    @staticmethod
+    def _autorizar(viaje: dict, usuario_id: int | None, rol: str | None) -> None:
+        if rol == "REPARTIDOR" and viaje["repartidor_id"] != usuario_id:
+            raise SinPermiso("Solo podes operar tu propio viaje")
+        if rol is not None and rol not in {"REPARTIDOR", "EMPLEADO", "ADMINISTRADOR", "DUENIO"}:
+            raise SinPermiso("No tenes acceso al reparto")
+
+    async def iniciar_viaje(
+        self, viaje_id: int, *, usuario_id: int | None = None, rol: str | None = None
+    ) -> dict:
+        viaje = await self.repo.bloquear_viaje(viaje_id)
         if viaje is None:
             raise NoEncontrado("El viaje no existe")
-        if viaje["estado"] != EstadoViaje.PLANIFICADO.value:
-            raise ReglaDeNegocio(
-                f"El viaje ya esta en estado {viaje['estado']}; solo se puede iniciar "
-                "un viaje planificado"
+        self._autorizar(viaje, usuario_id, rol)
+        if viaje["estado"] != "PLANIFICADO" or viaje["salida_en"] is not None:
+            raise ReglaDeNegocio("Solo se puede iniciar un viaje planificado sin salida")
+        envios = await self.repo.envios_del_viaje(viaje_id)
+        if not envios:
+            raise ReglaDeNegocio("El viaje no tiene envios asignados")
+        for envio in envios:
+            pedido = await self.repo.pedido_asignable(envio["pedido_id"])
+            if (
+                envio["estado"] != "ASIGNADO"
+                or pedido["estado"] != "LISTO"
+                or pedido["tipo_entrega"] != "DELIVERY"
+            ):
+                raise ReglaDeNegocio("Todos los pedidos deben ser delivery listo y asignado")
+        await self.repo.cambiar_estado_viaje(viaje_id, "EN_RUTA")
+        ids = await self.repo.cambiar_estado_envios_del_viaje(viaje_id, "EN_CAMINO")
+        for pedido_id in ids:
+            await self.pedidos.cambiar_estado(
+                pedido_id,
+                EstadoPedido.EN_CAMINO,
+                usuario_id=usuario_id,
+                motivo=f"Salida del viaje {viaje_id}",
+                estado_esperado="LISTO",
+                origen="DELIVERY",
+                rol=rol,
             )
-
-        await self.repo.cambiar_estado_viaje(viaje_id, EstadoViaje.EN_RUTA.value)
-        pedidos = await self.repo.cambiar_estado_envios_del_viaje(
-            viaje_id, EstadoEnvio.EN_CAMINO.value
-        )
-        for pedido_id in pedidos:
-            await self.repo.cambiar_estado_pedido(
-                pedido_id, "EN_CAMINO", usuario_id=usuario_id, observacion=f"Viaje {viaje_id}"
-            )
-
         await auditoria.registrar(
             self.uow,
             accion=AccionesDelivery.VIAJE_INICIADO,
             entidad="viaje",
             entidad_id=viaje_id,
             usuario_id=usuario_id,
-            datos={"pedidos": pedidos},
+            datos={"pedidos": ids},
         )
-        return {"viaje_id": viaje_id, "pedidos_en_camino": pedidos}
+        return {"viaje_id": viaje_id, "pedidos_en_camino": ids}
 
-    async def registrar_entrega(self, envio_id: int, *, usuario_id: int | None = None) -> dict:
-        """Marca un envio como entregado.
-
-        Cuando no quedan envios pendientes, el viaje se cierra y el repartidor
-        vuelve a estar disponible para la proxima asignacion.
-        """
-        envio = await self.repo.envio(envio_id)
-        if envio is None:
+    async def _envio_bloqueado(
+        self, envio_id: int, usuario_id: int | None, rol: str | None
+    ) -> tuple[dict, dict]:
+        previo = await self.repo.envio(envio_id)
+        if previo is None:
             raise NoEncontrado("El envio no existe")
-        if envio["estado"] == EstadoEnvio.ENTREGADO.value:
-            raise ReglaDeNegocio("El envio ya figura como entregado")
-        if envio["viaje_id"] is None:
-            raise ReglaDeNegocio("El envio todavia no esta asignado a un viaje")
+        if previo["viaje_id"] is None:
+            raise ReglaDeNegocio("El envio no esta asignado a un viaje")
+        viaje = await self.repo.bloquear_viaje(previo["viaje_id"])
+        self._autorizar(viaje, usuario_id, rol)
+        envio = await self.repo.envio(envio_id)
+        if envio["viaje_id"] != previo["viaje_id"]:
+            raise ReglaDeNegocio("La asignacion cambio; actualiza el viaje")
+        return envio, viaje
 
-        await self.repo.cambiar_estado_envio(envio_id, EstadoEnvio.ENTREGADO.value)
-        await self.repo.cambiar_estado_pedido(
-            envio["pedido_id"], "ENTREGADO", usuario_id=usuario_id
+    async def registrar_entrega(
+        self, envio_id: int, *, usuario_id: int | None = None, rol: str | None = None
+    ) -> dict:
+        envio, viaje = await self._envio_bloqueado(envio_id, usuario_id, rol)
+        if (
+            envio["estado"] != "EN_CAMINO"
+            or viaje["estado"] != "EN_RUTA"
+            or viaje["salida_en"] is None
+        ):
+            raise ReglaDeNegocio("La entrega requiere un envio en camino y salida real del viaje")
+        await self.repo.cambiar_estado_envio(envio_id, "ENTREGADO")
+        await self.pedidos.cambiar_estado(
+            envio["pedido_id"],
+            EstadoPedido.ENTREGADO,
+            usuario_id=usuario_id,
+            estado_esperado="EN_CAMINO",
+            origen="DELIVERY",
+            rol=rol,
         )
         await auditoria.registrar(
             self.uow,
@@ -226,43 +277,256 @@ class ServicioDelivery:
             usuario_id=usuario_id,
             datos={"pedido_id": envio["pedido_id"], "viaje_id": envio["viaje_id"]},
         )
+        cerrado = await self._cerrar_si_resuelto(viaje, usuario_id)
+        return {"envio_id": envio_id, "pedido_id": envio["pedido_id"], "viaje_finalizado": cerrado}
 
-        viaje_finalizado = False
-        if not await self.repo.quedan_envios_pendientes(envio["viaje_id"]):
-            await self.repo.cambiar_estado_viaje(
-                envio["viaje_id"], EstadoViaje.FINALIZADO.value
-            )
-            await self.repo.cambiar_estado_repartidor(
-                envio["repartidor_id"], EstadoRepartidor.DISPONIBLE.value
-            )
+    async def _cerrar_si_resuelto(self, viaje: dict, usuario_id: int | None) -> bool:
+        # Un fallo sigue ocupando al repartidor hasta confirmar el regreso al local.
+        envios = await self.repo.envios_del_viaje(viaje["id"])
+        if any(e["estado"] != "ENTREGADO" for e in envios):
+            return False
+        estado = "FINALIZADO" if viaje["salida_en"] else "CANCELADO"
+        await self.repo.cambiar_estado_viaje(viaje["id"], estado)
+        await self.repo.cambiar_estado_repartidor(viaje["repartidor_id"], "DISPONIBLE")
+        await auditoria.registrar(
+            self.uow,
+            accion=AccionesDelivery.VIAJE_FINALIZADO,
+            entidad="viaje",
+            entidad_id=viaje["id"],
+            usuario_id=usuario_id,
+        )
+        return True
+
+    async def desasignar_envio(
+        self, envio_id: int, *, motivo: str, usuario_id: int | None = None, rol: str | None = None
+    ) -> dict:
+        self._personal(rol)
+        if not motivo.strip():
+            raise ReglaDeNegocio("La desasignacion requiere un motivo")
+        envio, viaje = await self._envio_bloqueado(envio_id, usuario_id, rol)
+        if viaje["estado"] != "PLANIFICADO" or viaje["salida_en"] or envio["estado"] != "ASIGNADO":
+            raise ReglaDeNegocio("Solo se puede desasignar antes de la salida")
+        await self.repo.desenganchar_envio(envio_id, motivo.strip())
+        await self._cerrar_si_resuelto(viaje, usuario_id)
+        await auditoria.registrar(
+            self.uow,
+            accion="ENVIO_DESASIGNADO",
+            entidad="envio",
+            entidad_id=envio_id,
+            usuario_id=usuario_id,
+            datos={"viaje_id": viaje["id"], "motivo": motivo, "envio_anterior": envio},
+        )
+        return {"envio_id": envio_id, "pedido_id": envio["pedido_id"], "viaje_id": None}
+
+    async def asignar_pedido(
+        self,
+        pedido_id: int,
+        repartidor_id: int,
+        *,
+        motivo: str,
+        usuario_id: int | None = None,
+        rol: str | None = None,
+    ) -> dict:
+        self._personal(rol)
+        if not motivo.strip():
+            raise ReglaDeNegocio("La asignacion requiere un motivo")
+        pedido = await self.repo.pedido_asignable(pedido_id)
+        if pedido is None:
+            raise NoEncontrado("El pedido no existe")
+        if pedido["estado"] != "LISTO" or pedido["tipo_entrega"] != "DELIVERY":
+            raise ReglaDeNegocio("Solo se puede asignar un delivery listo")
+        existente = await self.repo.envio_del_pedido(pedido_id)
+        recuperado = bool(
+            existente
+            and existente["estado"] == "ENTREGADO"
+            and existente["estado_viaje"] == "FINALIZADO"
+        )
+        if existente and existente["viaje_id"] is not None and not recuperado:
+            raise ReglaDeNegocio("Desasigna el envio antes de volver a asignarlo")
+        disponibles = await self.repo.repartidores_disponibles(bloquear=True)
+        if not any(r.repartidor_id == repartidor_id for r in disponibles):
+            raise ReglaDeNegocio("El repartidor no esta disponible")
+        if recuperado:
             await auditoria.registrar(
                 self.uow,
-                accion=AccionesDelivery.VIAJE_FINALIZADO,
-                entidad="viaje",
-                entidad_id=envio["viaje_id"],
+                accion="ENVIO_RECUPERADO",
+                entidad="envio",
+                entidad_id=existente["id"],
                 usuario_id=usuario_id,
+                datos={
+                    "viaje_anterior_id": existente["viaje_id"],
+                    "motivo": motivo,
+                    "envio_anterior": existente,
+                },
             )
-            viaje_finalizado = True
+            await self.repo.desenganchar_envio(existente["id"], motivo)
+        viaje_id = await self.repo.crear_viaje(
+            repartidor_id, asignado_por=usuario_id, automatica=False
+        )
+        envio_id = await self.repo.asignar_envio(
+            pedido_id=pedido_id,
+            viaje_id=viaje_id,
+            zona_id=pedido["zona_id"],
+            orden=1,
+            distancia_km=None,
+        )
+        await self.repo.cambiar_estado_repartidor(repartidor_id, "EN_RUTA")
+        await auditoria.registrar(
+            self.uow,
+            accion=AccionesDelivery.VIAJE_ASIGNADO,
+            entidad="viaje",
+            entidad_id=viaje_id,
+            usuario_id=usuario_id,
+            datos={"pedido_id": pedido_id, "motivo": motivo, "automatica": False},
+        )
+        return {"envio_id": envio_id, "pedido_id": pedido_id, "viaje_id": viaje_id}
 
-        return {
-            "envio_id": envio_id,
-            "pedido_id": envio["pedido_id"],
-            "viaje_finalizado": viaje_finalizado,
-        }
+    async def reasignar_envio(
+        self,
+        envio_id: int,
+        repartidor_id: int,
+        *,
+        motivo: str,
+        usuario_id: int | None = None,
+        rol: str | None = None,
+    ) -> dict:
+        liberado = await self.desasignar_envio(
+            envio_id, motivo=motivo, usuario_id=usuario_id, rol=rol
+        )
+        return await self.asignar_pedido(
+            liberado["pedido_id"],
+            repartidor_id,
+            motivo=motivo,
+            usuario_id=usuario_id,
+            rol=rol,
+        )
 
-    # ------------------------------ consultas -------------------------
+    async def registrar_fallo(
+        self, envio_id: int, *, motivo: str, usuario_id: int | None = None, rol: str | None = None
+    ) -> dict:
+        if not motivo.strip():
+            raise ReglaDeNegocio("El fallo requiere un motivo")
+        envio, viaje = await self._envio_bloqueado(envio_id, usuario_id, rol)
+        if envio["estado"] != "EN_CAMINO" or viaje["estado"] != "EN_RUTA" or not viaje["salida_en"]:
+            raise ReglaDeNegocio("Solo un envio en camino puede fallar")
+        await self.repo.registrar_fallo(envio_id, motivo.strip())
+        await auditoria.registrar(
+            self.uow,
+            accion="ENVIO_FALLIDO",
+            entidad="envio",
+            entidad_id=envio_id,
+            usuario_id=usuario_id,
+            datos={"motivo": motivo, "viaje_id": viaje["id"]},
+        )
+        return {"envio_id": envio_id, "pedido_id": envio["pedido_id"], "viaje_id": viaje["id"]}
 
-    async def viajes_activos(self) -> list[dict]:
-        return await self.repo.viajes_activos()
+    async def confirmar_regreso(
+        self,
+        envio_id: int,
+        *,
+        motivo: str,
+        version_esperada: int,
+        usuario_id: int | None = None,
+        rol: str | None = None,
+    ) -> dict:
+        self._personal(rol)
+        if not motivo.strip():
+            raise ReglaDeNegocio("El regreso requiere un motivo")
+        envio, viaje = await self._envio_bloqueado(envio_id, usuario_id, rol)
+        if envio["estado"] != "FALLIDO" or viaje["estado"] != "EN_RUTA":
+            raise ReglaDeNegocio("El regreso requiere un envio fallido en ruta")
+        await self.repo.desenganchar_envio(envio_id, motivo.strip())
+        await self.pedidos.cambiar_estado(
+            envio["pedido_id"],
+            EstadoPedido.LISTO,
+            usuario_id=usuario_id,
+            motivo=motivo,
+            version_esperada=version_esperada,
+            estado_esperado="EN_CAMINO",
+            origen="DELIVERY",
+            rol=rol,
+            correccion=True,
+        )
+        await self._cerrar_si_resuelto(viaje, usuario_id)
+        await auditoria.registrar(
+            self.uow,
+            accion="ENVIO_REGRESADO",
+            entidad="envio",
+            entidad_id=envio_id,
+            usuario_id=usuario_id,
+            datos={"motivo": motivo, "viaje_id": viaje["id"], "envio_anterior": envio},
+        )
+        return {"envio_id": envio_id, "pedido_id": envio["pedido_id"], "viaje_id": None}
 
-    async def detalle_viaje(self, viaje_id: int) -> dict:
+    async def viajes_activos(
+        self, *, usuario_id: int | None = None, rol: str | None = None
+    ) -> list[dict]:
+        viajes = await self.repo.viajes_activos()
+        return [v for v in viajes if rol != "REPARTIDOR" or v["repartidor_id"] == usuario_id]
+
+    async def repartidores_disponibles(self, *, rol: str) -> list[dict]:
+        self._personal(rol)
+        return [
+            {"id": r.repartidor_id, "nombre": r.nombre, "estado": "DISPONIBLE"}
+            for r in await self.repo.repartidores_disponibles()
+        ]
+
+    async def corregir_entrega(
+        self,
+        envio_id: int,
+        *,
+        motivo: str,
+        version_esperada: int,
+        regreso_confirmado: bool,
+        usuario_id: int,
+        rol: str,
+    ) -> dict:
+        if rol not in {"ADMINISTRADOR", "DUENIO"}:
+            raise SinPermiso("Solo administracion puede corregir una entrega")
+        if not motivo.strip() or regreso_confirmado is not True:
+            raise ReglaDeNegocio("La correccion exige motivo y confirmar el paquete en el local")
+        envio, viaje = await self._envio_bloqueado(envio_id, usuario_id, rol)
+        if envio["estado"] != "ENTREGADO" or viaje["estado"] not in {"EN_RUTA", "FINALIZADO"}:
+            raise ReglaDeNegocio("Solo se puede corregir una entrega registrada en un viaje real")
+        await self.repo.desenganchar_envio(envio_id, motivo.strip())
+        await self.pedidos.cambiar_estado(
+            envio["pedido_id"],
+            EstadoPedido.LISTO,
+            usuario_id=usuario_id,
+            motivo=motivo,
+            version_esperada=version_esperada,
+            estado_esperado="ENTREGADO",
+            origen="DELIVERY",
+            rol=rol,
+            correccion=True,
+            tratamiento_stock="CONSERVAR",
+        )
+        if viaje["estado"] == "EN_RUTA":
+            await self._cerrar_si_resuelto(viaje, usuario_id)
+        await auditoria.registrar(
+            self.uow,
+            accion="ENVIO_ENTREGA_CORREGIDA",
+            entidad="envio",
+            entidad_id=envio_id,
+            usuario_id=usuario_id,
+            datos={"motivo": motivo, "regreso_confirmado": True, "envio_anterior": envio},
+        )
+        return {"envio_id": envio_id, "pedido_id": envio["pedido_id"], "viaje_id": None}
+
+    async def detalle_viaje(
+        self, viaje_id: int, *, usuario_id: int | None = None, rol: str | None = None
+    ) -> dict:
         viaje = await self.repo.viaje(viaje_id)
         if viaje is None:
             raise NoEncontrado("El viaje no existe")
+        self._autorizar(viaje, usuario_id, rol)
         return {**viaje, "envios": await self.repo.envios_del_viaje(viaje_id)}
 
-    async def viaje_del_repartidor(self, repartidor_id: int) -> dict | None:
+    async def viaje_del_repartidor(
+        self, repartidor_id: int, *, usuario_id: int | None = None, rol: str | None = None
+    ) -> dict | None:
+        self._autorizar({"repartidor_id": repartidor_id}, usuario_id, rol)
         abierto = await self.repo.viaje_abierto_de(repartidor_id)
         if abierto is None:
             return None
-        return await self.detalle_viaje(abierto["id"])
+        return await self.detalle_viaje(abierto["id"], usuario_id=usuario_id, rol=rol)

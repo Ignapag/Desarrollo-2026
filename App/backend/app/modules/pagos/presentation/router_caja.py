@@ -72,7 +72,8 @@ async def generar_cierre(
 PENDIENTE_APROBACION.
 
     - Totaliza ingresos en efectivo, billeteras y devoluciones.
-    - Vincula en lote todos los pagos del período con el cierre generado (`pago.cierre_caja_id`).
+    - Captura conciliados hasta el fin del turno, incluidos anteriores sin cierre (arrastre).
+    - Totaliza y vincula exactamente esos pagos con el cierre generado (`pago.cierre_caja_id`).
     - Si el cierre ya existía y fue aprobado, bloquea la operación.
     - Deja registro en la auditoría del sistema (RNF-09).
     """
@@ -80,7 +81,7 @@ PENDIENTE_APROBACION.
     cierre = await servicio.generar_resumen_cierre(
         fecha=entrada.fecha,
         turno=entrada.turno,
-        generado_por=entrada.generado_por or sesion.usuario_id,
+        generado_por=sesion.usuario_id,
         observaciones=entrada.observaciones,
         ip_cliente=ip,
     )
@@ -139,9 +140,8 @@ async def aprobar_cierre(
 (RF del alcance)."""
     cierre = await servicio.aprobar_y_bloquear_cierre(
         cierre_id=cierre_id,
-        aprobado_por=datos.aprobado_por or sesion.usuario_id,
+        aprobado_por=sesion.usuario_id,
         observaciones=datos.observaciones,
         ip_cliente=ip,
     )
     return CierreCajaSalida.desde_dominio(cierre)
-

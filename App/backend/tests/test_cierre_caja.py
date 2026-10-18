@@ -12,6 +12,7 @@ from app.errores import NoEncontrado, ReglaDeNegocio
 from app.modules.pagos.application.servicio_caja import ServicioCaja
 from app.modules.pagos.domain.entidades import (
     CierreCaja,
+    CorteCaja,
     EstadoCierre,
     MetodoPago,
     TotalesMetodoPago,
@@ -24,6 +25,7 @@ from app.modules.pagos.infrastructure.repositorio_caja_sql import RepositorioCaj
 # ---------------------------------------------------------------------------
 # Pruebas de reglas de dominio: turnos y ventanas horarias
 # ---------------------------------------------------------------------------
+
 
 def test_determinar_turno_mediodia():
     """A las 13:30 el sistema debe asignar el turno MEDIODIA del mismo día."""
@@ -97,6 +99,7 @@ def test_cierre_aprobado_es_inalterable():
 # Pruebas del servicio de aplicación: ServicioCaja
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_consolidar_turno_calculo_completo():
     """El servicio consolida totales de efectivo, billeteras y devoluciones."""
@@ -121,6 +124,11 @@ async def test_consolidar_turno_calculo_completo():
         TotalesMetodoPago(metodo_pago=MetodoPago.CUENTA_DNI, total=Decimal("35000.00"), cantidad=7),
     ]
 
+    mock_repo.capturar_turno.return_value = CorteCaja(
+        [],
+        mock_repo.consolidar_totales_turno.return_value,
+        mock_repo.desglose_por_metodo.return_value,
+    )
     servicio = ServicioCaja(mock_uow, mock_repo)
     resultado = await servicio.consolidar_turno(
         fecha=date(2026, 7, 15),
@@ -177,6 +185,11 @@ async def test_generar_resumen_cierre_exitoso():
     )
     mock_repo.crear_o_actualizar_cierre.return_value = cierre_creado
     mock_repo.vincular_pagos_al_cierre.return_value = 27
+    mock_repo.capturar_pagos_cierre.return_value = CorteCaja(
+        list(range(27)),
+        mock_repo.consolidar_totales_turno.return_value,
+        [],
+    )
 
     servicio = ServicioCaja(mock_uow, mock_repo)
     resultado = await servicio.generar_resumen_cierre(
@@ -281,6 +294,20 @@ async def test_aprobar_y_bloquear_cierre_exitoso():
 
     mock_repo.obtener_cierre_por_id.return_value = cierre_pendiente
     mock_repo.aprobar_cierre.return_value = cierre_aprobado
+    mock_repo.capturar_cierre_vinculado.return_value = CorteCaja(
+        [],
+        {
+            campo: getattr(cierre_pendiente, campo)
+            for campo in (
+                "total_efectivo",
+                "total_billeteras",
+                "total_devoluciones",
+                "total_general",
+                "cantidad_pedidos",
+            )
+        },
+        [],
+    )
 
     servicio = ServicioCaja(mock_uow, mock_repo)
     resultado = await servicio.aprobar_y_bloquear_cierre(
@@ -331,4 +358,3 @@ async def test_aprobar_cierre_ya_aprobado_falla():
             cierre_id=5,
             aprobado_por=2,
         )
-

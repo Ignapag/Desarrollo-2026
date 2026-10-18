@@ -29,6 +29,9 @@ vistas de registro/recuperación se retiraron; están en el historial de Git.
 Preferí la capacidad dueña y el cliente HTTP existente. El servidor decide
 precios, disponibilidad y autorización. Conservá el manejo de carga, errores,
 rollback optimista y reconciliación. No simular éxito si la API falló.
+Para estados, cobros y reparto, seguir [operación de pedidos](../../docs/OPERACION_PEDIDOS.md):
+las acciones físicas se registran en la API; conservar versiones y UUID financieros
+en reintentos, y descartar GET anteriores a una mutación.
 
 `App.jsx` redirige `/register` y `/recover-password` a login: no hay vistas ni
 endpoints para esas funciones. Algunas pantallas administrativas contienen datos demostrativos.

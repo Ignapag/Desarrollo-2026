@@ -61,9 +61,13 @@ class RepositorioBot(Protocol):
     ) -> dict | None: ...
     async def finalizar(self, entrada, b, respuesta) -> None: ...
     async def pedido(self, pedido_id) -> dict: ...
+    async def cotizar_operacion(self, pedido, cambios) -> Decimal: ...
+    async def refrescar_operacion(self, b) -> None: ...
     async def ingredientes(self, producto_id) -> list[dict]: ...
     async def historial(self, b, accion, anterior, posterior, estado, empleado_id=None) -> dict: ...
-    async def aplicar_item(self, pedido, item, cantidad, aclaraciones) -> None: ...
+    async def aplicar_item(
+        self, pedido, item, cantidad, aclaraciones, empleado_id=None,
+    ) -> None: ...
     async def comprobante(self, entrada, pedido_id) -> None: ...
     async def revision(self, comprobante_id) -> dict | None: ...
     async def revisar(self, comprobante, aprobar, empleado_id, motivo) -> dict: ...
@@ -291,11 +295,13 @@ class ServicioBot:
             return {}
         items = b["items"]
         estado_pedido_actual = None
+        operacion = None
         if b["pedido_id"]:
             # Contexto sin bloqueo de larga duración ni PII; se vuelve a comprobar al aplicar.
             pedido = await self.repo.pedido(b["pedido_id"])
             items = pedido["items"]
             estado_pedido_actual = pedido["estado"]
+            operacion = self._foto_operacion(pedido)
         contexto_items = []
         for indice, item in enumerate(items, 1):
             contexto_items.append(
@@ -312,7 +318,9 @@ class ServicioBot:
         chat = b.get("contexto_chat") or {}
         return {
             "estado": b["estado"], "estado_pedido": estado_pedido_actual,
-            "tipo_entrega": b["tipo_entrega"], "metodo_pago": b["metodo_pago"],
+            "tipo_entrega": pedido["tipo_entrega"] if operacion else b["tipo_entrega"],
+            "metodo_pago": pedido["metodo_pago_acordado"] if operacion else b["metodo_pago"],
+            "operacion": operacion,
             "items": contexto_items,
             "conversacion": {
                 "solicitud_pendiente": pregunta_actual(b),
@@ -422,17 +430,14 @@ class ServicioBot:
         elif accion.get("accion") == "datos":
             respuesta = self._recoger_datos(b, accion, entrada)
             if respuesta is None:
-                origen = (b.get("contexto_chat") or {}).get("solicitud_id")
-                detalle = await self._derivar(
-                    b, {**entrada, "id": origen or entrada.get("_solicitud_id", entrada["id"])},
-                    {"accion": "humano"},
-                )
-                respuesta = (
-                    "💬 Ya tengo los datos. Un empleado va a ayudarte a actualizarlos. " + detalle
-                )
+                respuesta = await self._operar_datos(b, entrada)
         else:
             if accion.get("accion") in {"cantidad", "quitar_ingrediente"}:
-                self._marcar_pregunta(b, None)
+                if (b.get("contexto_chat") or {}).get("datos"):
+                    self._limpiar_solicitud(b)
+                    b["version"] += 1
+                else:
+                    self._marcar_pregunta(b, None)
             respuesta = await self._operar(
                 b, texto, accion, con_referencia=bool(
                     referencias_en(entrada["texto"]) or numeros_pedido_en(entrada["texto"])
@@ -464,7 +469,7 @@ class ServicioBot:
             return PREGUNTAS["consulta"]
         anterior = b.get("contexto_chat") or {}
         chat = dict(anterior)
-        if campo == "direccion":
+        if campo == "direccion" or (b["pedido_id"] and campo in {"entrega", "pago"}):
             chat["datos"] = {}
             chat["solicitud_id"] = entrada.get("_solicitud_id", entrada["id"])
         chat["pregunta"] = campo
@@ -472,6 +477,99 @@ class ServicioBot:
             b["contexto_chat"] = chat
             b["version"] += 1
         return PREGUNTAS[campo]
+
+    @staticmethod
+    def _foto_operacion(pedido):
+        return {
+            campo: str(pedido.get(campo)) for campo in (
+                "version", "estado", "tipo_entrega", "direccion_id", "metodo_pago_acordado",
+                "total", "pagado", "asignado", "envio_id", "estado_envio", "fondos",
+                "preparacion_en",
+            )
+        }
+
+    @staticmethod
+    def _limpiar_solicitud(b):
+        b["contexto_chat"] = {"pregunta": None}
+        b["propuesta"] = None
+
+    async def _operar_datos(self, b, entrada, propuesta=None):
+        pedido = await self.repo.pedido(b["pedido_id"])
+        chat = b.get("contexto_chat") or {}
+        datos = chat.get("datos") or {}
+        cambios = {}
+        for campo, destino, permitidos in (
+            ("tipo_entrega", "tipo_entrega", {"RETIRO", "DELIVERY"}),
+            ("metodo_pago", "metodo_pago_acordado", {"EFECTIVO", "TRANSFERENCIA"}),
+        ):
+            if campo in datos:
+                valor = str(datos[campo]).upper()
+                if valor not in permitidos:
+                    return "💬 Elegí retiro o delivery, y efectivo o transferencia."
+                cambios[destino] = valor
+        if datos.get("direccion"):
+            cambios["direccion_nueva"] = {
+                "calle": datos["direccion"], "numero": datos["numero"],
+                "localidad": datos["localidad"], "referencia": datos.get("referencias", ""),
+            }
+            # Una dirección de entrega indica que desea recibirlo por delivery.
+            cambios.setdefault("tipo_entrega", "DELIVERY")
+        if not cambios:
+            return "💬 Contame qué dato del pedido querés cambiar."
+        foto = self._foto_operacion(pedido)
+        if pedido["estado"] not in {"PENDIENTE", "CONFIRMADO", "EN_PREPARACION", "LISTO"} or (
+            pedido.get("asignado")
+        ):
+            chat["bloqueo_operativo"] = (
+                "Coordinar la desasignación con reparto antes de editar los datos del pedido."
+                if pedido.get("asignado") else
+                "El pedido está en camino o cerrado: requiere corrección coordinada del personal."
+            )
+            origen = chat.get("solicitud_id") or entrada["id"]
+            return await self._derivar(b, {**entrada, "id": origen}, {"accion": "humano"})
+        if propuesta and propuesta.get("operacion") != foto:
+            self._limpiar_solicitud(b)
+            return CONVERSACION_CAMBIADA
+        if cambios.get("tipo_entrega", pedido["tipo_entrega"]) == "DELIVERY" and not (
+            cambios.get("direccion_nueva") or pedido.get("direccion_id")
+        ):
+            chat["pregunta"] = "direccion"
+            return PREGUNTAS["direccion"]
+        try:
+            total = await self.repo.cotizar_operacion(pedido, cambios)
+            if total < pedido["pagado"]:
+                chat["bloqueo_operativo"] = (
+                    "Coordinar la devolución en caja antes de reducir el total "
+                    "por debajo del neto cobrado."
+                )
+                origen = chat.get("solicitud_id") or entrada["id"]
+                return await self._derivar(b, {**entrada, "id": origen}, {"accion": "humano"})
+            if total != pedido["total"] and propuesta is None:
+                b["propuesta"] = {
+                    "tipo": "TOTAL", "operativa": True, "version": b["version"],
+                    "operacion": foto, "total": str(total), "cambios": cambios,
+                }
+                return (
+                    f"💰 El nuevo total sería *{dinero(total)}*.\n"
+                    f"Respondé *confirmar para el pedido #{pedido['numero']}* "
+                    "para aplicar el cambio."
+                )
+            if propuesta and Decimal(propuesta["total"]) != total:
+                self._limpiar_solicitud(b)
+                return "💬 El total cambió mientras conversábamos. ¿Me repetís el cambio?"
+            await self.pedidos.editar_operacion(
+                pedido["id"], cambios=cambios, usuario_id=None,
+                motivo="Corrección solicitada por el cliente en WhatsApp",
+                version_esperada=pedido["version"], origen="WHATSAPP",
+            )
+        except ErrorDominio as exc:
+            self._limpiar_solicitud(b)
+            return f"💬 No pude aplicar el cambio: {exc.mensaje}. Tu pedido sigue sin cambios."
+        # El comando canónico también actualiza el borrador: no sobrescribirlo con la copia vieja.
+        await self.repo.refrescar_operacion(b)
+        self._limpiar_solicitud(b)
+        b["version"] += 1
+        return "✅ Cambio guardado.\n\n" + resumen(await self.repo.pedido(pedido["id"]))
 
     @staticmethod
     def _marcar_pregunta(b, campo):
@@ -493,6 +591,9 @@ class ServicioBot:
                 campo, 30
             ):
                 datos[campo] = args[campo].strip()
+        if str(args.get("tipo_entrega", "")).upper() == "RETIRO":
+            for campo in ("direccion", "numero", "localidad", "referencias"):
+                datos.pop(campo, None)
         if not datos:
             return None
         chat.update(datos=datos)
@@ -622,6 +723,7 @@ class ServicioBot:
                 observaciones=None,
                 items=[ItemNuevoPedido(**i) for i in b["items"]],
                 canal="WHATSAPP",
+                metodo_pago_acordado=b["metodo_pago"],
             )
         except ErrorDominio as exc:
             return (
@@ -630,7 +732,7 @@ class ServicioBot:
             )
         b["pedido_id"] = pedido["id"]
         b["estado"] = "CREADO"
-        self._marcar_pregunta(b, None)
+        self._limpiar_solicitud(b)
         instrucciones = instrucciones_pago(b["metodo_pago"], self.transferencia, b["tipo_entrega"])
         return (
             "✅ ¡Recibimos tu pedido!\n\n" + resumen(pedido) + "\n\n" + instrucciones
@@ -668,6 +770,11 @@ class ServicioBot:
                 or propuesta["version"] != b["version"]
             ):
                 return "💬 No hay un cambio pendiente para confirmar. Contame qué querés modificar."
+            if propuesta.get("operativa"):
+                return await self._operar_datos(b, {"id": "confirmacion"}, propuesta)
+            if propuesta.get("operacion") != self._foto_operacion(pedido):
+                self._limpiar_solicitud(b)
+                return CONVERSACION_CAMBIADA
             accion = propuesta["accion"]
             nombre = accion["accion"]
         else:
@@ -742,6 +849,7 @@ class ServicioBot:
             "cantidad": item["cantidad"],
             "aclaraciones": item["aclaraciones"],
             "total": str(pedido["total"]),
+            "pedido_version": pedido["version"],
         }
         posterior = {"cantidad": cantidad, "aclaraciones": notas, "total": str(total)}
         if pedido["estado"] in {"ENTREGADO", "CANCELADO"}:
@@ -758,6 +866,7 @@ class ServicioBot:
                 "accion": accion,
                 "total": str(total),
                 "total_anterior": str(pedido["total"]),
+                "operacion": self._foto_operacion(pedido),
             }
             return (
                 f"💰 El nuevo total sería *{dinero(total)}*.\n"
@@ -769,7 +878,9 @@ class ServicioBot:
         ):
             b["propuesta"] = None
             return "💬 El total cambió mientras conversábamos. ¿Me repetís el cambio?"
-        requiere_personal = pedido["estado"] not in {"PENDIENTE", "CONFIRMADO"} or (
+        requiere_personal = pedido.get("preparacion_en") is not None or (
+            pedido["estado"] not in {"PENDIENTE", "CONFIRMADO"}
+        ) or (
             total != pedido["total"] and pedido["pagado"] > 0
         )
         if requiere_personal and empleado_id is None:
@@ -801,6 +912,7 @@ class ServicioBot:
         if (
             nombre == "quitar_ingrediente"
             and pedido["stock_consumido"]
+            and pedido.get("preparacion_en") is None
             and pedido["estado"] in {"PENDIENTE", "CONFIRMADO"}
         ):
             await self.stock.devolver_ingrediente_antes_preparacion(
@@ -814,7 +926,7 @@ class ServicioBot:
                 f"version:{b['referencia_hash']}:{b['version']}",
                 usuario_id=empleado_id,
             )
-        await self.repo.aplicar_item(pedido, item, cantidad, notas or None)
+        await self.repo.aplicar_item(pedido, item, cantidad, notas or None, empleado_id)
         if (
             b["metodo_pago"] == "TRANSFERENCIA"
             and total != pedido["total"]
@@ -868,6 +980,8 @@ class ServicioBot:
         if aprobar:
             if cambio["version"] != b["version"]:
                 raise ReglaDeNegocio("La versión cambió: revisá el pedido vigente")
+            if cambio["anterior"].get("pedido_version") != pedido["version"]:
+                raise ReglaDeNegocio("La versión del pedido cambió: solicitá una nueva revisión")
             if pedido["estado"] in {"CANCELADO", "ENTREGADO"}:
                 raise ReglaDeNegocio("El pedido está cerrado")
             if Decimal(cambio["anterior"]["total"]) != pedido["total"]:

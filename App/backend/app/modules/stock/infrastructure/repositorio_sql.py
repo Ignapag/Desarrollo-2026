@@ -13,6 +13,20 @@ class RepositorioStockSQL:
     def __init__(self, uow: UnidadDeTrabajo) -> None:
         self.uow = uow
 
+    async def reservas_antes_preparacion(self, pedido_id: int) -> list[dict] | None:
+        pedido = await self.uow.uno(
+            "SELECT estado, preparacion_en FROM pedido WHERE id=%s", (pedido_id,)
+        )
+        if pedido["estado"] not in {"PENDIENTE", "CONFIRMADO"} or pedido["preparacion_en"]:
+            return None
+        return await self.uow.todos(
+            "SELECT ingrediente_id, sum(CASE WHEN tipo='CONSUMO' THEN cantidad "
+            "WHEN tipo='DEVOLUCION' THEN -cantidad ELSE 0 END) AS cantidad "
+            "FROM movimiento_stock WHERE pedido_id=%s GROUP BY ingrediente_id "
+            "ORDER BY ingrediente_id",
+            (pedido_id,),
+        )
+
     async def bloquear_pedido(self, pedido_id: int) -> bool:
         return bool(
             await self.uow.uno("SELECT id FROM pedido WHERE id = %s FOR UPDATE", (pedido_id,))
@@ -38,23 +52,27 @@ class RepositorioStockSQL:
 
     async def item_para_ajuste(self, pedido_id: int, item_id: int) -> dict | None:
         return await self.uow.uno(
-            "SELECT p.estado, i.producto_id, i.cantidad, i.aclaraciones "
+            "SELECT p.estado, p.preparacion_en, i.producto_id, i.cantidad, i.aclaraciones "
             "FROM pedido p JOIN pedido_item i ON i.pedido_id = p.id "
-            "WHERE p.id = %s AND i.id = %s FOR UPDATE OF i", (pedido_id, item_id),
+            "WHERE p.id = %s AND i.id = %s FOR UPDATE OF i",
+            (pedido_id, item_id),
         )
 
     async def ajuste_existente(self, pedido_id: int, motivo: str) -> bool:
-        return bool(await self.uow.valor(
-            "SELECT EXISTS (SELECT 1 FROM movimiento_stock WHERE pedido_id = %s AND motivo = %s)",
-            (pedido_id, motivo),
-        ))
+        return bool(
+            await self.uow.valor(
+                "SELECT EXISTS (SELECT 1 FROM movimiento_stock "
+                "WHERE pedido_id = %s AND motivo = %s)",
+                (pedido_id, motivo),
+            )
+        )
 
     async def ingrediente_item_para_devolucion(
         self, pedido_id: int, item_id: int, nombre: str
     ) -> dict | None:
         return await self.uow.uno(
             """
-            SELECT p.estado, i.cantidad, i.aclaraciones,
+            SELECT p.estado, p.preparacion_en, i.cantidad, i.aclaraciones,
                    ing.id AS ingrediente_id, receta.cantidad_requerida
             FROM pedido p
             JOIN pedido_item i ON i.pedido_id = p.id
@@ -67,10 +85,13 @@ class RepositorioStockSQL:
         )
 
     async def devolucion_existente(self, pedido_id: int, motivo: str) -> bool:
-        return bool(await self.uow.valor(
-            "SELECT EXISTS (SELECT 1 FROM movimiento_stock WHERE pedido_id = %s "
-            "AND tipo = 'DEVOLUCION' AND motivo = %s)", (pedido_id, motivo),
-        ))
+        return bool(
+            await self.uow.valor(
+                "SELECT EXISTS (SELECT 1 FROM movimiento_stock WHERE pedido_id = %s "
+                "AND tipo = 'DEVOLUCION' AND motivo = %s)",
+                (pedido_id, motivo),
+            )
+        )
 
     async def consumo_neto_ingrediente(self, pedido_id: int, ingrediente_id: int) -> Decimal:
         return await self.uow.valor(
@@ -83,12 +104,17 @@ class RepositorioStockSQL:
         )
 
     async def devolver(
-        self, ingrediente_id: int, cantidad: Decimal, pedido_id: int,
-        usuario_id: int | None, motivo: str,
+        self,
+        ingrediente_id: int,
+        cantidad: Decimal,
+        pedido_id: int,
+        usuario_id: int | None,
+        motivo: str,
     ) -> None:
         fila = await self.uow.uno(
             "UPDATE ingrediente SET cantidad_actual = cantidad_actual + %s "
-            "WHERE id = %s RETURNING *", (cantidad, ingrediente_id),
+            "WHERE id = %s RETURNING *",
+            (cantidad, ingrediente_id),
         )
         await self.uow.ejecutar(
             "INSERT INTO movimiento_stock "
@@ -124,8 +150,13 @@ class RepositorioStockSQL:
         return filas
 
     async def consumir(
-        self, ingrediente_id: int, cantidad: Decimal, pedido_id: int, *,
-        motivo: str | None = None, usuario_id: int | None = None,
+        self,
+        ingrediente_id: int,
+        cantidad: Decimal,
+        pedido_id: int,
+        *,
+        motivo: str | None = None,
+        usuario_id: int | None = None,
     ) -> dict | None:
         fila = await self.uow.uno(
             """

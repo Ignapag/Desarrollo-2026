@@ -4,8 +4,10 @@ Esta guía describe la implementación de desarrollo al 17 de octubre de 2026.
 El alcance de producto sigue en [WHATSAPP_ALCANCE.md](WHATSAPP_ALCANCE.md).
 El backend interpreta mensajes, valida y persiste operaciones; Gemini propone
 acciones y WhatsApp transporta mensajes. La apertura del chat no crea un pedido.
-Las pruebas reales con credenciales de Google y recursos de prueba de Meta
-quedan pendientes: una simulación aprobada no acredita esa integración externa.
+Una consulta ficticia contra Gemini 3.5 Flash-Lite respondió con la herramienta
+esperada para pedir dirección en 0,74 s durante esta corrección. Esa comprobación
+no valida cuotas permanentes ni el recorrido completo desplegado con Meta;
+las simulaciones tampoco acreditan envío real de WhatsApp.
 
 ## Preparar una base descartable
 
@@ -36,7 +38,7 @@ $env:WHATSAPP_TRANSFERENCIA_DATOS = ''
 
 La preparación aplica las migraciones, incluidas `011_whatsapp.sql`,
 `012_whatsapp_estados_envio.sql`, `013_whatsapp_saldo_transferencia.sql` y
-`014_whatsapp_atencion.sql` hasta `019_whatsapp_memoria_ia.sql`, y carga
+`014_whatsapp_atencion.sql` hasta `021_mensajes_operacion_segura.sql`, y carga
 usuarios, catálogo y recetas de prueba.
 Estas variables prevalecen sobre `App/.env`, que puede apuntar a la base
 compartida. No aplicar estos comandos a esa base ni habilitar excepciones para
@@ -379,13 +381,33 @@ comprobante y revisión del saldo: la aprobación anterior no lo acredita. Si ya
 se cobró más que el nuevo total, primero debe registrarse la devolución real
 mediante `POST /api/pagos/devolucion` (pedido, monto, método y motivo); de otro
 modo la revisión responde `409`. Después de resolverlo, volver a aprobar el
-cambio. Efectivo y los otros medios conservan los endpoints existentes de pagos.
+cambio. El registro manual de efectivo y devolución exige `clave_operacion`
+UUID; un reintento conserva la misma clave y contenido. Transferencias y caja
+siguen las [reglas de operación](OPERACION_PEDIDOS.md), sin Mercado Pago activo.
 Repetir la aprobación del mismo cambio no vuelve a modificar stock ni importes.
+
+Los datos de operación usan una regla separada de la receta: dirección,
+retiro/delivery y método se aplican mediante `ServicioPedidos.editar_operacion`
+en pendiente, confirmado, preparación o listo sin asignación activa. Se conserva
+el pedido y el estado físico. La cobertura y la tarifa se cotizan antes de
+proponer un importe; cualquier diferencia requiere responder `confirmar` y se
+revalida antes de guardar. Un cambio de tarifa, versión, asignación o dinero
+invalida la propuesta anterior.
+
+Con reparto activo o un reintegro necesario se abre una atención con la acción
+que debe coordinar el personal. Resolver una atención conserva el foco del
+pedido, pero limpia sus datos e intención pendientes: la siguiente solicitud
+no reutiliza el método o dirección rechazados. Para evitar interbloqueos con
+el panel, bot y revisiones adquieren pedido antes que borrador. Gemini continúa
+ejecutándose fuera de la transacción.
 
 Los cambios de cantidad ajustan solo la diferencia de stock. Antes de preparar,
 una reducción devuelve insumos; una vez iniciada la preparación conserva el
 consumo, porque la aprobación no demuestra que se puedan recuperar. Retirar
 un ingrediente ya descontado antes de cocina registra una devolución idempotente.
+La marca `preparacion_en` mantiene esta protección aunque una corrección manual
+haya devuelto la etiqueta a pendiente o confirmado; receta y cantidades siguen
+requiriendo intervención humana.
 Cocina lee `pedido_item` vigente y muestra sus aclaraciones; `whatsapp_cambio`
 conserva el historial y la versión. Los tableros del personal refrescan pedidos
 cada ocho segundos, con pausa en pestañas ocultas; la bandeja se actualiza
@@ -446,7 +468,7 @@ repositorio, `VITE_*`, capturas o logs. Variables del backend:
 | `WHATSAPP_TRANSFERENCIA_DATOS` | Instrucciones ficticias para probar. Si está vacío, el bot deriva la consulta al personal. |
 | `GEMINI_MODO` | `simulado` por defecto; `real` para interpretar con Gemini. |
 | `GEMINI_API_KEY` | `<CLAVE_DE_GOOGLE_AI_STUDIO>`. |
-| `GEMINI_MODELO` | `gemini-3.1-flash-lite`, configurable. |
+| `GEMINI_MODELO` | `gemini-3.5-flash-lite` por defecto; un valor explícito prevalece. |
 
 Para Meta: crear/configurar la aplicación y WhatsApp Business Platform, obtener
 el número de prueba y su phone-number-ID, y autorizar/verificar al destinatario
@@ -582,16 +604,17 @@ guardados en el panel coinciden pero el proceso sigue recibiendo `131005`.
 
 ## Gemini: modelo y consumo
 
-La documentación oficial consultada el 17 de octubre de 2026 publica
-`gemini-3.1-flash-lite` como estable, con llamadas a funciones y salidas
-estructuradas. Su precio estándar de texto publicado es USD 0,25 por millón de
-tokens de entrada y USD 1,50 por millón de salida, incluidos tokens de
-razonamiento. El nivel gratuito depende de las cuotas y puede usar el contenido
+El modelo predeterminado es `gemini-3.5-flash-lite`, estable y compatible con
+llamadas a funciones y salidas estructuradas. La documentación oficial consultada
+el 17 de octubre de 2026 publica nivel gratuito sujeto a cuota y, en modalidad
+estándar paga, USD 0,30 por millón de tokens de entrada y USD 2,50 por millón de
+salida, incluidos tokens de razonamiento. El nivel gratuito puede usar contenido
 para mejorar productos: las pruebas académicas usan datos ficticios.
-Google anuncia su retiro para el 7 de mayo de 2027 y propone
-`gemini-3.5-flash-lite` como reemplazo. Configurar el modelo evita cambiar reglas
-de pedidos al migrarlo; aún se debe evaluar su interpretación con casos reales
-del negocio, sin datos personales.
+
+Un `GEMINI_MODELO` explícito conserva la elección del entorno. El cambio del
+valor predeterminado no reemplaza variables ya guardadas en Render ni garantiza
+disponibilidad o cuota. No hay selección automática de otro modelo ni aumento
+de gasto mediante un fallback.
 
 Si el modelo configurado devuelve HTTP 503 o `TimeoutError`, revisar disponibilidad
 antes de atribuirlo a falta de contexto. Se puede configurar
@@ -620,7 +643,7 @@ Un texto de más de 2000 caracteres devuelve
 `motivo: "MENSAJE_LARGO"` sin llamar al proveedor; el bot pide reformularlo.
 No utiliza grounding, búsquedas ni lectura de comprobantes.
 
-Fuentes oficiales: [modelo](https://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-lite),
+Fuentes oficiales: [modelo](https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite),
 [precios](https://ai.google.dev/gemini-api/docs/pricing),
 [límites por proyecto](https://ai.google.dev/gemini-api/docs/rate-limits),
 [retiros](https://ai.google.dev/gemini-api/docs/deprecations) y

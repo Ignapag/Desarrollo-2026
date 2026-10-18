@@ -20,7 +20,7 @@ ServicioPagosDep = Annotated[ServicioPagos, Depends(obtener_servicio_pagos)]
 
 
 def obtener_servicio_conciliacion(uow: UoW) -> ServicioConciliacion:
-    return ServicioConciliacion(uow, RepositorioPagosSQL(uow))
+    return ServicioConciliacion(uow, RepositorioPagosSQL(uow), obtener_servicio_caja(uow))
 
 
 ServicioConciliacionDep = Annotated[

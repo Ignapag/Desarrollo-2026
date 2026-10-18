@@ -51,6 +51,7 @@ def _crear_pago_ejemplo(
 # Pruebas de cálculo de cobro en efectivo y vuelto
 # ---------------------------------------------------------------------------
 
+
 def test_pago_efectivo_monto_exacto():
     """El cliente paga con el importe exacto del pedido."""
     total = Decimal("12500.00")
@@ -195,6 +196,7 @@ def test_error_propina_negativa():
 # Pruebas de balance y estado financiero del pedido
 # ---------------------------------------------------------------------------
 
+
 def test_estado_financiero_sin_pagos():
     """Un pedido sin pagos tiene saldo pendiente igual al total y esta_saldado es False."""
     estado = calcular_estado_financiero(
@@ -212,7 +214,7 @@ def test_estado_financiero_sin_pagos():
 
 def test_estado_financiero_totalmente_saldado():
     """Un pedido con pago por el monto total queda marcado como saldado."""
-    p1 = _crear_pago_ejemplo(id_=1, monto="7500.00")
+    p1 = _crear_pago_ejemplo(id_=1, monto="7500.00", estado=EstadoPago.CONCILIADO)
     estado = calcular_estado_financiero(
         pedido_id=1,
         numero=1001,
@@ -228,8 +230,12 @@ def test_estado_financiero_totalmente_saldado():
 
 def test_estado_financiero_con_devolucion():
     """Una devolución registrada reduce el neto pagado e incrementa el saldo pendiente."""
-    cobro = _crear_pago_ejemplo(id_=1, monto="10000.00", tipo=TipoPago.COBRO)
-    devolucion = _crear_pago_ejemplo(id_=2, monto="3000.00", tipo=TipoPago.DEVOLUCION)
+    cobro = _crear_pago_ejemplo(
+        id_=1, monto="10000.00", tipo=TipoPago.COBRO, estado=EstadoPago.CONCILIADO
+    )
+    devolucion = _crear_pago_ejemplo(
+        id_=2, monto="3000.00", tipo=TipoPago.DEVOLUCION, estado=EstadoPago.CONCILIADO
+    )
 
     estado = calcular_estado_financiero(
         pedido_id=1,
@@ -248,6 +254,7 @@ def test_estado_financiero_con_devolucion():
 # ---------------------------------------------------------------------------
 # Pruebas de inmutabilidad de pagos conciliados (alcance y triggers)
 # ---------------------------------------------------------------------------
+
 
 def test_pago_pendiente_permite_modificacion():
     """Un pago pendiente no lanza error al validar atributos."""
@@ -283,3 +290,19 @@ def test_pago_conciliado_bloquea_modificacion_de_metodo():
             nueva_propina=Decimal("0.00"),
             nuevo_pedido_id=10,
         )
+
+
+def test_estado_financiero_ignora_cobro_y_devolucion_pendientes():
+    estado = calcular_estado_financiero(
+        pedido_id=1,
+        numero=1001,
+        estado_pedido="PENDIENTE",
+        total_pedido=Decimal(100),
+        pagos=[
+            _crear_pago_ejemplo(monto="100"),
+            _crear_pago_ejemplo(monto="40", tipo=TipoPago.DEVOLUCION),
+        ],
+    )
+    assert estado.total_pagado == 0
+    assert estado.saldo_pendiente == 100
+    assert not estado.esta_saldado

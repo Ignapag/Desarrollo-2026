@@ -12,10 +12,11 @@ from fastapi import Depends
 from app.core.dependencias import UoW
 from app.modules.delivery.application.servicio_delivery import ServicioDelivery
 from app.modules.delivery.infrastructure.repositorio_sql import RepositorioDeliverySQL
+from app.modules.pedidos.presentation.dependencias import obtener_servicio_pedidos
 
 
 def obtener_servicio_delivery(uow: UoW) -> ServicioDelivery:
-    return ServicioDelivery(uow, RepositorioDeliverySQL(uow))
+    return ServicioDelivery(uow, RepositorioDeliverySQL(uow), obtener_servicio_pedidos(uow))
 
 
 ServicioDeliveryDep = Annotated[ServicioDelivery, Depends(obtener_servicio_delivery)]

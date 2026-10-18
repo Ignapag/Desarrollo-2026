@@ -5,6 +5,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from app.core.db import UnidadDeTrabajo
+from app.errores import ReglaDeNegocio
 from app.modules.delivery.domain.entidades import (
     PedidoParaDespachar,
     RepartidorDisponible,
@@ -22,14 +23,14 @@ class RepositorioDeliverySQL:
     # ------------------------------ parametros ------------------------
 
     async def parametro(self, clave: str, por_defecto: str) -> str:
-        valor = await self.uow.valor(
-            "SELECT valor FROM parametro WHERE clave = %s", (clave,)
-        )
+        valor = await self.uow.valor("SELECT valor FROM parametro WHERE clave = %s", (clave,))
         return valor if valor is not None else por_defecto
 
     # ------------------------------ consultas -------------------------
 
-    async def pedidos_para_despachar(self) -> list[PedidoParaDespachar]:
+    async def pedidos_para_despachar(
+        self, *, bloquear: bool = False, pedido_ids: list[int] | None = None
+    ) -> list[PedidoParaDespachar]:
         """Pedidos de delivery listos que todavia no estan en ningun viaje.
 
         La ubicacion sale de la direccion del pedido; si la direccion no tiene
@@ -57,9 +58,19 @@ class RepositorioDeliverySQL:
                   SELECT 1 FROM envio e
                   WHERE e.pedido_id = p.id AND e.viaje_id IS NOT NULL
               )
-            ORDER BY p.creado_en
             """
+            + (" AND p.id = ANY(%s)" if pedido_ids is not None else "")
+            + " ORDER BY p.id"
+            + (" FOR UPDATE OF p SKIP LOCKED" if bloquear else ""),
+            (pedido_ids,) if pedido_ids is not None else None,
         )
+        if bloquear:
+            # FOR UPDATE no renueva el snapshot de subconsultas sobre envio.
+            # Con los pedidos bloqueados, una sentencia nueva ve las asignaciones
+            # que confirmaron mientras comenzaba la lectura inicial.
+            if not filas:
+                return []
+            return await self.pedidos_para_despachar(pedido_ids=[f["pedido_id"] for f in filas])
         return [
             PedidoParaDespachar(
                 pedido_id=f["pedido_id"],
@@ -73,7 +84,9 @@ class RepositorioDeliverySQL:
             for f in filas
         ]
 
-    async def repartidores_disponibles(self) -> list[RepartidorDisponible]:
+    async def repartidores_disponibles(
+        self, *, bloquear: bool = False
+    ) -> list[RepartidorDisponible]:
         """Repartidores disponibles y sin ningun viaje abierto."""
         filas = await self.uow.todos(
             """
@@ -90,6 +103,7 @@ class RepositorioDeliverySQL:
               )
             ORDER BY r.usuario_id
             """
+            + (" FOR UPDATE OF r SKIP LOCKED" if bloquear else "")
         )
         return [
             RepartidorDisponible(
@@ -116,7 +130,12 @@ class RepositorioDeliverySQL:
     async def envios_del_viaje(self, viaje_id: int) -> list[dict]:
         return await self.uow.todos(
             """
-            SELECT e.id, e.pedido_id, p.numero, e.estado, e.orden_en_viaje,
+            SELECT e.id, e.id AS envio_id, e.viaje_id, e.pedido_id, p.numero,
+                   p.total, GREATEST(p.total - COALESCE((
+                       SELECT sum(CASE WHEN pg.tipo = 'COBRO' THEN pg.monto ELSE -pg.monto END)
+                       FROM pago pg WHERE pg.pedido_id = p.id AND pg.estado = 'CONCILIADO'
+                   ), 0), 0) AS saldo_pendiente,
+                   e.estado, e.orden_en_viaje,
                    e.distancia_km, e.entregado_en,
                    d.calle, d.numero AS altura, d.piso_depto, d.referencia,
                    z.nombre AS zona_nombre,
@@ -162,14 +181,19 @@ class RepositorioDeliverySQL:
     async def envio(self, envio_id: int) -> dict | None:
         return await self.uow.uno(
             """
-            SELECT e.id, e.pedido_id, e.viaje_id, e.estado,
-                   v.repartidor_id, v.estado AS estado_viaje
+            SELECT e.*, p.numero AS pedido_numero,
+                   v.repartidor_id, v.estado AS estado_viaje, v.salida_en
             FROM envio e
+            JOIN pedido p ON p.id = e.pedido_id
             LEFT JOIN viaje v ON v.id = e.viaje_id
             WHERE e.id = %s
             """,
             (envio_id,),
         )
+
+    async def envio_del_pedido(self, pedido_id: int) -> dict | None:
+        envio_id = await self.uow.valor("SELECT id FROM envio WHERE pedido_id = %s", (pedido_id,))
+        return await self.envio(envio_id) if envio_id is not None else None
 
     # ------------------------------ escrituras ------------------------
 
@@ -208,6 +232,7 @@ class RepositorioDeliverySQL:
                    estado = 'ASIGNADO',
                    distancia_km = EXCLUDED.distancia_km,
                    asignado_en = now()
+            WHERE envio.viaje_id IS NULL
             RETURNING id
             """,
             (
@@ -218,7 +243,9 @@ class RepositorioDeliverySQL:
                 Decimal(str(distancia_km)) if distancia_km is not None else None,
             ),
         )
-        return fila["id"]  # type: ignore[index]
+        if fila is None:
+            raise ReglaDeNegocio("El pedido ya tiene una asignacion vigente")
+        return fila["id"]
 
     async def cambiar_estado_repartidor(self, repartidor_id: int, estado: str) -> None:
         await self.uow.ejecutar(
@@ -239,9 +266,7 @@ class RepositorioDeliverySQL:
                 (estado, viaje_id),
             )
             return
-        await self.uow.ejecutar(
-            "UPDATE viaje SET estado = %s WHERE id = %s", (estado, viaje_id)
-        )
+        await self.uow.ejecutar("UPDATE viaje SET estado = %s WHERE id = %s", (estado, viaje_id))
 
     async def cambiar_estado_envios_del_viaje(self, viaje_id: int, estado: str) -> list[int]:
         if estado == "EN_CAMINO":
@@ -272,9 +297,7 @@ class RepositorioDeliverySQL:
             sql = "UPDATE envio SET estado = %s, entregado_en = now() WHERE id = %s"
         else:
             sql = "UPDATE envio SET estado = %s WHERE id = %s"
-        await self.uow.ejecutar(
-            sql, (estado, envio_id)
-        )
+        await self.uow.ejecutar(sql, (estado, envio_id))
 
     async def quedan_envios_pendientes(self, viaje_id: int) -> bool:
         return bool(
@@ -289,30 +312,34 @@ class RepositorioDeliverySQL:
             )
         )
 
-    # ----------------------- estados del pedido -----------------------
-
-    async def cambiar_estado_pedido(
-        self, pedido_id: int, estado: str, *, usuario_id: int | None, observacion: str | None = None
-    ) -> None:
-        """Cambia el estado y deja el rastro en pedido_estado_historial.
-
-        El alcance exige el timestamp de cada cambio y quien lo hizo; no
-        alcanza con actualizar pedido.estado.
-        """
-        anterior = await self.uow.valor("SELECT estado FROM pedido WHERE id = %s", (pedido_id,))
-
-        if estado == "ENTREGADO":
-            sql = "UPDATE pedido SET estado = %s, entregado_en = now() WHERE id = %s"
-        else:
-            sql = "UPDATE pedido SET estado = %s WHERE id = %s"
-        await self.uow.ejecutar(
-            sql, (estado, pedido_id)
+    async def bloquear_viaje(self, viaje_id: int) -> dict | None:
+        # Todos los comandos usan pedido(s) -> viaje -> envio -> repartidor.
+        await self.uow.todos(
+            """SELECT p.id FROM pedido p JOIN envio e ON e.pedido_id = p.id
+               WHERE e.viaje_id = %s ORDER BY p.id FOR UPDATE OF p""",
+            (viaje_id,),
         )
+        await self.uow.valor("SELECT id FROM viaje WHERE id = %s FOR UPDATE", (viaje_id,))
+        return await self.viaje(viaje_id)
+
+    async def pedido_asignable(self, pedido_id: int) -> dict | None:
+        return await self.uow.uno(
+            """SELECT p.id, p.estado, p.tipo_entrega, d.zona_id
+               FROM pedido p LEFT JOIN direccion d ON d.id = p.direccion_id
+               WHERE p.id = %s FOR UPDATE OF p""",
+            (pedido_id,),
+        )
+
+    async def desenganchar_envio(self, envio_id: int, motivo: str) -> None:
         await self.uow.ejecutar(
-            """
-            INSERT INTO pedido_estado_historial
-                (pedido_id, estado_anterior, estado_nuevo, usuario_id, observacion)
-            VALUES (%s, %s, %s, %s, %s)
-            """,
-            (pedido_id, anterior, estado, usuario_id, observacion),
+            """UPDATE envio SET viaje_id = NULL, estado = 'PENDIENTE',
+               asignado_en = NULL, en_camino_en = NULL, entregado_en = NULL,
+               observaciones = %s WHERE id = %s""",
+            (motivo, envio_id),
+        )
+
+    async def registrar_fallo(self, envio_id: int, motivo: str) -> None:
+        await self.uow.ejecutar(
+            "UPDATE envio SET estado = 'FALLIDO', observaciones = %s WHERE id = %s",
+            (motivo, envio_id),
         )

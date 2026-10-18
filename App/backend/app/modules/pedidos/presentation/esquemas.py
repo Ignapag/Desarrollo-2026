@@ -36,10 +36,28 @@ class PedidoCrear(BaseModel):
     direccion_nueva: DireccionPedidoEntrada | None = None
     observaciones: str | None = Field(default=None, max_length=500)
     items: list[ItemPedidoEntrada] = Field(min_length=1)
+    metodo_pago_acordado: Literal["EFECTIVO", "TRANSFERENCIA"] = "EFECTIVO"
 
 
 class CambiarEstadoEntrada(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     estado: EstadoPedido
+    motivo: str | None = Field(default=None, min_length=1, max_length=500)
+    version_esperada: int | None = Field(default=None, gt=0)
+    estado_esperado: EstadoPedido | None = None
+    correccion: bool = False
+    tratamiento_stock: Literal["CONSERVAR", "RECONSUMIR", "MERMA"] | None = None
+
+
+class EditarOperacionEntrada(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    motivo: str = Field(min_length=1, max_length=500)
+    version_esperada: int = Field(gt=0)
+    tipo_entrega: Literal["DELIVERY", "RETIRO"] | None = None
+    direccion_id: int | None = Field(default=None, gt=0)
+    direccion_nueva: DireccionPedidoEntrada | None = None
+    metodo_pago_acordado: Literal["EFECTIVO", "TRANSFERENCIA"] | None = None
+    observaciones: str | None = Field(default=None, max_length=500)
 
 
 class ItemPedidoSalida(BaseModel):
@@ -67,3 +85,17 @@ class PedidoSalida(BaseModel):
     observaciones: str | None
     creado_en: datetime
     items: list[ItemPedidoSalida]
+    version: int = 1
+    metodo_pago_acordado: str = "EFECTIVO"
+    telefono: str | None = None
+    direccion: dict | None = None
+    envio: dict | None = None
+    historial: list[dict] = Field(default_factory=list)
+    pagos: list[dict] = Field(default_factory=list)
+    neto_cobrado: Decimal = Decimal("0")
+    saldo_pendiente: Decimal = Decimal("0")
+    confirmado_en: datetime | None = None
+    preparacion_en: datetime | None = None
+    listo_en: datetime | None = None
+    entregado_en: datetime | None = None
+    cancelado_en: datetime | None = None

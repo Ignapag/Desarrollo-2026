@@ -59,7 +59,7 @@ def mock_repo():
 
 @pytest.fixture
 def servicio(mock_uow, mock_repo) -> ServicioConciliacion:
-    return ServicioConciliacion(uow=mock_uow, repo=mock_repo)
+    return ServicioConciliacion(uow=mock_uow, repo=mock_repo, caja=AsyncMock())
 
 
 # =========================================================================
@@ -97,7 +97,7 @@ async def test_conciliar_pago_anulado_lanza_regla_de_negocio(servicio, mock_repo
 
 
 @pytest.mark.asyncio
-async def test_conciliar_pago_exitoso_y_confirma_pedido_saldado(servicio, mock_repo, mock_uow):
+async def test_conciliar_pago_exitoso_no_confirma_pedido(servicio, mock_repo, mock_uow):
     pago_pendiente = _crear_pago_ejemplo(pago_id=3, pedido_id=15, monto=Decimal("5000.00"))
     pago_conciliado = _crear_pago_ejemplo(
         pago_id=3, pedido_id=15, monto=Decimal("5000.00"), estado=EstadoPago.CONCILIADO
@@ -110,7 +110,7 @@ async def test_conciliar_pago_exitoso_y_confirma_pedido_saldado(servicio, mock_r
         "total": Decimal("5000.00"),
         "estado": "PENDIENTE",
     }
-    mock_repo.total_pagado_por_pedido.return_value = Decimal("5000.00")
+    mock_repo.total_pagado_por_pedido.return_value = Decimal("0.00")
 
     resultado = await servicio.conciliar_pago(
         pago_id=3,
@@ -121,12 +121,7 @@ async def test_conciliar_pago_exitoso_y_confirma_pedido_saldado(servicio, mock_r
 
     assert resultado.estado == EstadoPago.CONCILIADO
     mock_repo.conciliar_pago.assert_awaited_once_with(3, "BANCO-REC-777")
-    mock_repo.cambiar_estado_pedido.assert_awaited_once_with(
-        pedido_id=15,
-        estado="CONFIRMADO",
-        usuario_id=2,
-        observacion="Pago #3 conciliado y pedido saldado",
-    )
+    mock_repo.cambiar_estado_pedido.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -144,7 +139,7 @@ async def test_conciliar_pago_parcial_no_confirma_pedido_si_falta_saldo(servicio
         "estado": "PENDIENTE",
     }
     # Solo se cubrieron 2000 de los 5000
-    mock_repo.total_pagado_por_pedido.return_value = Decimal("2000.00")
+    mock_repo.total_pagado_por_pedido.return_value = Decimal("0.00")
 
     resultado = await servicio.conciliar_pago(pago_id=4)
 
@@ -169,7 +164,8 @@ async def test_conciliar_lote_procesa_exitosos_y_captura_fallidos(servicio, mock
 
     mock_repo.obtener_pago_por_id.side_effect = _obtener_pago
     mock_repo.conciliar_pago.return_value = pago_1_conc
-    mock_repo.obtener_pedido_para_actualizar.return_value = None
+    mock_repo.obtener_pedido_para_actualizar.return_value = {"total": Decimal("5000")}
+    mock_repo.total_pagado_por_pedido.return_value = Decimal("0")
 
     resultado = await servicio.conciliar_lote(pago_ids=[10, 11], conciliar_por=1)
 
@@ -267,6 +263,17 @@ async def test_registrar_devolucion_exitosa(servicio, mock_repo):
         registrado_por=3,
         conciliado_en=None,
         motivo="Falta de stock de bebida",
+        clave_operacion=None,
+        datos_operacion={
+            "solicitud": {
+                "tipo": "DEVOLUCION",
+                "metodo": "EFECTIVO",
+                "pedido_id": 1,
+                "monto": "1500.00",
+                "motivo": "Falta de stock de bebida",
+                "actor": 3,
+            }
+        },
     )
 
 

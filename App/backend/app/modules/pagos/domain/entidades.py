@@ -96,9 +96,7 @@ class Pago:
             or self.propina != nueva_propina
             or self.pedido_id != nuevo_pedido_id
         ):
-            raise ReglaDeNegocio(
-                f"No se puede modificar un pago ya conciliado (pago #{self.id})"
-            )
+            raise ReglaDeNegocio(f"No se puede modificar un pago ya conciliado (pago #{self.id})")
 
 
 @dataclass(slots=True, frozen=True)
@@ -191,9 +189,56 @@ class CierreCaja:
     def validar_inmutabilidad(self) -> None:
         """Garantiza la regla de negocio del alcance: un cierre aprobado es inalterable."""
         if self.es_aprobado:
-            raise ReglaDeNegocio(
-                f"El cierre de caja #{self.id} ya fue aprobado y es inalterable"
-            )
+            raise ReglaDeNegocio(f"El cierre de caja #{self.id} ya fue aprobado y es inalterable")
+
+
+@dataclass(slots=True, frozen=True)
+class CorteCaja:
+    """Conjunto estable de movimientos y sus acumulados, capturados en una lectura."""
+
+    pago_ids: list[int]
+    totales: dict
+    desglose: list[TotalesMetodoPago]
+
+
+def calcular_corte_caja(pagos: list[Pago]) -> CorteCaja:
+    conciliados = [p for p in pagos if p.es_conciliado]
+    cobros = [p for p in conciliados if p.es_cobro]
+    devoluciones = [p for p in conciliados if not p.es_cobro]
+
+    def sumar(movimientos) -> Decimal:
+        return sum((p.monto for p in movimientos), Decimal("0.00"))
+
+    metodos = {p.metodo_pago for p in conciliados}
+    desglose = [
+        TotalesMetodoPago(
+            metodo_pago=metodo,
+            total=sum(
+                (
+                    p.monto if p.es_cobro else -p.monto
+                    for p in conciliados
+                    if p.metodo_pago == metodo
+                ),
+                Decimal("0.00"),
+            ),
+            cantidad=sum(p.metodo_pago == metodo for p in conciliados),
+        )
+        for metodo in metodos
+    ]
+    return CorteCaja(
+        pago_ids=[p.id for p in conciliados],
+        totales={
+            "total_efectivo": sumar(p for p in cobros if p.metodo_pago == MetodoPago.EFECTIVO),
+            "total_billeteras": sumar(p for p in cobros if p.metodo_pago != MetodoPago.EFECTIVO),
+            "total_devoluciones": sumar(devoluciones),
+            "total_general": sumar(cobros) - sumar(devoluciones),
+            "total_propinas": sum((p.propina for p in conciliados), Decimal("0.00")),
+            "cantidad_pedidos": len({p.pedido_id for p in cobros}),
+            "cantidad_pagos": len(conciliados),
+            "pagos_pendientes_conciliacion": sum(p.estado == EstadoPago.PENDIENTE for p in pagos),
+        },
+        desglose=sorted(desglose, key=lambda d: (-d.total, d.metodo_pago.value)),
+    )
 
 
 def calcular_cobro_efectivo(
@@ -250,11 +295,11 @@ def calcular_estado_financiero(
 ) -> EstadoFinancieroPedido:
     """Calcula el balance y estado financiero de un pedido en base a sus pagos registrados."""
     total_cobros = sum(
-        (p.monto for p in pagos if p.es_cobro and p.estado != EstadoPago.ANULADO),
+        (p.monto for p in pagos if p.es_cobro and p.es_conciliado),
         Decimal("0.00"),
     )
     total_devoluciones = sum(
-        (p.monto for p in pagos if not p.es_cobro and p.estado != EstadoPago.ANULADO),
+        (p.monto for p in pagos if not p.es_cobro and p.es_conciliado),
         Decimal("0.00"),
     )
     total_neto = total_cobros - total_devoluciones

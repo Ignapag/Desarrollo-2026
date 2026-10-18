@@ -306,6 +306,10 @@ erDiagram
         timestamptz entregado_en
         timestamptz cancelado_en
         text motivo_cancelacion
+        int version
+        text metodo_pago_acordado
+        timestamptz preparacion_en
+        timestamptz listo_en
     }
     PEDIDO_ITEM {
         bigint id PK
@@ -336,6 +340,10 @@ erDiagram
         bigint usuario_id FK
         text observacion
         timestamptz creado_en
+        text origen
+        int version
+        jsonb cambios
+        text tratamiento_stock
     }
     PROMOCION {
         bigint id PK
@@ -426,6 +434,8 @@ erDiagram
         timestamptz registrado_en
         timestamptz conciliado_en
         text motivo
+        uuid clave_operacion UK
+        jsonb datos_operacion
     }
 ```
 

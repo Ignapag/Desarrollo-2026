@@ -158,6 +158,8 @@ class ColaWhatsAppSQL:
             a["mensaje"] = ocultar_referencias(a["mensaje"])
             chat = a.pop("contexto_chat") or {}
             origen = a.pop("entrada_id")
+            if chat.get("bloqueo_operativo"):
+                a["mensaje"] += "\n\n" + chat["bloqueo_operativo"]
             if a["motivo"] == "SOLICITUD" and (
                 chat.get("solicitud_id") == origen
                 or chat.get("pregunta") in {"direccion", "numero", "localidad"}

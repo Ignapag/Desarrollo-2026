@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from psycopg.types.json import Jsonb
 
 from app.core.db import UnidadDeTrabajo
+from app.errores import DatosInvalidos
 from app.modules.whatsapp.domain.textos import resultado_transferencia
 
 
@@ -146,13 +147,41 @@ class RepositorioBotSQL:
                 ))
                 ORDER BY ultimo_mensaje_en DESC LIMIT 2"""
             params = (telefono,)
-        if bloquear:
-            sql += " FOR UPDATE"
         filas = await self.uow.todos(sql, params)
         # Una conversación con dos pedidos requiere una referencia explícita.
         if len(filas) != 1:
             return None
         b = filas[0]
+        if bloquear:
+            if b["pedido_id"] is None:
+                # Dos remitentes pueden competir por un borrador aún sin pedido.
+                # Esperar su creación sin tomar la fila evita invertir el orden
+                # cuando la otra transacción acaba de vincular el pedido.
+                await self.uow.valor(
+                    "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                    ("borrador:" + b["referencia_hash"],),
+                )
+                b = await self.uow.uno(
+                    "SELECT * FROM whatsapp_borrador WHERE referencia_hash=%s "
+                    "AND (telefono=%s OR telefono IS NULL)",
+                    (b["referencia_hash"], telefono),
+                )
+                if b is None:
+                    return None
+            # Orden global compartido con la edición manual: pedido -> borrador.
+            # La lectura inicial solo identifica el pedido; después del bloqueo se
+            # recupera la conversación vigente y se revalida su remitente.
+            if b["pedido_id"]:
+                await self.uow.uno(
+                    "SELECT id FROM pedido WHERE id=%s FOR UPDATE", (b["pedido_id"],),
+                )
+            b = await self.uow.uno(
+                "SELECT * FROM whatsapp_borrador WHERE referencia_hash=%s "
+                "AND (telefono=%s OR telefono IS NULL) FOR UPDATE",
+                (b["referencia_hash"], telefono),
+            )
+            if b is None:
+                return None
         if bloquear and b["telefono"] is None and b["expira_en"] > datetime.now(UTC):
             # Bajo el bloqueo del teléfono y de la referencia: dos workers no
             # pueden reclamarla para remitentes distintos ni duplicar al cliente.
@@ -229,7 +258,16 @@ class RepositorioBotSQL:
         )
 
     async def pedido(self, pedido_id):
-        pedido = await self.uow.uno("SELECT * FROM pedido WHERE id=%s FOR UPDATE", (pedido_id,))
+        # La foto de asignación/fondos se obtiene con un snapshot posterior al bloqueo.
+        await self.uow.uno("SELECT id FROM pedido WHERE id=%s FOR UPDATE", (pedido_id,))
+        pedido = await self.uow.uno("SELECT * FROM pedido WHERE id=%s", (pedido_id,))
+        envio = await self.uow.uno(
+            "SELECT id,estado FROM envio WHERE pedido_id=%s "
+            "AND estado IN ('ASIGNADO','EN_CAMINO','FALLIDO') ORDER BY id DESC LIMIT 1",
+            (pedido_id,),
+        )
+        pedido.update(asignado=bool(envio), envio_id=envio["id"] if envio else None,
+                      estado_envio=envio["estado"] if envio else None)
         pedido["items"] = await self.uow.todos(
             "SELECT * FROM pedido_item WHERE pedido_id=%s ORDER BY id", (pedido_id,)
         )
@@ -242,7 +280,38 @@ class RepositorioBotSQL:
             "SELECT EXISTS (SELECT 1 FROM movimiento_stock WHERE pedido_id=%s AND tipo='CONSUMO')",
             (pedido_id,),
         )
+        pedido["fondos"] = await self.uow.todos(
+            "SELECT id,tipo,metodo_pago,monto,estado FROM pago WHERE pedido_id=%s ORDER BY id",
+            (pedido_id,),
+        )
         return pedido
+
+    async def cotizar_operacion(self, pedido, cambios):
+        costo = 0
+        if cambios.get("tipo_entrega", pedido["tipo_entrega"]) == "DELIVERY":
+            direccion = cambios.get("direccion_nueva")
+            if direccion:
+                costo = await self.uow.valor(
+                    "SELECT costo_envio FROM zona_cobertura WHERE lower(nombre)=lower(%s) "
+                    "AND activa FOR SHARE", (direccion["localidad"],),
+                )
+            else:
+                costo = await self.uow.valor(
+                    "SELECT z.costo_envio FROM direccion d JOIN zona_cobertura z ON z.id=d.zona_id "
+                    "WHERE d.id=%s AND d.cliente_id=%s AND d.activa AND z.activa FOR SHARE OF z,d",
+                    (pedido.get("direccion_id"), pedido["cliente_id"]),
+                )
+            if costo is None:
+                raise DatosInvalidos("La dirección no tiene cobertura activa")
+        return pedido["subtotal"] + costo - pedido["descuento_total"]
+
+    async def refrescar_operacion(self, b):
+        actual = await self.uow.uno(
+            "SELECT tipo_entrega,metodo_pago,direccion,version FROM whatsapp_borrador "
+            "WHERE referencia_hash=%s", (b["referencia_hash"],),
+        )
+        actual["version"] = max(actual["version"], b["version"])
+        b.update(actual)
 
     async def ingredientes(self, producto_id):
         return await self.uow.todos(
@@ -270,7 +339,7 @@ class RepositorioBotSQL:
             ),
         )
 
-    async def aplicar_item(self, pedido, item, cantidad, aclaraciones):
+    async def aplicar_item(self, pedido, item, cantidad, aclaraciones, empleado_id=None):
         await self.uow.ejecutar(
             """UPDATE pedido_item SET cantidad=%s,aclaraciones=%s,
             subtotal=(precio_unitario+costo_opciones)*%s WHERE id=%s""",
@@ -278,10 +347,21 @@ class RepositorioBotSQL:
         )
         await self.uow.ejecutar(
             """UPDATE pedido SET subtotal=s.subtotal,
-            total=s.subtotal+costo_envio-descuento_total FROM
+            total=s.subtotal+costo_envio-descuento_total,version=version+1 FROM
             (SELECT sum(subtotal) subtotal FROM pedido_item WHERE pedido_id=%s) s
             WHERE pedido.id=%s""",
             (pedido["id"], pedido["id"]),
+        )
+        await self.uow.ejecutar(
+            "INSERT INTO pedido_estado_historial(pedido_id,estado_anterior,estado_nuevo,"
+            "usuario_id,observacion,origen,version,cambios) SELECT id,estado,estado,%s,"
+            "'Corrección de producto solicitada en WhatsApp','WHATSAPP',version,%s "
+            "FROM pedido WHERE id=%s",
+            (empleado_id,
+             Jsonb({"item_id": item["id"],
+                    "cantidad": {"anterior": item["cantidad"], "nuevo": cantidad},
+                    "aclaraciones": {"anterior": item["aclaraciones"], "nuevo": aclaraciones}}),
+             pedido["id"]),
         )
 
     async def comprobante(self, entrada, pedido_id):
@@ -292,17 +372,17 @@ class RepositorioBotSQL:
         )
 
     async def revision(self, comprobante_id):
-        # Bot y revisiones: borrador -> pedido -> comprobante. Preparación solo toma pedido.
+        # Orden común con el panel: pedido -> borrador -> comprobante.
         fila = await self.uow.uno(
             "SELECT * FROM whatsapp_comprobante WHERE id=%s", (comprobante_id,)
         )
         if not fila:
             return None
+        await self.uow.uno("SELECT id FROM pedido WHERE id=%s FOR UPDATE", (fila["pedido_id"],))
         await self.uow.uno(
             "SELECT referencia_hash FROM whatsapp_borrador WHERE pedido_id=%s FOR UPDATE",
             (fila["pedido_id"],),
         )
-        await self.uow.uno("SELECT id FROM pedido WHERE id=%s FOR UPDATE", (fila["pedido_id"],))
         return await self.uow.uno(
             "SELECT * FROM whatsapp_comprobante WHERE id=%s FOR UPDATE", (comprobante_id,)
         )
@@ -343,6 +423,7 @@ class RepositorioBotSQL:
         fila = await self.uow.uno("SELECT * FROM whatsapp_cambio WHERE id=%s", (cambio_id,))
         if not fila:
             return None, None
+        await self.uow.uno("SELECT id FROM pedido WHERE id=%s FOR UPDATE", (fila["pedido_id"],))
         b = await self.uow.uno(
             "SELECT * FROM whatsapp_borrador WHERE pedido_id=%s FOR UPDATE", (fila["pedido_id"],)
         )
@@ -419,7 +500,8 @@ class RepositorioBotSQL:
         # La conversación vuelve al bot salvo que siga esperando un cambio del personal.
         await self.uow.ejecutar(
             """UPDATE whatsapp_borrador b SET estado=CASE
-                WHEN b.pedido_id IS NULL THEN 'VINCULADO' ELSE 'CREADO' END
+                WHEN b.pedido_id IS NULL THEN 'VINCULADO' ELSE 'CREADO' END,
+                contexto_chat='{}'::jsonb,propuesta=NULL,version=version+1
             WHERE b.referencia_hash=%s AND b.estado='HUMANO' AND NOT EXISTS (
                 SELECT 1 FROM whatsapp_cambio c
                 WHERE c.pedido_id=b.pedido_id AND c.estado='PENDIENTE_EMPLEADO'

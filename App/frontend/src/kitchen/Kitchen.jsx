@@ -1,76 +1,43 @@
-import { useData } from '../shared/store/DataContext';
+import { useEffect, useRef, useState } from 'react';
 import { Clock, CheckCircle } from 'lucide-react';
-import { toast } from 'sonner';
+import { useData } from '../shared/store/DataContext';
+import { ageMinutes, dateTime } from '../fulfillment/orderModel';
+import { buttonClass, DataError } from '../fulfillment/operationUi';
+import OrderDetail from '../fulfillment/OrderDetail';
 
 export default function Kitchen() {
-  const { state, changeOrderStatus } = useData();
-  const { orders } = state;
-
-
-
-  const kitchenOrders = orders.filter(o => o.status === 'en_preparacion');
-
-  const markReady = async (id) => {
-    try {
-      await changeOrderStatus(id, 'listo');
-      toast.success('Pedido listo para envío');
-    } catch (error) {
-      toast.error('No se pudo actualizar el pedido', { description: error.message });
-    }
+  const { state, changeOrderStatus, refreshOrders } = useData();
+  const [now, setNow] = useState(() => Date.now());
+  const [selected, setSelected] = useState(null);
+  const [error, setError] = useState('');
+  const [pending, setPending] = useState(null);
+  const lock = useRef(false);
+  useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(timer); }, []);
+  const orders = state.orders.filter((order) => ['CONFIRMADO', 'EN_PREPARACION'].includes(order.estado))
+    .sort((a, b) => Date.parse(a.preparacion_en || a.confirmado_en || a.date) - Date.parse(b.preparacion_en || b.confirmado_en || b.date));
+  const markReady = async (order) => {
+    if (lock.current) return;
+    lock.current = true;
+    setPending(order.id);
+    setError('');
+    try { await changeOrderStatus(order.id, 'LISTO', { motivo: 'Cocina confirma preparación terminada' }); }
+    catch (failure) { setError(`${failure.message} Actualizá y revisá la comanda antes de reintentar.`); }
+    finally { lock.current = false; setPending(null); }
   };
-
-  return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-end">
-        <div>
-          <h1 className="text-3xl font-extrabold font-heading text-monu-dark mb-1">Panel de Empleado (KDS)</h1>
-          <p className="text-monu-text/70">Comandas en tiempo real para cocina.</p>
+  return <div className="space-y-6">
+    <div className="flex flex-wrap justify-between items-start gap-3"><div><h1 className="text-3xl font-extrabold font-heading text-monu-dark">Cocina / KDS</h1><p className="text-monu-text/80">Comandas confirmadas y en preparación, ordenadas por su fecha real.</p></div><button type="button" onClick={() => { void refreshOrders(undefined, true).catch(() => undefined); }} className={buttonClass}>Actualizar cocina</button></div>
+    <DataError message={error || state.ordersError} />
+    {state.ordersStatus === 'loading' && <p role="status">Consultando comandas...</p>}
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+      {orders.map((order) => { const age = ageMinutes(order.preparacion_en || order.confirmado_en, now); return <article key={order.id} className="bg-white rounded-2xl shadow-monu overflow-hidden border border-monu-green/20">
+        <div className="p-4 bg-monu-dark text-white space-y-2"><h2 className="font-extrabold text-xl">Pedido #{order.number}</h2><p className="flex items-center gap-2 text-sm"><Clock aria-hidden="true" className="w-4 h-4" />{order.estado === 'CONFIRMADO' ? 'Confirmado: pendiente de iniciar cocina' : 'En preparación'} · {age == null ? 'Sin fecha registrada' : `${age} min`}</p><p className="text-sm">{dateTime(order.preparacion_en || order.confirmado_en)}</p></div>
+        <div className="p-5 space-y-4"><p className="font-bold">{order.tipo_entrega === 'RETIRO' ? 'Retiro en local' : 'Delivery'}</p><ul className="space-y-3 font-bold">{order.items.map((item, index) => <li key={index} className="border-b border-monu-green/10 pb-2 break-words">{item}</li>)}</ul>{order.observaciones && <p className="text-sm break-words">{order.observaciones}</p>}
+          <button type="button" onClick={() => setSelected(order.id)} disabled={pending != null} className={`${buttonClass} w-full`}>Detalle y acciones</button>
+          {order.estado === 'EN_PREPARACION' && <button type="button" onClick={() => { void markReady(order); }} disabled={pending != null} className={`${buttonClass} w-full bg-monu-green text-white flex gap-2 items-center justify-center`}><CheckCircle aria-hidden="true" className="w-5 h-5" />{pending === order.id ? 'Registrando...' : order.tipo_entrega === 'RETIRO' ? 'Listo para retirar' : 'Listo para reparto'}</button>}
         </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        {kitchenOrders.length === 0 ? (
-          <div className="col-span-full py-20 text-center text-monu-text/50">
-            <span className="text-5xl block mb-4">🍽️</span>
-            <p className="text-lg">No hay tickets en cocina en este momento.</p>
-          </div>
-        ) : (
-          kitchenOrders.map((order, i) => (
-            <div key={order.id} className={`bg-white rounded-2xl shadow-monu overflow-hidden border-2 ${i === 0 ? 'border-red-500 animate-pulse' : 'border-transparent'}`}>
-              <div className={`p-4 text-white flex justify-between items-center ${i === 0 ? 'bg-red-500' : 'bg-monu-dark'}`}>
-                <div className="flex items-center gap-2 font-bold">
-                  <Clock className="w-4 h-4" />
-                  <span>{i === 0 ? '¡Demorado!' : '10:45 AM'}</span>
-                </div>
-                <span className="font-extrabold text-xl">#{order.id}</span>
-              </div>
-              
-              <div className="p-5">
-                <div className="space-y-4 mb-6">
-                  {order.items.map((item, j) => (
-                    <div key={j} className="flex gap-3 items-start border-b border-monu-green/10 pb-3 last:border-0 last:pb-0">
-                      <span className="w-8 h-8 rounded-lg bg-monu-green/10 text-monu-green flex items-center justify-center font-bold text-lg shrink-0">
-                        {item.match(/^\d+/)?.[0] || '1'}
-                      </span>
-                      <span className="font-bold text-monu-dark text-lg leading-tight">
-                        {item.replace(/^\d+x\s/, '')}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-
-                <button 
-                  onClick={() => markReady(order.id)}
-                  className="w-full bg-monu-green hover:bg-monu-green/80 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 transition shadow-md active:scale-95"
-                >
-                  <CheckCircle className="w-5 h-5" />
-                  Listo para Envío
-                </button>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
+      </article>; })}
     </div>
-  );
+    {orders.length === 0 && state.ordersStatus === 'ready' && <p className="text-center py-12">No hay comandas confirmadas ni en preparación.</p>}
+    {selected && <OrderDetail key={selected} id={selected} onClose={() => setSelected(null)} />}
+  </div>;
 }

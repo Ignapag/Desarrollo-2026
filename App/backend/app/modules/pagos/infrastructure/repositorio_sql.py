@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from decimal import Decimal
 
@@ -39,16 +40,18 @@ class RepositorioPagosSQL:
 
     async def pedido_pertenece_a_usuario(self, pedido_id: int, usuario_id: int) -> bool:
         """Relaciona la identidad comercial del pedido con su cuenta, si la tiene."""
-        return bool(await self.uow.valor(
-            """
+        return bool(
+            await self.uow.valor(
+                """
             SELECT EXISTS (
                 SELECT 1 FROM pedido p
                 JOIN cliente c ON c.id = p.cliente_id
                 WHERE p.id = %s AND c.usuario_id = %s
             )
             """,
-            (pedido_id, usuario_id),
-        ))
+                (pedido_id, usuario_id),
+            )
+        )
 
     async def obtener_pedido(self, pedido_id: int) -> dict | None:
         """Obtiene datos esenciales del pedido para lectura (sin bloqueo)."""
@@ -80,20 +83,36 @@ class RepositorioPagosSQL:
                 CASE WHEN tipo = 'COBRO' THEN monto ELSE -monto END
             ), 0) AS total_pagado
             FROM pago
-            WHERE pedido_id = %s AND estado <> 'ANULADO'
+            WHERE pedido_id = %s AND estado = 'CONCILIADO'
         """
         valor = await self.uow.valor(sql, (pedido_id,))
         return Decimal(str(valor)) if valor is not None else Decimal("0.00")
 
-    async def existe_pago_con_referencia(self, referencia_externa: str) -> bool:
-        """Verifica si ya existe un cobro registrado con la misma referencia externa."""
-        sql = """
-            SELECT EXISTS (
-                SELECT 1 FROM pago
-                WHERE referencia_externa = %s AND estado <> 'ANULADO'
-            )
-        """
-        return bool(await self.uow.valor(sql, (referencia_externa,)))
+    async def bloquear_operacion(self, clave: str) -> None:
+        """Orden global: clave de reintento, pedido y finalmente pago."""
+        await self.uow.ejecutar(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+            (clave,),
+        )
+
+    async def obtener_operacion(self, clave: str) -> tuple[Pago, dict] | None:
+        fila = await self.uow.uno(
+            """
+            SELECT id, pedido_id, cierre_caja_id, tipo, metodo_pago, monto, propina,
+                   estado, referencia_externa, registrado_por, registrado_en,
+                   conciliado_en, motivo, datos_operacion
+            FROM pago WHERE clave_operacion = %s
+            """,
+            (clave,),
+        )
+        return (_mapear_pago(fila), fila["datos_operacion"]) if fila else None
+
+    async def bloquear_pedidos_de_pagos(self, pago_ids: list[int]) -> None:
+        await self.uow.todos(
+            "SELECT id FROM pedido WHERE id IN "
+            "(SELECT pedido_id FROM pago WHERE id = ANY(%s)) ORDER BY id FOR UPDATE",
+            (pago_ids,),
+        )
 
     async def registrar_pago(
         self,
@@ -107,15 +126,17 @@ class RepositorioPagosSQL:
         registrado_por: int | None = None,
         conciliado_en: datetime | None = None,
         motivo: str | None = None,
+        clave_operacion: str | None = None,
+        datos_operacion: dict | None = None,
     ) -> Pago:
         """Inserta un pago de forma parametrizada y retorna la entidad creada."""
         sql = """
             INSERT INTO pago (
                 pedido_id, tipo, metodo_pago, monto, propina,
                 estado, referencia_externa, registrado_por, registrado_en,
-                conciliado_en, motivo
+                conciliado_en, motivo, clave_operacion, datos_operacion
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, now(), %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, now(), %s, %s, %s, %s)
             RETURNING id, pedido_id, cierre_caja_id, tipo, metodo_pago,
                       monto, propina, estado, referencia_externa,
                       registrado_por, registrado_en, conciliado_en, motivo
@@ -133,42 +154,13 @@ class RepositorioPagosSQL:
                 registrado_por,
                 conciliado_en,
                 motivo,
+                clave_operacion,
+                json.dumps(datos_operacion) if datos_operacion is not None else None,
             ),
         )
         if fila is None:
             raise RuntimeError("No se pudo registrar el pago en la base de datos")
         return _mapear_pago(fila)
-
-    async def cambiar_estado_pedido(
-        self,
-        pedido_id: int,
-        estado: str,
-        *,
-        usuario_id: int | None = None,
-        observacion: str | None = None,
-    ) -> None:
-        """Cambia el estado del pedido y registra el historial en pedido_estado_historial
-        (RF-01).
-        """
-        anterior = await self.uow.valor("SELECT estado FROM pedido WHERE id = %s", (pedido_id,))
-
-        if estado == "CONFIRMADO":
-            sql = "UPDATE pedido SET estado = %s, confirmado_en = now() WHERE id = %s"
-        elif estado == "ENTREGADO":
-            sql = "UPDATE pedido SET estado = %s, entregado_en = now() WHERE id = %s"
-        else:
-            sql = "UPDATE pedido SET estado = %s WHERE id = %s"
-        await self.uow.ejecutar(
-            sql, (estado, pedido_id)
-        )
-        await self.uow.ejecutar(
-            """
-            INSERT INTO pedido_estado_historial
-                (pedido_id, estado_anterior, estado_nuevo, usuario_id, observacion)
-            VALUES (%s, %s, %s, %s, %s)
-            """,
-            (pedido_id, anterior, estado, usuario_id, observacion),
-        )
 
     async def obtener_pago_por_id(self, pago_id: int) -> Pago | None:
         """Busca un pago por su identificador primario."""
@@ -194,45 +186,6 @@ class RepositorioPagosSQL:
         """
         filas = await self.uow.todos(sql, (pedido_id,))
         return [_mapear_pago(f) for f in filas]
-
-    async def obtener_pago_por_referencia(self, referencia_externa: str) -> Pago | None:
-        """Busca un pago por su referencia externa (preference_id o payment_id)."""
-        sql = """
-            SELECT id, pedido_id, cierre_caja_id, tipo, metodo_pago,
-                   monto, propina, estado, referencia_externa,
-                   registrado_por, registrado_en, conciliado_en, motivo
-            FROM pago
-            WHERE referencia_externa = %s
-        """
-        fila = await self.uow.uno(sql, (referencia_externa,))
-        return _mapear_pago(fila) if fila else None
-
-    async def actualizar_pago_por_referencia(
-        self,
-        referencia_externa: str,
-        nuevo_estado: EstadoPago,
-        *,
-        conciliado_en: datetime | None = None,
-        motivo: str | None = None,
-        nueva_referencia: str | None = None,
-    ) -> Pago | None:
-        """Actualiza el estado y opcionalmente el motivo o id definitivo de cobro."""
-        sql = """
-            UPDATE pago
-            SET estado = %s,
-                conciliado_en = %s,
-                motivo = COALESCE(%s, motivo),
-                referencia_externa = COALESCE(%s, referencia_externa)
-            WHERE referencia_externa = %s
-            RETURNING id, pedido_id, cierre_caja_id, tipo, metodo_pago,
-                      monto, propina, estado, referencia_externa,
-                      registrado_por, registrado_en, conciliado_en, motivo
-        """
-        fila = await self.uow.uno(
-            sql,
-            (nuevo_estado.value, conciliado_en, motivo, nueva_referencia, referencia_externa),
-        )
-        return _mapear_pago(fila) if fila else None
 
     async def conciliar_pago(
         self, pago_id: int, referencia_externa: str | None = None
@@ -277,5 +230,3 @@ class RepositorioPagosSQL:
         """
         filas = await self.uow.todos(sql)
         return [_mapear_pago(f) for f in filas]
-
-

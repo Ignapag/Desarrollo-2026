@@ -27,8 +27,9 @@ Reutilizá `UnidadDeTrabajo` y su alcance transaccional. Parametrizá SQL con `%
 Precios y estados se validan en servidor. Revisá reintentos y concurrencia al
 tocar stock, pagos y caja. Declará la guarda de rol (`Sesion`, `PersonalInterno`…)
 antes del servicio en la firma del endpoint, así se rechaza sin pedir conexión.
-El webhook tiene validación propia. Pagos y delivery cambian el estado del pedido
-con SQL propio, sin consumo de stock; ver [deuda técnica](../../docs/DEUDA_TECNICA.md).
+El webhook de WhatsApp tiene validación propia. Los cambios físicos pasan por
+`ServicioPedidos`; pagos registra dinero y delivery coordina viajes usando la misma
+unidad de trabajo. Ver [operación de pedidos](../../docs/OPERACION_PEDIDOS.md).
 
 ## Verificar
 
