@@ -22,6 +22,7 @@ from app.modules.pagos.domain.entidades import (
     TotalesMetodoPago,
     TurnoCierre,
 )
+from app.modules.pedidos.presentation.esquemas import PedidoSalida
 
 
 class RegistrarPagoEfectivoEntrada(BaseModel):
@@ -180,6 +181,12 @@ class PagoSalida(BaseModel):
         )
 
 
+class PagoOperacionSalida(PagoSalida):
+    """Snapshot opcional para encadenar acciones sin otro viaje HTTP."""
+
+    pedido: PedidoSalida | None = None
+
+
 class DetalleCobroEfectivoSalida(BaseModel):
     """Desglose financiero del cobro en efectivo."""
 
@@ -196,6 +203,7 @@ class ResultadoCobroEfectivoSalida(BaseModel):
 
     pago: PagoSalida
     detalle: DetalleCobroEfectivoSalida
+    pedido: PedidoSalida | None = None
 
     @classmethod
     def desde_dominio(cls, res: ResultadoCobroEfectivo) -> ResultadoCobroEfectivoSalida:

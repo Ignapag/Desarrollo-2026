@@ -3,7 +3,7 @@ import { useAuth } from '../auth/AuthContext';
 import { useData } from '../shared/store/DataContext';
 import { apiFetch } from '../shared/api/http';
 import { createOrderCommands } from './orderCommands';
-import { addressLabel, dateTime, isStaff, money, stateLabel } from './orderModel';
+import { addressLabel, dateTime, isStaff, money, stateLabel, confirmedOrder } from './orderModel';
 import { buttonClass, DataError } from './operationUi';
 import { EditOperation, StateOperation } from './OrderOperationForms';
 import OrderDelivery from './OrderDelivery';
@@ -78,13 +78,15 @@ export default function OrderDetail({ id, onClose }) {
     setError('');
     setFeedback('');
     try {
-      await runOrderMutation(operation);
+      const result = await runOrderMutation(operation);
       changed.current = true;
       if (!mounted.current) return;
       mutationPending.current = false;
       setMutating(false);
-      setLoading(true);
       setFeedback(success);
+      const confirmed = confirmedOrder(result, id);
+      if (confirmed) { setOrder(confirmed); setStale(false); return; }
+      setLoading(true);
       try { await load(); } catch (failure) { if (mounted.current) { setStale(true); setError(`La operación se registró, pero no se pudo actualizar el detalle. Actualizá antes de otra acción. ${failure.message}`); } }
     } catch (failure) {
       if (mounted.current) { setStale(true); setError(`${failure.message} Actualizá el detalle y revisá la situación antes de reintentar.`); }
@@ -94,7 +96,7 @@ export default function OrderDetail({ id, onClose }) {
       if (mounted.current) { setMutating(false); setLoading(false); }
     }
   };
-  return <dialog ref={dialog} aria-labelledby="order-detail-title" onCancel={(event) => { event.preventDefault(); close(); }} className="m-auto max-h-[90dvh] w-[calc(100%_-_2rem)] max-w-3xl rounded-2xl bg-monu-bone p-0 text-monu-text backdrop:bg-black/50">
+  return <dialog ref={dialog} aria-labelledby="order-detail-title" aria-busy={busy} onCancel={(event) => { event.preventDefault(); close(); }} className="m-auto max-h-[90dvh] w-[calc(100%_-_2rem)] max-w-3xl rounded-2xl bg-monu-bone p-0 text-monu-text backdrop:bg-black/50">
     <div className="p-4 sm:p-6 space-y-5 overflow-y-auto">
       <div className="flex flex-wrap justify-between items-center gap-3"><h2 id="order-detail-title" className="text-2xl font-extrabold text-monu-dark">{order ? `Pedido #${order.numero}` : 'Detalle del pedido'}</h2><button type="button" disabled={mutating} onClick={close} className={buttonClass}>Cerrar detalle</button></div>
       <button type="button" disabled={busy} onClick={() => { void reload(); }} className={buttonClass}>{mutating ? 'Registrando operación...' : loading ? 'Consultando detalle...' : 'Actualizar detalle'}</button>

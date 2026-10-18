@@ -57,7 +57,7 @@ export function StateOperation({ order, role, commands, run, busy }) {
     void run(() => commands.state(order, command, reason.trim() || `Acción desde el panel: ${command.label}.`), 'Pedido actualizado.');
   };
   return <section aria-label="Acciones del pedido" className="space-y-3">
-    {primary && <button type="button" disabled={busy || (primary.estado === 'EN_PREPARACION' && needsPayment)} onClick={() => apply(primary)} className={`${buttonClass} w-full bg-monu-dark text-white`}>{busy ? 'Guardando...' : label(primary)}</button>}
+    {primary && <button type="button" disabled={busy || (primary.estado === 'EN_PREPARACION' && needsPayment)} onClick={() => apply(primary)} className={`${buttonClass} w-full bg-monu-dark text-white`}>{label(primary)}</button>}
     {primary?.estado === 'EN_PREPARACION' && needsPayment && <p className="text-sm">Confirmá el ingreso de la transferencia para enviarlo a cocina.</p>}
     {others.length > 0 && <details><summary className="cursor-pointer min-h-11 flex items-center text-sm font-bold text-monu-green">Más acciones</summary><div className="space-y-3 pt-2">
       <div className="flex flex-wrap gap-2">{others.map((item) => <button key={item.estado} type="button" disabled={busy || (item.estado === 'EN_PREPARACION' && needsPayment)} onClick={() => {

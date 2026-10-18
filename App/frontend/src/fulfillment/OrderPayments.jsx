@@ -53,7 +53,7 @@ export default function OrderPayments({ order, userId, commands, run, busy }) {
       setPending(attempt.current);
     }
     await run(async () => {
-      const result = await executePayment(apiFetch, attempt.current);
+      const result = await executePayment(apiFetch, attempt.current, { operativa: true });
       attempt.current = null;
       saveAttempt(key, null);
       setPending(null);
@@ -87,7 +87,7 @@ export default function OrderPayments({ order, userId, commands, run, busy }) {
         {kind === 'devolucion' && <><Field label="Método de devolución"><select value={method} disabled={busy} onChange={(event) => { setMethod(event.target.value); setConfirmRefund(false); }} className={inputClass}><option value="EFECTIVO">Efectivo</option><option value="TRANSFERENCIA">Transferencia</option></select></Field><Reason value={reason} onChange={setReason} disabled={busy} /></>}
       </div></details>}
       {confirmRefund && !pending ? <div className="rounded-xl bg-orange-50 p-3 text-sm text-orange-950 space-y-3"><p>¿Ya devolviste {money(amount)} al cliente?</p><div className="flex flex-wrap gap-2"><button type="button" disabled={busy || !canSubmit} onClick={() => { void perform(); }} className={`${buttonClass} bg-monu-green text-white`}>Sí, registrar devolución</button><button type="button" disabled={busy} onClick={() => setConfirmRefund(false)} className={buttonClass}>Volver</button></div></div>
-        : (pending || (!existingCollection && maximum > 0)) && <button disabled={busy || !canSubmit} className={`${buttonClass} w-full bg-monu-green text-white`}>{busy ? 'Guardando...' : paymentLabel}</button>}
+        : (pending || (!existingCollection && maximum > 0)) && <button disabled={busy || !canSubmit} className={`${buttonClass} w-full bg-monu-green text-white`}>{paymentLabel}</button>}
     </form>
     {order.pagos.length > 0 && <details className="text-sm"><summary className="cursor-pointer min-h-11 flex items-center font-bold text-monu-green">Ver movimientos · Recibido: {money(order.neto_cobrado)}</summary><ul className="space-y-2">{order.pagos.map((payment) => <li key={payment.id} className="p-3 border border-monu-green/20 rounded-lg">{payment.tipo === 'DEVOLUCION' ? 'Devolución' : 'Cobro'} · {({ EFECTIVO: 'Efectivo', TRANSFERENCIA: 'Transferencia' })[payment.metodo_pago] || payment.metodo_pago} · {money(payment.monto)} · {({ PENDIENTE: 'Por verificar', CONCILIADO: 'Registrado', ANULADO: 'Anulado' })[payment.estado] || payment.estado}</li>)}</ul></details>}
   </section>;

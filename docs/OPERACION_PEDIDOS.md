@@ -16,6 +16,18 @@ vuelto se despliegan los campos correspondientes. La transferencia sigue
 requiriendo que una persona confirme el ingreso real mediante su botón;
 el comprobante por sí solo no acredita dinero.
 
+Al confirmar un cobro, el panel recibe el pedido actualizado en la misma respuesta
+y habilita su siguiente acción sin esperar una recarga del detalle o del tablero.
+La confirmación explícita del ingreso de una transferencia puede registrar y
+conciliar en una única transacción HTTP; el alta de un comprobante mantiene su
+estado pendiente por defecto. Cocina permite operar otras comandas mientras una
+confirma su cambio y evita duplicar acciones sobre el mismo pedido.
+
+La protección SQL de preparación usa `pedido.metodo_pago_acordado` y el neto
+conciliado vigente; una marca histórica del borrador de WhatsApp no acredita dinero
+ni bloquea un ingreso confirmado desde el panel. Un error deja visible la acción
+y permite actualizar; no se presenta como una operación que continúa guardándose.
+
 ## Cobrar y preparar
 
 | Modalidad de pago | Acción del personal | Cocina |

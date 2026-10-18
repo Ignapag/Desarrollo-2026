@@ -13,6 +13,7 @@ from app.modules.pagos.presentation.esquemas import (
     ConciliarLoteEntrada,
     ConciliarPagoEntrada,
     EstadoFinancieroPedidoSalida,
+    PagoOperacionSalida,
     PagoSalida,
     RegistrarDevolucionEntrada,
     RegistrarPagoEfectivoEntrada,
@@ -20,6 +21,8 @@ from app.modules.pagos.presentation.esquemas import (
     ResultadoCobroEfectivoSalida,
     ResultadoConciliacionLoteSalida,
 )
+from app.modules.pedidos.presentation.dependencias import ServicioPedidosDep
+from app.modules.pedidos.presentation.esquemas import PedidoSalida
 from app.modules.usuarios.domain.entidades import ClaimsSesion, Rol
 from app.modules.usuarios.presentation.dependencias import requiere_rol
 
@@ -29,7 +32,8 @@ SesionPagos = Annotated[
     Depends(requiere_rol(Rol.CLIENTE, Rol.EMPLEADO, Rol.ADMINISTRADOR, Rol.DUENIO)),
 ]
 PersonalPagos = Annotated[
-    ClaimsSesion, Depends(requiere_rol(Rol.EMPLEADO, Rol.ADMINISTRADOR, Rol.DUENIO)),
+    ClaimsSesion,
+    Depends(requiere_rol(Rol.EMPLEADO, Rol.ADMINISTRADOR, Rol.DUENIO)),
 ]
 
 
@@ -43,6 +47,8 @@ async def registrar_pago_efectivo(
     datos: RegistrarPagoEfectivoEntrada,
     sesion: PersonalPagos,
     servicio: ServicioPagosDep,
+    pedidos: ServicioPedidosDep,
+    incluir_pedido: bool = False,
     ip: IpCliente = None,
 ) -> ResultadoCobroEfectivoSalida:
     """Registra el cobro en efectivo de un pedido de forma concurrente-segura.
@@ -62,24 +68,48 @@ async def registrar_pago_efectivo(
         clave_operacion=str(datos.clave_operacion),
         ip_cliente=ip,
     )
-    return ResultadoCobroEfectivoSalida.desde_dominio(resultado)
+    salida = ResultadoCobroEfectivoSalida.desde_dominio(resultado)
+    if incluir_pedido:
+        salida.pedido = PedidoSalida(**await pedidos.detalle(datos.pedido_id))
+    return salida
 
 
 @router.post(
-    "/transferencia", response_model=PagoSalida, status_code=status.HTTP_201_CREATED,
+    "/transferencia",
+    response_model=PagoOperacionSalida,
+    status_code=status.HTTP_201_CREATED,
     summary="Registrar transferencia para revisión humana",
 )
 async def registrar_transferencia(
     datos: RegistrarTransferenciaEntrada,
     sesion: PersonalPagos,
     servicio: ServicioPagosDep,
+    conciliacion: ServicioConciliacionDep,
+    pedidos: ServicioPedidosDep,
+    incluir_pedido: bool = False,
+    confirmar_ingreso: bool = False,
     ip: IpCliente = None,
-) -> PagoSalida:
+) -> PagoOperacionSalida:
     pago = await servicio.registrar_transferencia(
-        pedido_id=datos.pedido_id, monto=datos.monto, comprobante=datos.comprobante,
-        registrado_por=sesion.usuario_id, ip_cliente=ip, clave_operacion=str(datos.clave_operacion),
+        pedido_id=datos.pedido_id,
+        monto=datos.monto,
+        comprobante=datos.comprobante,
+        registrado_por=sesion.usuario_id,
+        ip_cliente=ip,
+        clave_operacion=str(datos.clave_operacion),
     )
-    return PagoSalida.desde_dominio(pago)
+    if confirmar_ingreso:
+        # Sólo personal autorizado; registrar y acreditar comparten transacción.
+        # El valor por defecto conserva el circuito pendiente del comprobante.
+        pago = await conciliacion.conciliar_pago(
+            pago.id,
+            conciliar_por=sesion.usuario_id,
+            ip_cliente=ip,
+        )
+    salida = PagoOperacionSalida.desde_dominio(pago)
+    if incluir_pedido:
+        salida.pedido = PedidoSalida(**await pedidos.detalle(pago.pedido_id))
+    return salida
 
 
 @router.get(
@@ -95,7 +125,8 @@ async def estado_financiero_pedido(
     """Retorna el balance de pagos, saldo pendiente, detalle de pagos y si el pedido \
 está saldado."""
     estado = await servicio.obtener_estado_financiero(
-        pedido_id, cliente_usuario_id=sesion.usuario_id if sesion.rol == Rol.CLIENTE else None,
+        pedido_id,
+        cliente_usuario_id=sesion.usuario_id if sesion.rol == Rol.CLIENTE else None,
     )
     return EstadoFinancieroPedidoSalida.desde_dominio(estado)
 
@@ -112,7 +143,8 @@ async def listar_pagos_pedido(
 ) -> list[PagoSalida]:
     """Retorna el historial completo de pagos y egresos/devoluciones asociados a un pedido."""
     pagos = await servicio.listar_pagos_por_pedido(
-        pedido_id, cliente_usuario_id=sesion.usuario_id if sesion.rol == Rol.CLIENTE else None,
+        pedido_id,
+        cliente_usuario_id=sesion.usuario_id if sesion.rol == Rol.CLIENTE else None,
     )
     return [PagoSalida.desde_dominio(p) for p in pagos]
 
@@ -153,7 +185,7 @@ async def conciliar_lote(
 
 @router.post(
     "/devolucion",
-    response_model=PagoSalida,
+    response_model=PagoOperacionSalida,
     status_code=status.HTTP_201_CREATED,
     summary="Registrar egreso o devolución sobre un pedido",
 )
@@ -161,8 +193,10 @@ async def registrar_devolucion(
     datos: RegistrarDevolucionEntrada,
     sesion: PersonalPagos,
     servicio: ServicioConciliacionDep,
+    pedidos: ServicioPedidosDep,
+    incluir_pedido: bool = False,
     ip: IpCliente = None,
-) -> PagoSalida:
+) -> PagoOperacionSalida:
     """Registra una devolución o reintegro (C-11).
 
     - Valida que el motivo esté explicitado.
@@ -179,7 +213,10 @@ async def registrar_devolucion(
         clave_operacion=str(datos.clave_operacion),
         ip_cliente=ip,
     )
-    return PagoSalida.desde_dominio(devolucion)
+    salida = PagoOperacionSalida.desde_dominio(devolucion)
+    if incluir_pedido:
+        salida.pedido = PedidoSalida(**await pedidos.detalle(devolucion.pedido_id))
+    return salida
 
 
 @router.get(
@@ -194,23 +231,26 @@ async def obtener_pago(
 ) -> PagoSalida:
     """Obtiene los datos de un pago registrado por su identificador primario."""
     pago = await servicio.obtener_pago(
-        pago_id, cliente_usuario_id=sesion.usuario_id if sesion.rol == Rol.CLIENTE else None,
+        pago_id,
+        cliente_usuario_id=sesion.usuario_id if sesion.rol == Rol.CLIENTE else None,
     )
     return PagoSalida.desde_dominio(pago)
 
 
 @router.post(
     "/{pago_id}/conciliar",
-    response_model=PagoSalida,
+    response_model=PagoOperacionSalida,
     summary="Conciliar un pago individual",
 )
 async def conciliar_pago(
     pago_id: int,
     sesion: PersonalPagos,
     servicio: ServicioConciliacionDep,
+    pedidos: ServicioPedidosDep,
+    incluir_pedido: bool = False,
     datos: ConciliarPagoEntrada | None = None,
     ip: IpCliente = None,
-) -> PagoSalida:
+) -> PagoOperacionSalida:
     """Marca un pago individual como CONCILIADO.
 
     La acreditación humana no cambia el estado físico del pedido.
@@ -223,7 +263,10 @@ async def conciliar_pago(
         comprobante=comprobante,
         ip_cliente=ip,
     )
-    return PagoSalida.desde_dominio(pago)
+    salida = PagoOperacionSalida.desde_dominio(pago)
+    if incluir_pedido:
+        salida.pedido = PedidoSalida(**await pedidos.detalle(pago.pedido_id))
+    return salida
 
 
 @router.post(
@@ -249,4 +292,3 @@ async def anular_pago(
         ip_cliente=ip,
     )
     return PagoSalida.desde_dominio(pago)
-
