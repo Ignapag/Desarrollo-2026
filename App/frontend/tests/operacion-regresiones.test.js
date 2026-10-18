@@ -17,6 +17,7 @@ let DataProvider;
 let useData;
 let WhatsAppInbox;
 let Kitchen;
+let OrderOperationFeedback;
 const originalFetch = globalThis.fetch;
 const order = { id: 17, numero: 88, version: 3, estado: 'PENDIENTE', tipo_entrega: 'DELIVERY', direccion_id: 55, metodo_pago_acordado: 'EFECTIVO', observaciones: 'Timbre 2', direccion: { id: 55, calle: 'Camino', numero: '10', localidad: 'Localidad histórica', referencia: 'Entrada lateral' }, total: '12000', saldo_pendiente: '12000', neto_cobrado: '0', items: [], pagos: [], historial: [] };
 before(async () => {
@@ -35,6 +36,7 @@ before(async () => {
   ({ DataProvider, useData } = await server.ssrLoadModule('/src/shared/store/DataContext.jsx'));
   ({ default: WhatsAppInbox } = await server.ssrLoadModule('/src/fulfillment/WhatsAppInbox.jsx'));
   ({ default: Kitchen } = await server.ssrLoadModule('/src/kitchen/Kitchen.jsx'));
+  ({ default: OrderOperationFeedback } = await server.ssrLoadModule('/src/fulfillment/OrderOperationFeedback.jsx'));
 });
 after(async () => { globalThis.fetch = originalFetch; await server?.close(); dom?.restore(); });
 
@@ -295,7 +297,7 @@ for (const way of ['botón', 'Escape']) {
     const container = await mount(t, OrderDetail, { id: 17, onClose: () => { closed += 1; } }, true);
     const closeButton = button(container, 'Cerrar detalle');
     if (way === 'botón') {
-      assert.equal(reactProps(closeButton).disabled, false);
+      assert.notEqual(reactProps(closeButton).disabled, true);
       await act(async () => reactProps(closeButton).onClick());
     } else {
       await act(async () => reactProps(elements(container, (node) => node.localName === 'dialog')[0]).onCancel({ preventDefault() {} }));
@@ -318,7 +320,7 @@ test('actualizar detalle sigue permitiendo cerrar y aborta la nueva lectura', as
   };
   const container = await mount(t, OrderDetail, { id: 17, onClose: () => { closed += 1; } }, true);
   await act(async () => reactProps(button(container, 'Actualizar detalle')).onClick());
-  assert.equal(reactProps(button(container, 'Cerrar detalle')).disabled, false);
+  assert.notEqual(reactProps(button(container, 'Cerrar detalle')).disabled, true);
   await act(async () => reactProps(button(container, 'Cerrar detalle')).onClick());
   assert.equal(closed, 1);
   assert.equal(signal.aborted, true);
@@ -326,7 +328,7 @@ test('actualizar detalle sigue permitiendo cerrar y aborta la nueva lectura', as
   assert.doesNotMatch(container.textContent, /Pedido #999/);
 });
 
-test('comando físico protege el cierre y usa su respuesta sin bloquear por otro GET', async (t) => {
+test('comando físico cierra inmediatamente y termina sin otro GET de detalle', async (t) => {
   const writing = deferred();
   const readingAfterWrite = deferred();
   let detailCalls = 0;
@@ -339,12 +341,9 @@ test('comando físico protege el cierre y usa su respuesta sin bloquear por otro
   };
   const container = await mount(t, OrderDetail, { id: 17, onClose: () => { closed += 1; } }, true);
   await act(async () => reactProps(button(container, 'Enviar a cocina')).onClick());
-  assert.equal(reactProps(button(container, 'Cerrar detalle')).disabled, true);
-  await act(async () => reactProps(elements(container, (node) => node.localName === 'dialog')[0]).onCancel({ preventDefault() {} }));
-  assert.equal(closed, 0);
+  assert.equal(closed, 1);
+  assert.equal(elements(container, (node) => node.localName === 'dialog')[0].open, false);
   await act(async () => { writing.resolve(response({ ...order, estado: 'CONFIRMADO', version: 4, tipo_entrega: 'RETIRO' })); });
-  assert.equal(reactProps(button(container, 'Cerrar detalle')).disabled, false);
-  await act(async () => reactProps(button(container, 'Cerrar detalle')).onClick());
   assert.equal(closed, 1);
   assert.equal(detailCalls, 1);
   assert.equal(readSignal, undefined);
@@ -352,7 +351,7 @@ test('comando físico protege el cierre y usa su respuesta sin bloquear por otro
   assert.doesNotMatch(container.textContent, /Pedido #999/);
 });
 
-test('respuesta de estado habilita la siguiente acción sin esperar detalle ni tablero', async (t) => {
+test('respuesta de estado actualiza el tablero después de cerrar sin GET extra', async (t) => {
   const waiting = deferred();
   let details = 0;
   let writes = 0;
@@ -361,11 +360,14 @@ test('respuesta de estado habilita la siguiente acción sin esperar detalle ni t
     if (options.method === 'PATCH') { writes += 1; return response({ ...order, estado: 'EN_PREPARACION', version: 4 }); }
     return waiting.promise;
   };
-  const container = await mount(t, OrderDetail, { id: 17, onClose() {} }, true);
+  let data;
+  let closed = 0;
+  const onClose = () => { closed += 1; };
+  function Screen() { const current = useData(); useLayoutEffect(() => { data = current; }); return createElement(OrderDetail, { id: 17, onClose }); }
+  const container = await mount(t, Screen, {}, true);
   await act(async () => reactProps(button(container, 'Enviar a cocina')).onClick());
-  const ready = button(container, 'Marcar listo');
-  assert.ok(ready);
-  assert.equal(reactProps(ready).disabled, false);
+  assert.equal(closed, 1);
+  assert.equal(data.state.orders[0].estado, 'EN_PREPARACION');
   assert.equal(details, 1);
   assert.equal(writes, 1);
   await act(async () => { waiting.resolve(response([])); });
@@ -385,13 +387,17 @@ test('confirmar transferencia habilita cocina con el pedido devuelto por el cobr
     }
     return waiting.promise;
   };
-  const container = await mount(t, OrderDetail, { id: 17, onClose() {} }, true);
+  let data;
+  let closed = 0;
+  const onClose = () => { closed += 1; };
+  function Screen() { const current = useData(); useLayoutEffect(() => { data = current; }); return createElement(OrderDetail, { id: 17, onClose }); }
+  const container = await mount(t, Screen, {}, true);
   assert.equal(reactProps(button(container, 'Enviar a cocina')).disabled, true);
   await act(async () => { void reactProps(elements(container, (node) => node.localName === 'form')[0]).onSubmit({ preventDefault() {} }); });
-  assert.equal(reactProps(button(container, 'Enviar a cocina')).disabled, false);
+  assert.equal(closed, 1);
+  assert.equal(Number(data.state.orders[0].saldo_pendiente), 0);
   assert.equal(payments, 1);
   assert.equal(details, 1);
-  assert.match(container.textContent, /Pagado/);
   await act(async () => { waiting.resolve(response([])); });
 });
 
@@ -401,14 +407,19 @@ test('un error no queda disfrazado de Guardando y conserva el pago registrado', 
     if (options.method === 'PATCH') return { ok: false, status: 500, json: async () => { throw new Error('HTML'); } };
     return response(path === '/api/pedidos/17' ? paid : []);
   };
-  const container = await mount(t, OrderDetail, { id: 17, onClose() {} }, true);
+  let data;
+  function Screen() {
+    const current = useData(); useLayoutEffect(() => { data = current; });
+    const [open, setOpen] = useState(true);
+    return createElement('div', null, open && createElement(OrderDetail, { id: 17, onClose: () => setOpen(false) }), createElement(OrderOperationFeedback));
+  }
+  const container = await mount(t, Screen, {}, true);
   await act(async () => reactProps(button(container, 'Enviar a cocina')).onClick());
   await completed(() => container.textContent.includes('HTTP 500'));
   assert.doesNotMatch(container.textContent, /Guardando|Registrando operación/);
-  assert.match(container.textContent, /Pagado/);
-  assert.equal(reactProps(button(container, 'Enviar a cocina')).disabled, true);
-  await act(async () => reactProps(button(container, 'Actualizar detalle')).onClick());
-  assert.equal(reactProps(button(container, 'Enviar a cocina')).disabled, false);
+  assert.equal(data.orderOperations[0].status, 'error');
+  assert.ok(button(container, 'Revisar pedido'));
+  assert.equal(elements(container, (node) => node.localName === 'dialog').length, 0);
 });
 
 test('cocina puede operar otra comanda mientras una confirma su cambio', async (t) => {
@@ -426,7 +437,7 @@ test('cocina puede operar otra comanda mientras una confirma su cambio', async (
   const ready = elements(container, (node) => node.localName === 'button' && node.textContent === 'Listo para reparto');
   assert.equal(ready.length, 2);
   await act(async () => reactProps(ready[0]).onClick());
-  assert.equal(reactProps(ready[1]).disabled, false);
+  assert.notEqual(reactProps(ready[1]).disabled, true);
   await act(async () => reactProps(ready[1]).onClick());
   assert.equal(writes.length, 2);
   await act(async () => { second.resolve(response({ ...active[1], estado: 'LISTO', version: 4 })); });

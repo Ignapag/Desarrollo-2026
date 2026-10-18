@@ -3,7 +3,7 @@ import { useAuth } from '../auth/AuthContext';
 import { useData } from '../shared/store/DataContext';
 import { apiFetch } from '../shared/api/http';
 import { createOrderCommands } from './orderCommands';
-import { addressLabel, dateTime, isStaff, money, stateLabel, confirmedOrder } from './orderModel';
+import { addressLabel, dateTime, isStaff, money, stateLabel } from './orderModel';
 import { buttonClass, DataError } from './operationUi';
 import { EditOperation, StateOperation } from './OrderOperationForms';
 import OrderDelivery from './OrderDelivery';
@@ -11,24 +11,20 @@ import OrderPayments from './OrderPayments';
 
 const commands = createOrderCommands(apiFetch);
 
-export default function OrderDetail({ id, onClose }) {
+export default function OrderDetail({ id, onClose, requireFresh = false }) {
   const { user } = useAuth();
-  const { state, runOrderMutation } = useData();
+  const { state, startOrderOperation, orderOperationPending } = useData();
   const cached = state.orders.find((candidate) => candidate.id === id)?.detail;
   const [order, setOrder] = useState(cached || null);
   const [error, setError] = useState('');
-  const [feedback, setFeedback] = useState('');
-  const [loading, setLoading] = useState(!cached);
-  const [mutating, setMutating] = useState(false);
+  const [loading, setLoading] = useState(requireFresh || !cached);
   const [stale, setStale] = useState(false);
   const lock = useRef(false);
   const request = useRef(0);
   const dialog = useRef(null);
   const mounted = useRef(true);
   const readController = useRef(null);
-  const mutationPending = useRef(false);
-  const changed = useRef(false);
-  const busy = loading || mutating;
+  const busy = loading || orderOperationPending(id);
   const load = useCallback(async () => {
     readController.current?.abort();
     const controller = new AbortController();
@@ -53,12 +49,11 @@ export default function OrderDetail({ id, onClose }) {
     return () => { active = false; mounted.current = false; request.current += 1; readController.current?.abort(); };
   }, [load]);
   const close = () => {
-    if (mutationPending.current) return;
     mounted.current = false;
     request.current += 1;
     readController.current?.abort();
     dialog.current?.close();
-    onClose({ changed: changed.current });
+    onClose({ changed: false });
   };
   const reload = async () => {
     if (lock.current) return;
@@ -68,40 +63,18 @@ export default function OrderDetail({ id, onClose }) {
     try { await load(); } catch (failure) { if (mounted.current) setError(`No se pudo actualizar el detalle. ${failure.message}`); }
     finally { lock.current = false; if (mounted.current) setLoading(false); }
   };
-  const run = async (operation, success) => {
-    if (lock.current) return;
+  const run = (operation, success) => {
+    if (lock.current || busy || stale) return;
     lock.current = true;
-    mutationPending.current = true;
-    request.current += 1;
-    readController.current?.abort();
-    setMutating(true);
-    setError('');
-    setFeedback('');
-    try {
-      const result = await runOrderMutation(operation);
-      changed.current = true;
-      if (!mounted.current) return;
-      mutationPending.current = false;
-      setMutating(false);
-      setFeedback(success);
-      const confirmed = confirmedOrder(result, id);
-      if (confirmed) { setOrder(confirmed); setStale(false); return; }
-      setLoading(true);
-      try { await load(); } catch (failure) { if (mounted.current) { setStale(true); setError(`La operación se registró, pero no se pudo actualizar el detalle. Actualizá antes de otra acción. ${failure.message}`); } }
-    } catch (failure) {
-      if (mounted.current) { setStale(true); setError(`${failure.message} Actualizá el detalle y revisá la situación antes de reintentar.`); }
-    } finally {
-      lock.current = false;
-      mutationPending.current = false;
-      if (mounted.current) { setMutating(false); setLoading(false); }
-    }
+    const accepted = startOrderOperation({ id, number: order.numero, operation, success });
+    if (accepted) close();
+    else lock.current = false;
   };
   return <dialog ref={dialog} aria-labelledby="order-detail-title" aria-busy={busy} onCancel={(event) => { event.preventDefault(); close(); }} className="m-auto max-h-[90dvh] w-[calc(100%_-_2rem)] max-w-3xl rounded-2xl bg-monu-bone p-0 text-monu-text backdrop:bg-black/50">
     <div className="p-4 sm:p-6 space-y-5 overflow-y-auto">
-      <div className="flex flex-wrap justify-between items-center gap-3"><h2 id="order-detail-title" className="text-2xl font-extrabold text-monu-dark">{order ? `Pedido #${order.numero}` : 'Detalle del pedido'}</h2><button type="button" disabled={mutating} onClick={close} className={buttonClass}>Cerrar detalle</button></div>
-      <button type="button" disabled={busy} onClick={() => { void reload(); }} className={buttonClass}>{mutating ? 'Registrando operación...' : loading ? 'Consultando detalle...' : 'Actualizar detalle'}</button>
+      <div className="flex flex-wrap justify-between items-center gap-3"><h2 id="order-detail-title" className="text-2xl font-extrabold text-monu-dark">{order ? `Pedido #${order.numero}` : 'Detalle del pedido'}</h2><button type="button" onClick={close} className={buttonClass}>Cerrar detalle</button></div>
+      <button type="button" disabled={busy} onClick={() => { void reload(); }} className={buttonClass}>{loading ? 'Consultando detalle...' : 'Actualizar detalle'}</button>
       <DataError message={error} />
-      {feedback && <p role="status" className="text-sm font-bold text-monu-green">{feedback}</p>}
       {order && <>
         <dl className="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-[max-content_1fr]">
           <dt className="font-bold">Cliente</dt><dd>{order.cliente}</dd>

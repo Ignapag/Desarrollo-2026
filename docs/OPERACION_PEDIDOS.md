@@ -23,6 +23,21 @@ conciliar en una única transacción HTTP; el alta de un comprobante mantiene su
 estado pendiente por defecto. Cocina permite operar otras comandas mientras una
 confirma su cambio y evita duplicar acciones sobre el mismo pedido.
 
+Al enviar un estado, cobro, edición o acción de reparto desde el detalle, el modal
+se cierra al aceptar el clic. La operación continúa en el provider de la sesión,
+incluso al cambiar de sección; no se aborta al desmontar el formulario. El pedido
+conserva su estado confirmado hasta recibir la respuesta de la API. Una operación
+pendiente impide otra sobre la misma compra, sin bloquear las demás.
+En Cocina, marcar listo retira la tarjeta de la lista de trabajo inmediatamente;
+si falla, reaparece con sus datos anteriores y queda un aviso para revisar.
+
+Los avisos de error se conservan hasta cerrarlos y permiten volver a abrir el pedido;
+no reenvían automáticamente comandos. Los intentos financieros conservan su UUID
+para resolver respuestas perdidas sin duplicar cobros. Al cambiar de sesión, las
+respuestas anteriores no publican datos ni inician pasos financieros con la cuenta
+nueva. El trabajo en segundo plano continúa al navegar dentro de la app; cerrar o
+recargar la pestaña no ofrece una garantía de ejecución persistente del navegador.
+
 La protección SQL de preparación usa `pedido.metodo_pago_acordado` y el neto
 conciliado vigente; una marca histórica del borrador de WhatsApp no acredita dinero
 ni bloquea un ingreso confirmado desde el panel. Un error deja visible la acción

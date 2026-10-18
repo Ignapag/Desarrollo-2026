@@ -52,8 +52,13 @@ export default function OrderPayments({ order, userId, commands, run, busy }) {
       saveAttempt(key, attempt.current);
       setPending(attempt.current);
     }
-    await run(async () => {
-      const result = await executePayment(apiFetch, attempt.current, { operativa: true });
+    await run(async (isCurrentSession = () => true) => {
+      const currentSessionFetch = (path, options) => {
+        if (!isCurrentSession()) throw new Error('La sesión cambió; revisá el cobro con la cuenta que lo inició.');
+        return apiFetch(path, options);
+      };
+      const result = await executePayment(currentSessionFetch, attempt.current, { operativa: true });
+      if (!isCurrentSession()) return result;
       attempt.current = null;
       saveAttempt(key, null);
       setPending(null);

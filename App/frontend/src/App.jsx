@@ -7,6 +7,7 @@ import { pageLoaders } from './shared/pageLoaders';
 // Layouts
 import ClientLayout from './ordering/ClientLayout';
 import Menu from './ordering/Menu';
+import OrderOperationFeedback from './fulfillment/OrderOperationFeedback';
 
 const DashboardLayout = lazy(pageLoaders.layout);
 const Login = lazy(pageLoaders['/login']);
@@ -39,7 +40,7 @@ function ProtectedRoute({ children, allowedRoles }) {
 
 function App() {
   return (
-    <Suspense fallback={<div role="status" className="min-h-screen bg-monu-cream p-6">Cargando...</div>}>
+    <><OrderOperationFeedback /><Suspense fallback={<div role="status" className="min-h-screen bg-monu-cream p-6">Cargando...</div>}>
       <Routes>
         <Route path="/" element={<Navigate to={portal.inicio} replace />} />
         {portal.personal && <>
@@ -70,7 +71,7 @@ function App() {
         } />}
         <Route path="*" element={<Navigate to={portal.inicio} replace />} />
       </Routes>
-    </Suspense>
+    </Suspense></>
   );
 }
 
