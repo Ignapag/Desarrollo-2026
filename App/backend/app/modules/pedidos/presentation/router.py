@@ -2,9 +2,9 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 
-from app.errores import DatosInvalidos
+from app.errores import DatosInvalidos, SinPermiso
 from app.modules.pedidos.application.servicio_pedidos import ItemNuevoPedido
 from app.modules.pedidos.presentation.dependencias import ServicioPedidosDep
 from app.modules.pedidos.presentation.esquemas import (
@@ -59,12 +59,15 @@ async def listar_pedidos(
     q: str | None = None,
     estado: str | None = None,
     activos: bool | None = None,
+    cliente_id: int | None = Query(default=None, gt=0),
 ) -> list[PedidoSalida]:
-    cliente_id = (
-        await servicio.cliente_para_usuario(sesion.usuario_id)
-        if sesion.rol == Rol.CLIENTE
-        else None
-    )
+    if sesion.rol == Rol.CLIENTE:
+        identidad = await servicio.cliente_para_usuario(sesion.usuario_id)
+        if cliente_id is not None and cliente_id != identidad:
+            raise SinPermiso("No puede consultar pedidos de otro cliente")
+        cliente_id = identidad
+    elif sesion.rol == Rol.REPARTIDOR and cliente_id is not None:
+        raise SinPermiso("El repartidor sólo puede consultar sus viajes")
     repartidor_id = sesion.usuario_id if sesion.rol == Rol.REPARTIDOR else None
     filas = await servicio.listar(
         cliente_id=cliente_id, repartidor_id=repartidor_id, q=q, estado=estado, activos=activos

@@ -1,5 +1,6 @@
 ﻿import { useData } from '../shared/store/DataContext';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { DataError } from '../fulfillment/operationUi';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Plus, Trash2, Check, Image as ImageIcon } from 'lucide-react';
@@ -7,7 +8,12 @@ import { Plus, Trash2, Check, Image as ImageIcon } from 'lucide-react';
 export default function Catalog() {
   const [searchParams] = useSearchParams();
   const query = (searchParams.get('q') || '').toLowerCase();
-  const { state, createProduct, deactivateProduct } = useData();
+  const { state, createProduct, deactivateProduct, refreshCatalog, refreshInventory } = useData();
+  useEffect(() => {
+    const controller = new AbortController();
+    Promise.resolve().then(() => { if (!controller.signal.aborted) return Promise.allSettled([refreshCatalog(controller.signal), refreshInventory(controller.signal)]); return undefined; });
+    return () => controller.abort();
+  }, [refreshCatalog, refreshInventory]);
   const [isAdding, setIsAdding] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
   const [newItem, setNewItem] = useState({ 
@@ -63,6 +69,8 @@ export default function Catalog() {
 
   return (
     <div className="space-y-6 max-w-5xl">
+      <DataError message={state.catalogError || state.inventoryError} retry={() => { void Promise.allSettled([refreshCatalog(undefined, true), refreshInventory(undefined, true)]); }} />
+      {state.catalogStatus === 'loading' && <p role="status">Consultando catálogo...</p>}
       <div className="flex justify-between items-end">
         <div>
           <h1 className="text-3xl font-extrabold font-heading text-monu-dark mb-1">Catálogo de Menú</h1>

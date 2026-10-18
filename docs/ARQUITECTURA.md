@@ -218,6 +218,20 @@ Vite reenvía `/api` a `http://127.0.0.1:8000` en desarrollo.
 
 ## Datos y configuración
 
+El directorio de Clientes consulta `GET /api/reportes/clientes`, con búsqueda y
+paginación. Solo empleados, administradores y dueños pueden acceder. Agrupa por
+`cliente.id`, incluye compradores sin cuenta y cuenta sus pedidos sin multiplicarlos
+por ítems o pagos. La fecha mostrada es la del primer pedido. El enlace a Pedidos
+usa `cliente_id` exacto; el servidor conserva las restricciones de clientes y repartidores.
+
+El frontend comparte solicitudes pendientes y conserva datos al actualizar. Catálogo
+e inventario se consultan al abrir su pantalla, con caché de navegación de 30 segundos.
+Clientes mantiene una caché acotada a la sesión y se actualiza cada 15 segundos cuando
+está visible; Pedidos y Cocina sondean pedidos activos cada 8 segundos mientras se usan.
+Las lecturas anteriores o iniciadas durante una escritura no pueden sobrescribirla;
+al terminar se consulta el estado canónico. El detalle usa el DTO conocido al abrir
+y comprueba la versión vigente en segundo plano. Los cambios siguen validados por la API.
+
 `App/db/migrations/` contiene SQL numerado; `scripts.migrate` registra checksum en
 `schema_migrations`. El seed se carga explícitamente. No editar migraciones ya
 aplicadas. `scripts.der` y `scripts.diccionario` generan la referencia del esquema.

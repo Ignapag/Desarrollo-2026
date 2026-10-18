@@ -9,6 +9,23 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
+class ClienteDirectorio(BaseModel):
+    id: int
+    nombre: str
+    telefono: str
+    zona_frecuente: str | None
+    pedidos_count: int
+    primer_pedido_en: datetime | None
+    ultimo_pedido_en: datetime | None
+
+
+class DirectorioClientes(BaseModel):
+    clientes: list[ClienteDirectorio]
+    total: int
+    limite: int
+    desplazamiento: int
+
+
 class FiltrosPeriodo(BaseModel):
     fecha_desde: date
     fecha_hasta: date
