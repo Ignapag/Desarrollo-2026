@@ -300,13 +300,16 @@ class ServicioBot:
         persona = r"(?:emplead[oa]|persona|human[oa]|encargad[oa]|asesor[a]?)"
         if re.fullmatch(r"(?:(?:un|una|el|la)\s+)?" + persona, texto):
             return True
-        return bool(
-            re.search(r"\b" + persona + r"\b", texto)
-            and re.search(
-                r"\b(?:quiero|necesito|hablar|comunicarme|contactar|atienda|atenci[oó]n)\b", texto
-            )
-            and not re.search(r"\bno\s+(?:quiero|necesito|deseo)\b", texto)
-        )
+        if re.search(r"\bno\s+(?:quiero|necesito|deseo)\b", texto):
+            return False
+        destino = r"(?:(?:un|una|el|la)\s+)?" + persona
+        # Reconocer la petición, no palabras sueltas en nombres o resúmenes web.
+        return bool(re.search(
+            r"\b(?:"
+            r"(?:hablar|comunicarme|contactar)(?:\s+(?:con|a))?\s+" + destino
+            + r"|(?:quiero|necesito|deseo|atienda)\s+" + destino
+            + r"|atenci[oó]n\s+(?:" + persona + r"|de\s+" + destino + r"))\b", texto
+        ))
 
     async def _registrar_general(self, entrada, motivo):
         # El destino sale del remitente verificado, nunca de datos del carrito o la IA.

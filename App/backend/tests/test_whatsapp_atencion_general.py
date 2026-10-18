@@ -12,6 +12,16 @@ TELEFONO = "5492215550000"
 AJENO = "5492215550999"
 
 
+@pytest.mark.parametrize("texto", [
+    "Quiero una hamburguesa para una persona",
+    "Hola Monu Burger, quiero confirmar mi pedido. Nombre: Persona",
+])
+def test_persona_en_contexto_de_compra_no_solicita_empleado(texto):
+    from app.modules.whatsapp.application.servicio_bot import ServicioBot
+
+    assert not ServicioBot._solicita_personal(texto)
+
+
 async def enviar(s, identificador, texto="", media=None, telefono=TELEFONO):
     await s.recibir(identificador, telefono, texto, media)
     preparado = await s.preparar(identificador)
