@@ -18,6 +18,10 @@ from app.modules.pagos.domain.entidades import calcular_estado_financiero
 from app.modules.pagos.infrastructure.cliente_billetera import ClienteMercadoPago
 from app.modules.pagos.infrastructure.repositorio_caja_sql import RepositorioCajaSQL
 from app.modules.pagos.infrastructure.repositorio_sql import RepositorioPagosSQL
+from app.modules.pagos.presentation.dependencias import (
+    obtener_servicio_caja,
+    obtener_servicio_conciliacion,
+)
 from tests.soporte_bd import conectar_o_omitir
 from tests.test_pagos_privacidad import aplicacion, sesion
 
@@ -60,7 +64,7 @@ async def test_pendiente_no_es_dinero_en_saldo_dominio_ni_sql(uow, pedido):
 
 async def test_pendiente_no_habilita_devolucion(uow, pedido):
     await insertar_pago(uow, pedido, "PENDIENTE")
-    servicio = ServicioConciliacion(uow, RepositorioPagosSQL(uow))
+    servicio = obtener_servicio_conciliacion(uow)
     with pytest.raises(DatosInvalidos, match="neto abonado"):
         await servicio.registrar_devolucion(pedido, Decimal(100), "Reintegro solicitado")
 
@@ -90,7 +94,7 @@ async def test_cobro_y_conciliacion_no_avanzan_estado_fisico(uow, pedido):
 
 async def test_conciliar_transferencia_no_avanza_cocina(uow, pedido):
     pago_id = await insertar_pago(uow, pedido, "PENDIENTE")
-    await ServicioConciliacion(uow, RepositorioPagosSQL(uow)).conciliar_pago(pago_id)
+    await obtener_servicio_conciliacion(uow).conciliar_pago(pago_id)
     assert await uow.valor("SELECT estado FROM pedido WHERE id=%s", (pedido,)) == "PENDIENTE"
 
 
@@ -116,12 +120,12 @@ async def test_conciliar_no_sobreacredita_pedido(uow, pedido):
     await insertar_pago(uow, pedido, "CONCILIADO", 80)
     pago_id = await insertar_pago(uow, pedido, "PENDIENTE", 30)
     with pytest.raises(ReglaDeNegocio, match="saldo"):
-        await ServicioConciliacion(uow, RepositorioPagosSQL(uow)).conciliar_pago(pago_id)
+        await obtener_servicio_conciliacion(uow).conciliar_pago(pago_id)
 
 
 async def test_reintento_devolucion_no_duplica_y_rechaza_clave_reutilizada(uow, pedido):
     await insertar_pago(uow, pedido, "CONCILIADO")
-    servicio = ServicioConciliacion(uow, RepositorioPagosSQL(uow))
+    servicio = obtener_servicio_conciliacion(uow)
     clave = str(uuid4())
     primera = await servicio.registrar_devolucion(
         pedido,
@@ -164,7 +168,8 @@ async def test_transferencia_es_pendiente_y_requiere_conciliacion_humana(uow, pe
     )
     assert pago.id == repetido.id and pago.estado == "PENDIENTE"
     assert await repo.total_pagado_por_pedido(pedido) == 0
-    await ServicioConciliacion(uow, repo).conciliar_pago(pago.id, comprobante="Banco #123")
+    conciliacion = ServicioConciliacion(uow, repo, obtener_servicio_caja(uow))
+    await conciliacion.conciliar_pago(pago.id, comprobante="Banco #123")
     assert await repo.total_pagado_por_pedido(pedido) == 100
 
 
@@ -248,14 +253,15 @@ async def test_dos_operaciones_reales_concurrentes_no_superan_fondos(pedido_conf
                     monto_a_pagar=Decimal(80),
                     clave_operacion=str(uuid4()),
                 )
+            conciliacion = ServicioConciliacion(uow, repo, obtener_servicio_caja(uow))
             if operacion == "devolucion":
-                return await ServicioConciliacion(uow, repo).registrar_devolucion(
+                return await conciliacion.registrar_devolucion(
                     pedido_id,
                     Decimal(80),
                     "Reintegro simultáneo",
                     clave_operacion=str(uuid4()),
                 )
-            return await ServicioConciliacion(uow, repo).conciliar_pago(pagos[indice])
+            return await conciliacion.conciliar_pago(pagos[indice])
 
         return await ejecutar_conexion(ejecutar)
 

@@ -13,10 +13,10 @@ from app.core.dependencias import obtener_uow
 from app.errores import ReglaDeNegocio
 from app.modules.pagos.application import servicio_caja as modulo_caja
 from app.modules.pagos.application.servicio_caja import ServicioCaja
-from app.modules.pagos.application.servicio_conciliacion import ServicioConciliacion
 from app.modules.pagos.domain.entidades import TurnoCierre
 from app.modules.pagos.infrastructure.repositorio_caja_sql import RepositorioCajaSQL
 from app.modules.pagos.infrastructure.repositorio_sql import RepositorioPagosSQL
+from app.modules.pagos.presentation.dependencias import obtener_servicio_conciliacion
 from app.modules.pagos.presentation.router_caja import router
 from tests.soporte_bd import conectar_o_omitir
 from tests.test_pagos_privacidad import aplicacion, sesion
@@ -69,7 +69,7 @@ async def acreditar_pago(pago, actor):
     conn = await conectar_o_omitir()
     try:
         uow = UnidadDeTrabajo(conn)
-        await ServicioConciliacion(uow, RepositorioPagosSQL(uow)).conciliar_pago(
+        await obtener_servicio_conciliacion(uow).conciliar_pago(
             pago,
             conciliar_por=actor,
         )

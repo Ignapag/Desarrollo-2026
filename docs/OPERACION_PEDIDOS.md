@@ -32,6 +32,14 @@ se incorpora a una nueva generación pendiente o al siguiente cierre; no modific
 un cierre aprobado. El consolidado informativo consulta su ventana exacta, por
 lo que puede diferir de un cierre con arrastre.
 
+Los movimientos pendientes vinculados por el circuito histórico se separan con
+auditoría al regenerar o aprobar un cierre pendiente. Si ya estaban ligados a un
+cierre aprobado cuyos totales coinciden con sus conciliados, la conciliación real
+separa ese vínculo y deja el ingreso disponible para el siguiente corte, sin
+reescribir el cierre aprobado. Si los totales históricos aprobados ya son
+inconsistentes, se rechaza la conciliación y se requiere revisión contable; este
+comando no recalcula ese cierre ni registra ajustes ficticios.
+
 ## Entrega y correcciones
 
 | Situación | Recorrido |
@@ -47,6 +55,9 @@ Para corregir una entrega registrada por error, administración o dueño confirm
 explícitamente el regreso del pedido y deja un motivo. El comando conserva el
 pedido y la logística anterior en auditoría, devuelve esa compra a listo y
 mantiene los otros envíos del viaje. Una nueva asignación se registra aparte.
+Este recorrido también es obligatorio cuando el viaje ya finalizó: el cambio
+general de estado no permite recuperar a listo una entrega que conserve su
+vínculo logístico.
 
 Si una reducción del total lo deja por debajo del dinero conciliado, primero
 se registra el reintegro correspondiente. Si aumenta, queda saldo pendiente.

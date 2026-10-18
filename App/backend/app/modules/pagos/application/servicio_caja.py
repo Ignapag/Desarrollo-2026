@@ -26,6 +26,57 @@ class ServicioCaja:
         self.uow = uow
         self.repo = repo
 
+    async def desvincular_no_conciliados(
+        self,
+        cierre: CierreCaja,
+        actor: int | None,
+        ip: str | None = None,
+    ) -> None:
+        """Retira pertenencias históricas que nunca representaron dinero recibido.
+
+        Requiere el lock del turno. Un aprobado solo admite retirar pendientes
+        cuando su snapshot ya coincide con los conciliados; no se reparan aquí
+        cierres históricos que contabilizaron fondos todavía inexistentes.
+        """
+        if cierre.es_aprobado:
+            corte = await self.repo.capturar_cierre_vinculado(cierre.id)
+            if not self._coinciden_totales(cierre, corte.totales):
+                raise ReglaDeNegocio(
+                    "El cierre aprobado histórico tiene totales inconsistentes; "
+                    "requiere revisión contable antes de conciliar sus pendientes"
+                )
+        for pago_id in await self.repo.desvincular_no_conciliados(cierre.id):
+            await auditoria.registrar(
+                self.uow,
+                accion="PAGO_DESVINCULADO_CIERRE",
+                entidad="pago",
+                entidad_id=pago_id,
+                usuario_id=actor,
+                ip=ip,
+                datos={
+                    "cierre_anterior_id": cierre.id,
+                    "cierre_nuevo_id": None,
+                    "estado_cierre": cierre.estado.value,
+                    "motivo": "Movimiento no conciliado excluido del snapshot de caja",
+                },
+            )
+
+    @staticmethod
+    def _coinciden_totales(cierre: CierreCaja, totales: dict) -> bool:
+        return all(
+            totales[campo] == getattr(cierre, campo)
+            for campo in (
+                "total_efectivo",
+                "total_billeteras",
+                "total_devoluciones",
+                "total_general",
+                "cantidad_pedidos",
+            )
+        )
+
+    async def bloquear_cierres_de_pagos(self, pago_ids: list[int]) -> None:
+        await self.repo.bloquear_cierres_de_pagos(pago_ids)
+
     async def consolidar_turno(
         self,
         fecha: date | None = None,
@@ -93,6 +144,8 @@ class ServicioCaja:
                 "ya fue aprobado y no puede reabrirse"
             )
 
+        if existente:
+            await self.desvincular_no_conciliados(existente, generado_por, ip_cliente)
         corte = await self.repo.capturar_pagos_cierre(existente.id if existente else None, hasta)
         totales = corte.totales
 
@@ -181,15 +234,9 @@ class ServicioCaja:
                 f"El cierre de caja #{cierre_id} ya fue aprobado previamente y es inalterable"
             )
 
+        await self.desvincular_no_conciliados(cierre_actual, aprobado_por, ip_cliente)
         corte = await self.repo.capturar_cierre_vinculado(cierre_id)
-        campos_totales = (
-            "total_efectivo",
-            "total_billeteras",
-            "total_devoluciones",
-            "total_general",
-            "cantidad_pedidos",
-        )
-        if any(corte.totales[campo] != getattr(cierre_actual, campo) for campo in campos_totales):
+        if not self._coinciden_totales(cierre_actual, corte.totales):
             raise ReglaDeNegocio("Los totales del cierre no coinciden con sus pagos vinculados")
 
         cierre_aprobado = await self.repo.aprobar_cierre(

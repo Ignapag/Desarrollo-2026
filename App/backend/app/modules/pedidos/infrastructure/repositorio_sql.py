@@ -372,6 +372,8 @@ class RepositorioPedidosSQL:
                        EXISTS(SELECT 1 FROM envio e JOIN viaje v ON v.id=e.viaje_id
                            WHERE e.pedido_id=p.id AND v.estado IN ('PLANIFICADO','EN_RUTA'))
                            AS asignado,
+                       EXISTS(SELECT 1 FROM envio e WHERE e.pedido_id=p.id
+                           AND e.viaje_id IS NOT NULL) AS vinculo_logistico,
                        EXISTS(SELECT 1 FROM envio e JOIN viaje v ON v.id=e.viaje_id
                            WHERE e.pedido_id=p.id AND e.estado='EN_CAMINO'
                            AND v.estado='EN_RUTA' AND v.salida_en IS NOT NULL) AS salida_real,

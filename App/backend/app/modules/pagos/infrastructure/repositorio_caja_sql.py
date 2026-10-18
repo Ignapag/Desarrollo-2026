@@ -43,11 +43,41 @@ class RepositorioCajaSQL:
         self.uow = uow
 
     async def bloquear_turno(self, fecha: date, turno: TurnoCierre) -> None:
-        """Generación y aprobación del mismo turno preceden a cualquier lock de pago."""
+        """Generación, aprobación y conciliación preceden a los locks de pago."""
         await self.uow.ejecutar(
             "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
             (f"caja:{fecha.isoformat()}:{turno.value}",),
         )
+
+    async def bloquear_cierres_de_pagos(self, pago_ids: list[int]) -> None:
+        """Pedido(s) antes de turnos ordenados; caja nunca espera pedidos.
+
+        Un pendiente solo puede perder su vínculo mientras esperamos: generación
+        no asigna pendientes. El lote toma todos los turnos antes de tocar pagos.
+        """
+        cierres = await self.uow.todos(
+            "SELECT DISTINCT c.fecha,c.turno FROM cierre_caja c JOIN pago p "
+            "ON p.cierre_caja_id=c.id WHERE p.id=ANY(%s) AND p.estado='PENDIENTE' "
+            "ORDER BY c.fecha,c.turno",
+            (pago_ids,),
+        )
+        for cierre in cierres:
+            await self.bloquear_turno(cierre["fecha"], TurnoCierre(cierre["turno"]))
+
+    async def desvincular_no_conciliados(self, cierre_id: int) -> list[int]:
+        # El turno ya está bloqueado. Orden de filas estable antes del UPDATE.
+        filas = await self.uow.todos(
+            "SELECT id FROM pago WHERE cierre_caja_id=%s AND estado<>'CONCILIADO' "
+            "ORDER BY id FOR UPDATE",
+            (cierre_id,),
+        )
+        ids = [fila["id"] for fila in filas]
+        if ids:
+            await self.uow.ejecutar(
+                "UPDATE pago SET cierre_caja_id=NULL WHERE id=ANY(%s)",
+                (ids,),
+            )
+        return ids
 
     async def capturar_turno(self, desde: datetime, hasta: datetime) -> CorteCaja:
         filas = await self.uow.todos(
@@ -83,7 +113,7 @@ class RepositorioCajaSQL:
         filas = await self.uow.todos(
             "SELECT id,pedido_id,cierre_caja_id,tipo,metodo_pago,monto,propina,estado,"
             "referencia_externa,registrado_por,registrado_en,conciliado_en,motivo "
-            "FROM pago WHERE cierre_caja_id=%s ORDER BY id",
+            "FROM pago WHERE cierre_caja_id=%s ORDER BY id FOR UPDATE",
             (cierre_id,),
         )
         return calcular_corte_caja([_mapear_pago(f) for f in filas])

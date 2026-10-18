@@ -103,6 +103,7 @@
 | Pendientes contados como dinero; devoluciones sin fondos | `test_pagos_operacion_segura.py`: neto, caja, reintegro y sobreconciliación. |
 | Doble clic y cobros/reintegros concurrentes | Mismo archivo: UUID, contenido original, vuelto y conexiones independientes. |
 | Caja cambia entre agregado y vínculo o suplanta actor | `test_caja_seguridad.py`: corte estable, aprobación concurrente, arrastre, histórico y autoría HTTP. |
+| Pendiente histórico queda atrapado en un cierre aprobado | `test_operacion_final_fixes.py`: regeneración, aprobación, conciliación posterior, conflicto de legado incoherente y carreras reales con turnos ordenados. |
 | Cancelación no devuelve reserva; corrección repone insumos usados | `test_operacion_pedidos.py` y `test_stock_cambios_cantidad.py`: reserva, merma y marca de cocina. |
 | Falta fecha de confirmación al preparar directamente | `test_operacion_pedidos.py`: fecha persistida antes de reportar una entrega. |
 | Activos perdidos después de 200 cierres | Mismo archivo: consulta completa y filtros SQL, relaciones por lote. |
@@ -110,6 +111,7 @@
 | Dos entregas dejan viaje/repartidor ocupados | `test_delivery_seguridad.py`: dos conexiones y cierre serializado. |
 | Planificación roba una asignación manual | `test_delivery_revision.py`: snapshot previo al commit y escritura condicionada. |
 | Fallo permite omitir regreso; entrega errónea atascada | Mismo archivo y seguridad: regreso físico, corrección privilegiada y conservación del resto del viaje. |
+| Recuperación general evita regreso con viaje finalizado | `test_operacion_final_fixes.py`: PATCH general rechazado, corrección coordinada parcial/finalizada, identidad/dinero/stock conservados y candidato del planificador. |
 | Asignación o reintegro durante edición/preparación | `test_operacion_pedidos.py`: espera de bloqueo observada y nueva lectura de indicadores. |
 | Solicitud humana resuelta contamina otra | `test_whatsapp_operacion_segura.py`: limpieza de intención/datos y origen propio. |
 | IA usa una foto vieja o interbloquea el panel | `test_whatsapp_concurrencia.py`: proveedor fuera de transacción, versión/fondos/asignación y orden de locks. |

@@ -144,22 +144,17 @@ async def test_fallo_y_regreso_permiten_corregir_y_reasignar_sin_recrear(uow):
 
 @pytest.mark.asyncio
 async def test_entrega_corregida_puede_tener_nueva_asignacion_real(uow):
-    from app.modules.pedidos.domain.entidades import EstadoPedido
-    from app.modules.pedidos.presentation.dependencias import obtener_servicio_pedidos
-
     servicio, rider, viaje, pedidos, envios = await crear_viaje_propio(uow)
     await servicio.iniciar_viaje(viaje, usuario_id=rider, rol="REPARTIDOR")
     await servicio.registrar_entrega(envios[0], usuario_id=rider, rol="REPARTIDOR")
     version = await uow.valor("SELECT version FROM pedido WHERE id=%s", (pedidos[0],))
-    await obtener_servicio_pedidos(uow).cambiar_estado(
-        pedidos[0],
-        EstadoPedido.LISTO,
+    await servicio.corregir_entrega(
+        envios[0],
         usuario_id=rider,
         rol="ADMINISTRADOR",
-        correccion=True,
-        motivo="Click erroneo",
+        motivo="Click erroneo; paquete recibido en local",
         version_esperada=version,
-        tratamiento_stock="CONSERVAR",
+        regreso_confirmado=True,
     )
     nueva = await servicio.asignar_pedido(
         pedidos[0], rider, motivo="Entrega corregida", usuario_id=rider, rol="EMPLEADO"
@@ -168,10 +163,11 @@ async def test_entrega_corregida_puede_tener_nueva_asignacion_real(uow):
     assert await uow.valor("SELECT estado FROM pedido WHERE id=%s", (pedidos[0],)) == "LISTO"
     assert await uow.valor("SELECT estado FROM envio WHERE id=%s", (envios[0],)) == "ASIGNADO"
     anterior = await uow.uno(
-        "SELECT datos FROM auditoria WHERE accion='ENVIO_RECUPERADO' AND entidad_id=%s",
+        "SELECT datos FROM auditoria WHERE accion='ENVIO_ENTREGA_CORREGIDA' AND entidad_id=%s",
         (str(envios[0]),),
     )
-    assert anterior["datos"]["viaje_anterior_id"] == viaje
+    assert anterior["datos"]["envio_anterior"]["viaje_id"] == viaje
+    assert anterior["datos"]["regreso_confirmado"] is True
 
 
 @pytest.mark.asyncio

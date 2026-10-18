@@ -8,6 +8,7 @@ from app.core import auditoria
 from app.core.db import UnidadDeTrabajo
 from app.errores import DatosInvalidos, ErrorDominio, NoEncontrado, ReglaDeNegocio
 from app.modules.pagos.application.operaciones import recuperar_operacion, solicitud_operacion
+from app.modules.pagos.application.servicio_caja import ServicioCaja
 from app.modules.pagos.domain.entidades import (
     AccionesPagos,
     EstadoPago,
@@ -23,9 +24,15 @@ class ServicioConciliacion:
     y anulaciones.
     """
 
-    def __init__(self, uow: UnidadDeTrabajo, repo: RepositorioPagosSQL) -> None:
+    def __init__(
+        self,
+        uow: UnidadDeTrabajo,
+        repo: RepositorioPagosSQL,
+        caja: ServicioCaja,
+    ) -> None:
         self.uow = uow
         self.repo = repo
+        self.caja = caja
 
     async def conciliar_pago(
         self,
@@ -41,6 +48,7 @@ class ServicioConciliacion:
 
         # Todas las operaciones financieras se serializan sobre el pedido antes del pago.
         pedido = await self.repo.obtener_pedido_para_actualizar(pago.pedido_id)
+        await self.caja.bloquear_cierres_de_pagos([pago_id])
         pago = await self.repo.obtener_pago_por_id(pago_id)
 
         if pago.es_conciliado:
@@ -54,6 +62,10 @@ class ServicioConciliacion:
             raise ReglaDeNegocio("El cobro supera el saldo pendiente del pedido")
         if pago.tipo == TipoPago.DEVOLUCION and pago.monto > neto:
             raise ReglaDeNegocio("La devolución supera el saldo neto acreditado")
+
+        if pago.cierre_caja_id is not None:
+            cierre = await self.caja.obtener_cierre(pago.cierre_caja_id)
+            await self.caja.desvincular_no_conciliados(cierre, conciliar_por, ip_cliente)
 
         pago_conciliado = await self.repo.conciliar_pago(pago_id, comprobante)
         if pago_conciliado is None:
@@ -90,6 +102,7 @@ class ServicioConciliacion:
 
         pago_ids = sorted(set(pago_ids))
         await self.repo.bloquear_pedidos_de_pagos(pago_ids)
+        await self.caja.bloquear_cierres_de_pagos(pago_ids)
         for pid in pago_ids:
             try:
                 await self.conciliar_pago(

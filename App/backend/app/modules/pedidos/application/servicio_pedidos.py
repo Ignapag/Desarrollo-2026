@@ -302,6 +302,13 @@ class ServicioPedidos:
             "asignado"
         ):
             raise ReglaDeNegocio("Debe resolver la asignacion con el personal de reparto")
+        if (
+            recuperacion and actual == EstadoPedido.ENTREGADO and nuevo == EstadoPedido.LISTO
+            and pedido.get("tipo_entrega") == "DELIVERY" and pedido.get("vinculo_logistico")
+        ):
+            raise ReglaDeNegocio(
+                "Debe corregir la entrega desde reparto y confirmar el regreso al local"
+            )
         if nuevo == EstadoPedido.CANCELADO:
             if actual in {EstadoPedido.PENDIENTE, EstadoPedido.CONFIRMADO} and not pedido.get(
                 "preparacion_en"

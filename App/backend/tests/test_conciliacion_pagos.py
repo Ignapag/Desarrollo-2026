@@ -59,7 +59,7 @@ def mock_repo():
 
 @pytest.fixture
 def servicio(mock_uow, mock_repo) -> ServicioConciliacion:
-    return ServicioConciliacion(uow=mock_uow, repo=mock_repo)
+    return ServicioConciliacion(uow=mock_uow, repo=mock_repo, caja=AsyncMock())
 
 
 # =========================================================================
