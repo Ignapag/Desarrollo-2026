@@ -40,8 +40,8 @@ class ServicioCaja:
         else:
             turno_caja, fecha_caja, desde, hasta = determinar_turno_y_ventana(momento_referencia)
 
-        totales = await self.repo.consolidar_totales_turno(desde, hasta)
-        desglose = await self.repo.desglose_por_metodo(desde, hasta)
+        corte = await self.repo.capturar_turno(desde, hasta)
+        totales = corte.totales
 
         return ConsolidadoTurno(
             fecha=fecha_caja,
@@ -56,7 +56,7 @@ class ServicioCaja:
             cantidad_pedidos=totales["cantidad_pedidos"],
             cantidad_pagos=totales["cantidad_pagos"],
             pagos_pendientes_conciliacion=totales["pagos_pendientes_conciliacion"],
-            desglose_metodos=desglose,
+            desglose_metodos=corte.desglose,
         )
 
     async def generar_resumen_cierre(
@@ -73,16 +73,18 @@ class ServicioCaja:
         - Determina la ventana contable (automática o por parámetros).
         - Verifica que el cierre no haya sido ya APROBADO.
         - Persiste el registro con estado PENDIENTE_APROBACION.
-        - Asocia en lote todos los pagos del turno con el ID del cierre generado.
+        - Captura conciliados sin otro cierre hasta el fin del turno, incluidos anteriores.
+        - Totaliza y vincula exactamente ese conjunto de pagos, bloqueado por ID.
         - Registra la acción en la bitácora de auditoría.
         """
         if fecha is not None and turno is not None:
             fecha_caja = fecha
             turno_caja = turno
-            desde, hasta = ventana_para_turno(fecha_caja, turno_caja)
+            _, hasta = ventana_para_turno(fecha_caja, turno_caja)
         else:
-            turno_caja, fecha_caja, desde, hasta = determinar_turno_y_ventana(momento_referencia)
+            turno_caja, fecha_caja, _, hasta = determinar_turno_y_ventana(momento_referencia)
 
+        await self.repo.bloquear_turno(fecha_caja, turno_caja)
         # Regla de negocio: si el turno ya fue aprobado, es inalterable
         existente = await self.repo.obtener_cierre_por_fecha_turno(fecha_caja, turno_caja)
         if existente and existente.es_aprobado:
@@ -91,7 +93,8 @@ class ServicioCaja:
                 "ya fue aprobado y no puede reabrirse"
             )
 
-        totales = await self.repo.consolidar_totales_turno(desde, hasta)
+        corte = await self.repo.capturar_pagos_cierre(existente.id if existente else None, hasta)
+        totales = corte.totales
 
         cierre = await self.repo.crear_o_actualizar_cierre(
             fecha=fecha_caja,
@@ -105,8 +108,10 @@ class ServicioCaja:
             observaciones=observaciones,
         )
 
-        # Vinculación atómica en lote de los pagos del período al cierre_caja_id
-        await self.repo.vincular_pagos_al_cierre(cierre.id, desde, hasta)
+        # Totales y vínculos siempre provienen del mismo conjunto, bloqueado en la captura.
+        vinculados = await self.repo.vincular_pagos_al_cierre(cierre.id, corte.pago_ids)
+        if vinculados != len(corte.pago_ids):
+            raise ReglaDeNegocio("El conjunto de pagos del cierre cambió durante la generación")
 
         await auditoria.registrar(
             self.uow,
@@ -123,6 +128,8 @@ class ServicioCaja:
                 "total_billeteras": str(cierre.total_billeteras),
                 "cantidad_pedidos": cierre.cantidad_pedidos,
                 "estado": cierre.estado.value,
+                "cantidad_pagos": len(corte.pago_ids),
+                "criterio_corte": "CONCILIADO sin otro cierre hasta fin de turno, con arrastre",
             },
         )
 
@@ -166,10 +173,24 @@ class ServicioCaja:
         if cierre_actual is None:
             raise NoEncontrado(f"Cierre de caja #{cierre_id} no encontrado")
 
+        await self.repo.bloquear_turno(cierre_actual.fecha, cierre_actual.turno)
+        cierre_actual = await self.repo.obtener_cierre_por_id(cierre_id)
+
         if cierre_actual.es_aprobado:
             raise ReglaDeNegocio(
                 f"El cierre de caja #{cierre_id} ya fue aprobado previamente y es inalterable"
             )
+
+        corte = await self.repo.capturar_cierre_vinculado(cierre_id)
+        campos_totales = (
+            "total_efectivo",
+            "total_billeteras",
+            "total_devoluciones",
+            "total_general",
+            "cantidad_pedidos",
+        )
+        if any(corte.totales[campo] != getattr(cierre_actual, campo) for campo in campos_totales):
+            raise ReglaDeNegocio("Los totales del cierre no coinciden con sus pagos vinculados")
 
         cierre_aprobado = await self.repo.aprobar_cierre(
             cierre_id=cierre_id,
@@ -197,4 +218,3 @@ class ServicioCaja:
         )
 
         return cierre_aprobado
-

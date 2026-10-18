@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from decimal import Decimal
 
 from app.core import auditoria
 from app.core.db import UnidadDeTrabajo
 from app.errores import DatosInvalidos, NoEncontrado, ReglaDeNegocio
+from app.modules.pagos.application.operaciones import recuperar_operacion, solicitud_operacion
 from app.modules.pagos.domain.entidades import (
     AccionesPagos,
+    DetalleCobroEfectivo,
     EstadoFinancieroPedido,
     EstadoPago,
     MetodoPago,
@@ -44,7 +46,7 @@ class ServicioPagos:
     ) -> None:
         self.uow = uow
         self.repo = repo
-        self.cliente_mp = cliente_mp or ClienteMercadoPago()
+        self.cliente_mp = cliente_mp if cliente_mp is not None else ClienteMercadoPago()
 
     async def registrar_pago_efectivo(
         self,
@@ -55,8 +57,28 @@ class ServicioPagos:
         conciliar_inmediato: bool = True,
         registrado_por: int | None = None,
         ip_cliente: str | None = None,
+        clave_operacion: str | None = None,
     ) -> ResultadoCobroEfectivo:
         """Registra el cobro en efectivo de un pedido y calcula el vuelto."""
+        solicitud = solicitud_operacion(
+            tipo="COBRO",
+            metodo="EFECTIVO",
+            pedido_id=pedido_id,
+            monto_recibido=monto_recibido,
+            monto_a_pagar=monto_a_pagar,
+            propina=propina,
+            conciliar_inmediato=conciliar_inmediato,
+            actor=registrado_por,
+        )
+        existente = await recuperar_operacion(self.repo, clave_operacion, solicitud)
+        if existente:
+            pago, datos = existente
+            return ResultadoCobroEfectivo(
+                pago=pago,
+                detalle=DetalleCobroEfectivo(
+                    **{campo: Decimal(valor) for campo, valor in datos["detalle"].items()}
+                ),
+            )
         pedido = await self.repo.obtener_pedido_para_actualizar(pedido_id)
         if pedido is None:
             raise NoEncontrado(f"Pedido {pedido_id} no encontrado")
@@ -79,6 +101,12 @@ class ServicioPagos:
         estado = EstadoPago.CONCILIADO if conciliar_inmediato else EstadoPago.PENDIENTE
         conciliado_en = ahora if conciliar_inmediato else None
 
+        if not conciliar_inmediato:
+            detalle = replace(detalle, saldo_restante=total_pedido - total_pagado)
+        metadatos = {
+            "solicitud": solicitud,
+            "detalle": {campo: str(valor) for campo, valor in asdict(detalle).items()},
+        }
         pago = await self.repo.registrar_pago(
             pedido_id=pedido_id,
             tipo=TipoPago.COBRO,
@@ -90,15 +118,9 @@ class ServicioPagos:
             registrado_por=registrado_por,
             conciliado_en=conciliado_en,
             motivo=None,
+            clave_operacion=clave_operacion,
+            datos_operacion=metadatos,
         )
-
-        if detalle.saldo_restante == Decimal("0.00") and pedido["estado"] == "PENDIENTE":
-            await self.repo.cambiar_estado_pedido(
-                pedido_id=pedido_id,
-                estado="CONFIRMADO",
-                usuario_id=registrado_por,
-                observacion=f"Cobro total en efectivo acreditado (Pago #{pago.id})",
-            )
 
         await auditoria.registrar(
             self.uow,
@@ -121,6 +143,63 @@ class ServicioPagos:
 
         return ResultadoCobroEfectivo(pago=pago, detalle=detalle)
 
+    async def registrar_transferencia(
+        self,
+        pedido_id: int,
+        monto: Decimal,
+        comprobante: str | None = None,
+        registrado_por: int | None = None,
+        ip_cliente: str | None = None,
+        clave_operacion: str | None = None,
+    ) -> Pago:
+        """Registra una transferencia para revisión humana, sin acreditar por el adjunto."""
+        solicitud = solicitud_operacion(
+            tipo="COBRO",
+            metodo="TRANSFERENCIA",
+            pedido_id=pedido_id,
+            monto=monto,
+            comprobante=comprobante,
+            actor=registrado_por,
+        )
+        existente = await recuperar_operacion(self.repo, clave_operacion, solicitud)
+        if existente:
+            return existente[0]
+        pedido = await self.repo.obtener_pedido_para_actualizar(pedido_id)
+        if pedido is None:
+            raise NoEncontrado(f"Pedido {pedido_id} no encontrado")
+        if pedido["estado"] == "CANCELADO":
+            raise ReglaDeNegocio("El pedido cancelado no admite cobros")
+        saldo = Decimal(str(pedido["total"])) - await self.repo.total_pagado_por_pedido(pedido_id)
+        if monto <= 0 or monto > saldo:
+            raise DatosInvalidos("El monto debe ser positivo y no superar el saldo pendiente")
+        pago = await self.repo.registrar_pago(
+            pedido_id=pedido_id,
+            tipo=TipoPago.COBRO,
+            metodo_pago=MetodoPago.TRANSFERENCIA,
+            monto=monto,
+            propina=Decimal("0.00"),
+            estado=EstadoPago.PENDIENTE,
+            referencia_externa=comprobante,
+            registrado_por=registrado_por,
+            clave_operacion=clave_operacion,
+            datos_operacion={"solicitud": solicitud},
+        )
+        await auditoria.registrar(
+            self.uow,
+            accion=AccionesPagos.PAGO_REGISTRADO,
+            entidad="pago",
+            entidad_id=pago.id,
+            usuario_id=registrado_por,
+            ip=ip_cliente,
+            datos={
+                "pedido_id": pedido_id,
+                "monto": str(monto),
+                "estado": "PENDIENTE",
+                "comprobante": comprobante,
+            },
+        )
+        return pago
+
     async def iniciar_cobro_digital(
         self,
         pedido_id: int,
@@ -133,83 +212,8 @@ class ServicioPagos:
         *,
         cliente_usuario_id: int | None = None,
     ) -> ResultadoInicioBilletera:
-        """Genera la orden de cobro digital (preferencia de pago / QR dinámico).
-
-        Crea el pago en estado PENDIENTE asociado a la preferencia_id.
-        """
-        await self._validar_acceso_pedido(pedido_id, cliente_usuario_id)
-        if metodo_pago == MetodoPago.EFECTIVO:
-            raise DatosInvalidos("Para cobro en efectivo debe utilizar el endpoint correspondiente")
-
-        pedido = await self.repo.obtener_pedido_para_actualizar(pedido_id)
-        if pedido is None:
-            raise NoEncontrado(f"Pedido {pedido_id} no encontrado")
-
-        if pedido["estado"] == "CANCELADO":
-            raise ReglaDeNegocio(f"El pedido #{pedido['numero']} está cancelado y no admite pagos")
-
-        total_pedido = Decimal(str(pedido["total"]))
-        total_pagado = await self.repo.total_pagado_por_pedido(pedido_id)
-        saldo_pendiente = max(Decimal("0.00"), total_pedido - total_pagado)
-
-        if saldo_pendiente == Decimal("0.00"):
-            raise ReglaDeNegocio(
-                f"El pedido #{pedido['numero']} ya se encuentra totalmente saldado"
-            )
-
-        monto_cobrar = monto_a_pagar if monto_a_pagar is not None else saldo_pendiente
-        if monto_cobrar <= Decimal("0.00"):
-            raise DatosInvalidos("El monto a cobrar debe ser mayor a cero")
-        if monto_cobrar > saldo_pendiente:
-            raise DatosInvalidos(
-                f"El monto a cobrar (${monto_cobrar}) supera el saldo pendiente "
-                f"(${saldo_pendiente})"
-            )
-        if propina < Decimal("0.00"):
-            raise DatosInvalidos("La propina no puede ser negativa")
-
-        monto_total_transaccion = monto_cobrar + propina
-        descripcion = f"Monu Burger - Pedido #{pedido['numero']}"
-
-        # Llamada al cliente de billetera virtual (Mercado Pago)
-        preferencia = await self.cliente_mp.crear_preferencia(
-            pedido_id=pedido_id,
-            numero_pedido=pedido["numero"],
-            monto=monto_total_transaccion,
-            descripcion=descripcion,
-            payer_email=payer_email,
-        )
-
-        pago = await self.repo.registrar_pago(
-            pedido_id=pedido_id,
-            tipo=TipoPago.COBRO,
-            metodo_pago=metodo_pago,
-            monto=monto_cobrar,
-            propina=propina,
-            estado=EstadoPago.PENDIENTE,
-            referencia_externa=preferencia.preference_id,
-            registrado_por=registrado_por,
-            conciliado_en=None,
-            motivo=None,
-        )
-
-        await auditoria.registrar(
-            self.uow,
-            accion="COBRO_DIGITAL_INICIADO",
-            entidad="pago",
-            entidad_id=pago.id,
-            usuario_id=registrado_por,
-            ip=ip_cliente,
-            datos={
-                "pedido_id": pedido_id,
-                "metodo_pago": metodo_pago.value,
-                "preference_id": preferencia.preference_id,
-                "monto": str(monto_cobrar),
-                "propina": str(propina),
-            },
-        )
-
-        return ResultadoInicioBilletera(pago=pago, preferencia=preferencia)
+        """La integración histórica permanece deshabilitada."""
+        raise ReglaDeNegocio("La integración con Mercado Pago está deshabilitada")
 
     async def procesar_webhook_mercadopago(
         self,
@@ -217,95 +221,26 @@ class ServicioPagos:
         topic: str | None = None,
         ip_cliente: str | None = None,
     ) -> dict:
-        """Procesa las notificaciones de Mercado Pago (IPN / Webhooks) de forma idempotente."""
-        # Consultar estado real del pago en la API de Mercado Pago
-        info = await self.cliente_mp.consultar_pago(payment_id)
-
-        # Buscar el pago pendiente por su referencia externa (preference_id o payment_id)
-        pago = await self.repo.obtener_pago_por_referencia(info.referencia_externa)
-        if pago is None:
-            # Si no se encontró por external_reference, buscar por el payment_id directamente
-            pago = await self.repo.obtener_pago_por_referencia(payment_id)
-
-        if pago is None:
-            # Webhook de un pago no registrado en este sistema
-            return {
-                "estado": "ignorado",
-                "motivo": "No se encontró un pago pendiente asociado a la referencia externa",
-            }
-
-        # Idempotencia: si ya está conciliado, responder OK sin re-procesar
-        if pago.estado == EstadoPago.CONCILIADO:
-            return {"estado": "ya_conciliado", "pago_id": pago.id}
-
-        ahora = datetime.now(UTC)
-
-        if info.status == "approved":
-            await self.repo.actualizar_pago_por_referencia(
-                referencia_externa=pago.referencia_externa or payment_id,
-                nuevo_estado=EstadoPago.CONCILIADO,
-                conciliado_en=ahora,
-                nueva_referencia=info.payment_id,
-            )
-
-            # Verificar si se completa el total del pedido
-            pedido = await self.repo.obtener_pedido_para_actualizar(pago.pedido_id)
-            if pedido and pedido["estado"] == "PENDIENTE":
-                total_pagado = await self.repo.total_pagado_por_pedido(pago.pedido_id)
-                if total_pagado >= Decimal(str(pedido["total"])):
-                    await self.repo.cambiar_estado_pedido(
-                        pedido_id=pago.pedido_id,
-                        estado="CONFIRMADO",
-                        usuario_id=pago.registrado_por,
-                        observacion=f"Pago digital aprobado (MP #{info.payment_id})",
-                    )
-
-            await auditoria.registrar(
-                self.uow,
-                accion=AccionesPagos.PAGO_CONCILIADO,
-                entidad="pago",
-                entidad_id=pago.id,
-                usuario_id=None,
-                ip=ip_cliente,
-                datos={
-                    "payment_id": info.payment_id,
-                    "pedido_id": pago.pedido_id,
-                    "monto": str(pago.monto),
-                    "estado": "CONCILIADO",
-                },
-            )
-            return {"estado": "aprobado", "pago_id": pago.id, "payment_id": info.payment_id}
-
-        elif info.status in ("rejected", "cancelled"):
-            await self.repo.actualizar_pago_por_referencia(
-                referencia_externa=pago.referencia_externa or payment_id,
-                nuevo_estado=EstadoPago.ANULADO,
-                motivo=f"Rechazado por billetera: {info.status_detail or info.status}",
-            )
-            await auditoria.registrar(
-                self.uow,
-                accion=AccionesPagos.PAGO_ANULADO,
-                entidad="pago",
-                entidad_id=pago.id,
-                usuario_id=None,
-                ip=ip_cliente,
-                datos={"payment_id": info.payment_id, "motivo": info.status_detail},
-            )
-            return {"estado": "rechazado", "pago_id": pago.id, "payment_id": info.payment_id}
-
-        return {"estado": "en_proceso", "pago_id": pago.id, "status_mp": info.status}
+        """Ningún webhook puede acreditar dinero."""
+        raise ReglaDeNegocio("La integración con Mercado Pago está deshabilitada")
 
     async def _validar_acceso_pedido(
-        self, pedido_id: int, cliente_usuario_id: int | None,
+        self,
+        pedido_id: int,
+        cliente_usuario_id: int | None,
     ) -> None:
         """None corresponde a una operación interna autorizada en presentación."""
         if cliente_usuario_id is not None and not await self.repo.pedido_pertenece_a_usuario(
-            pedido_id, cliente_usuario_id,
+            pedido_id,
+            cliente_usuario_id,
         ):
             raise NoEncontrado(f"Pedido {pedido_id} no encontrado")
 
     async def obtener_estado_financiero(
-        self, pedido_id: int, *, cliente_usuario_id: int | None = None,
+        self,
+        pedido_id: int,
+        *,
+        cliente_usuario_id: int | None = None,
     ) -> EstadoFinancieroPedido:
         """Calcula el estado financiero y balance de pagos completo de un pedido."""
         await self._validar_acceso_pedido(pedido_id, cliente_usuario_id)
@@ -325,7 +260,10 @@ class ServicioPagos:
         )
 
     async def obtener_pago(
-        self, pago_id: int, *, cliente_usuario_id: int | None = None,
+        self,
+        pago_id: int,
+        *,
+        cliente_usuario_id: int | None = None,
     ) -> Pago:
         """Recupera un pago específico o lanza NoEncontrado."""
         pago = await self.repo.obtener_pago_por_id(pago_id)
@@ -337,7 +275,10 @@ class ServicioPagos:
         return pago
 
     async def listar_pagos_por_pedido(
-        self, pedido_id: int, *, cliente_usuario_id: int | None = None,
+        self,
+        pedido_id: int,
+        *,
+        cliente_usuario_id: int | None = None,
     ) -> list[Pago]:
         """Devuelve todos los pagos imputados a un pedido."""
         await self._validar_acceso_pedido(pedido_id, cliente_usuario_id)

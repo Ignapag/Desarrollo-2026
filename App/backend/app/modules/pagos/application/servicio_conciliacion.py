@@ -6,7 +6,8 @@ from decimal import Decimal
 
 from app.core import auditoria
 from app.core.db import UnidadDeTrabajo
-from app.errores import DatosInvalidos, NoEncontrado, ReglaDeNegocio
+from app.errores import DatosInvalidos, ErrorDominio, NoEncontrado, ReglaDeNegocio
+from app.modules.pagos.application.operaciones import recuperar_operacion, solicitud_operacion
 from app.modules.pagos.domain.entidades import (
     AccionesPagos,
     EstadoPago,
@@ -38,27 +39,25 @@ class ServicioConciliacion:
         if pago is None:
             raise NoEncontrado(f"Pago #{pago_id} no encontrado")
 
+        # Todas las operaciones financieras se serializan sobre el pedido antes del pago.
+        pedido = await self.repo.obtener_pedido_para_actualizar(pago.pedido_id)
+        pago = await self.repo.obtener_pago_por_id(pago_id)
+
         if pago.es_conciliado:
             return pago
 
         if pago.estado == EstadoPago.ANULADO:
             raise ReglaDeNegocio(f"No se puede conciliar el pago #{pago_id} porque está anulado")
 
+        neto = await self.repo.total_pagado_por_pedido(pago.pedido_id)
+        if pago.tipo == TipoPago.COBRO and pago.monto > Decimal(str(pedido["total"])) - neto:
+            raise ReglaDeNegocio("El cobro supera el saldo pendiente del pedido")
+        if pago.tipo == TipoPago.DEVOLUCION and pago.monto > neto:
+            raise ReglaDeNegocio("La devolución supera el saldo neto acreditado")
+
         pago_conciliado = await self.repo.conciliar_pago(pago_id, comprobante)
         if pago_conciliado is None:
             raise ReglaDeNegocio(f"No se pudo conciliar el pago #{pago_id}")
-
-        # Si el pedido estaba PENDIENTE y con esta acreditación queda totalmente saldado
-        pedido = await self.repo.obtener_pedido_para_actualizar(pago.pedido_id)
-        if pedido and pedido["estado"] == "PENDIENTE":
-            total_pagado = await self.repo.total_pagado_por_pedido(pago.pedido_id)
-            if total_pagado >= Decimal(str(pedido["total"])):
-                await self.repo.cambiar_estado_pedido(
-                    pedido_id=pago.pedido_id,
-                    estado="CONFIRMADO",
-                    usuario_id=conciliar_por,
-                    observacion=f"Pago #{pago_id} conciliado y pedido saldado",
-                )
 
         await auditoria.registrar(
             self.uow,
@@ -89,6 +88,8 @@ class ServicioConciliacion:
         conciliados: list[int] = []
         fallidos: list[dict] = []
 
+        pago_ids = sorted(set(pago_ids))
+        await self.repo.bloquear_pedidos_de_pagos(pago_ids)
         for pid in pago_ids:
             try:
                 await self.conciliar_pago(
@@ -97,7 +98,7 @@ class ServicioConciliacion:
                     ip_cliente=ip_cliente,
                 )
                 conciliados.append(pid)
-            except Exception as exc:
+            except ErrorDominio as exc:
                 fallidos.append({"pago_id": pid, "error": str(exc)})
 
         return {
@@ -114,6 +115,7 @@ class ServicioConciliacion:
         metodo_pago: MetodoPago = MetodoPago.EFECTIVO,
         registrado_por: int | None = None,
         ip_cliente: str | None = None,
+        clave_operacion: str | None = None,
     ) -> Pago:
         """Registra un egreso/devolución sobre un pedido (C-11, RF-06, RF-08).
 
@@ -127,6 +129,20 @@ class ServicioConciliacion:
 
         if monto <= Decimal("0.00"):
             raise DatosInvalidos("El monto de la devolución debe ser mayor a cero")
+
+        if metodo_pago not in (MetodoPago.EFECTIVO, MetodoPago.TRANSFERENCIA):
+            raise DatosInvalidos("La devolución debe ser en efectivo o transferencia")
+        solicitud = solicitud_operacion(
+            tipo="DEVOLUCION",
+            metodo=metodo_pago.value,
+            pedido_id=pedido_id,
+            monto=monto,
+            motivo=motivo.strip(),
+            actor=registrado_por,
+        )
+        existente = await recuperar_operacion(self.repo, clave_operacion, solicitud)
+        if existente:
+            return existente[0]
 
         pedido = await self.repo.obtener_pedido_para_actualizar(pedido_id)
         if pedido is None:
@@ -150,6 +166,8 @@ class ServicioConciliacion:
             registrado_por=registrado_por,
             conciliado_en=None,
             motivo=motivo.strip(),
+            clave_operacion=clave_operacion,
+            datos_operacion={"solicitud": solicitud},
         )
 
         await auditoria.registrar(
@@ -183,6 +201,9 @@ class ServicioConciliacion:
         pago = await self.repo.obtener_pago_por_id(pago_id)
         if pago is None:
             raise NoEncontrado(f"Pago #{pago_id} no encontrado")
+
+        await self.repo.obtener_pedido_para_actualizar(pago.pedido_id)
+        pago = await self.repo.obtener_pago_por_id(pago_id)
 
         if pago.es_conciliado:
             raise ReglaDeNegocio(
