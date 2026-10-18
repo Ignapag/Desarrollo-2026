@@ -110,6 +110,28 @@ revisar el cambio antes de volver a enviarlo.
 
 ## Stock y reapertura
 
+El catálogo permite cargar varios ingredientes y cantidades propias por variante.
+En «Receta» se editan las cantidades existentes; administración y dueño pueden
+guardarlas, con control de versión para evitar pisar otra edición. Simple, Doble
+y Triple no multiplican automáticamente todos los ingredientes: cada receta se
+define expresamente. Las variantes antiguas conservan la receta base hasta que
+se configuren; sus cantidades no se inventan durante la migración.
+
+El editor acepta decimales con coma o punto y fracciones como `1/4`, `1/8` o
+`3/2`. Muestra la equivalencia en la unidad real del inventario. La precisión es
+de tres decimales: `2/3` muestra «Aprox. 0,667» antes de guardar. Un cuarto de un
+ingrediente registrado en `GR` son 0,25 gramos; para representar piezas debe
+estar registrado en `UNIDAD`. El editor de recetas no convierte ni cambia
+unidades o saldos existentes.
+
+Cada ítem fija su variante y receta al registrarse. Consumo, ajustes de cantidad,
+retiro de ingredientes y reapertura usan esas cantidades guardadas, aunque se
+edite el catálogo después. El contexto de WhatsApp usa la composición del mismo
+pedido. El stock se descuenta al confirmar o preparar y los reintentos no lo
+descuentan dos veces. Los pedidos previos a esta función se inicializan con la
+receta base existente al migrar; no hay historial anterior que permita reconstruir
+ediciones de recetas pasadas.
+
 Cancelar antes de comenzar cocina devuelve la reserva consumida. Después de
 comenzar la preparación se declara la merma; cambiar una etiqueta no devuelve
 ingredientes utilizados al inventario.

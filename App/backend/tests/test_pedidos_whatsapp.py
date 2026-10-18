@@ -171,7 +171,7 @@ async def test_solo_notas_de_retiros_permitidos_afectan_consumo(notas, omitidos)
 @pytest.mark.asyncio
 @pytest.mark.parametrize("canal", ["WEB", "WHATSAPP", "MOSTRADOR"])
 async def test_sql_persiste_canal_y_aclaraciones_separadas(uow, canal):
-    cliente_id, producto_id, _ = await escenario(uow)
+    cliente_id, producto_id, (ingrediente_id,) = await escenario(uow)
     servicio = ServicioPedidos(RepositorioPedidosSQL(uow), StockMemoria())
     pedido = await servicio.crear(
         cliente_id=cliente_id, tipo_entrega="RETIRO", direccion_id=None,
@@ -183,8 +183,12 @@ async def test_sql_persiste_canal_y_aclaraciones_separadas(uow, canal):
         (1, "Sin Tomate"), (2, None),
     ]
     assert await RepositorioPedidosSQL(uow).items_para_stock(pedido["id"]) == [
-        {"producto_id": producto_id, "cantidad": 1, "aclaraciones": "Sin Tomate"},
-        {"producto_id": producto_id, "cantidad": 2, "aclaraciones": None},
+        {"producto_id": producto_id, "cantidad": 1, "aclaraciones": "Sin Tomate",
+         "variante": None, "receta_snapshot": [{"ingrediente_id": ingrediente_id,
+                                              "cantidad_requerida": "1.000", "es_base": True}]},
+        {"producto_id": producto_id, "cantidad": 2, "aclaraciones": None,
+         "variante": None, "receta_snapshot": [{"ingrediente_id": ingrediente_id,
+                                              "cantidad_requerida": "1.000", "es_base": True}]},
     ]
 
 

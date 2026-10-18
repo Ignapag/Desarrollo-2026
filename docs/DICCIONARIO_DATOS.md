@@ -68,7 +68,11 @@ columnas, tipos, obligatoriedad, relaciones y valores permitidos.
 
 **Whatsapp atencion general** — sin tablas nuevas
 
-Total: **35 tablas**.
+**Recetas variantes** — [`producto_variante_ingrediente`](#producto_variante_ingrediente)
+
+**Pedido item receta snapshot** — sin tablas nuevas
+
+Total: **36 tablas**.
 
 ---
 
@@ -358,6 +362,8 @@ _pedido_item: los precios se congelan al confirmar (snapshot), para que un cambi
 | `costo_opciones` | NUMERIC(12,2) | Sí | default `0` |
 | `subtotal` | NUMERIC(12,2) | Sí | — |
 | `aclaraciones` | TEXT | No | — |
+| `variante` | TEXT | No | — |
+| `receta_snapshot` | JSONB | No | — |
 
 ### pedido_item_opcion
 
@@ -727,3 +733,21 @@ _Foco y pregunta de selección por remitente; no almacena credenciales ni histor
 **Funciones:** `whatsapp_evento_estado`
 
 ## 024_whatsapp_atencion_general — Whatsapp atencion general
+
+## 025_recetas_variantes — Recetas variantes
+
+### producto_variante_ingrediente
+
+_Recetas explícitas por variante. No se infieren cantidades ni se modifican las recetas históricas: una variante sin configuración conserva la base._
+
+| Columna | Tipo | Obligatoria | Notas |
+|---------|------|-------------|-------|
+| `producto_id` | BIGINT | Sí | PK · FK → `producto.id` |
+| `variante` | TEXT | Sí | PK |
+| `ingrediente_id` | BIGINT | Sí | PK · FK → `ingrediente.id` |
+| `cantidad_requerida` | NUMERIC(12,3) | Sí | — |
+| `es_base` | BOOLEAN | Sí | default `TRUE` |
+
+**Vistas:** `producto_disponible`
+
+## 026_pedido_item_receta_snapshot — Pedido item receta snapshot

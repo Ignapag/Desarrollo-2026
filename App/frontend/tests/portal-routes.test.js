@@ -139,3 +139,20 @@ test('los productos sin ingredientes quitables no ofrecen personalizacion', asyn
   });
   assert.doesNotMatch(html, /Personalizar Fanta|Sacar ingredientes/);
 });
+
+test('el menú distingue variantes agotadas y selecciona una que puede venderse', async (t) => {
+  const html = await menuConEstado(t, {
+    catalogStatus: 'ready', catalog: [{
+      id: 54, name: 'Cheese', category: 'Nuestras Burgers', active: true,
+      available: true, price: 11000,
+      variants: [{ name: 'Simple', price: 11000, available: false }, { name: 'Doble', price: 13000, available: true }],
+    }],
+  });
+  const options = [...html.matchAll(/<option[^>]*>[^<]*<\/option>/g)].map((match) => match[0]);
+  assert.match(options[0], /disabled/);
+  assert.match(options[0], /Sin disponibilidad/);
+  assert.match(options[1], /selected/);
+  const add = html.match(/<button[^>]*aria-label="Agregar Cheese al carrito"[^>]*>/)?.[0];
+  assert.ok(add);
+  assert.doesNotMatch(add, /\sdisabled(?:[=\s>])/);
+});

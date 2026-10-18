@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 const CATEGORIES = ['Todas', 'Nuestras Burgers', 'Monufusión', 'Opciones Individuales', 'Combos', 'Acompañamientos', 'Bebidas', 'Dips Extra'];
 
 function ProductCard({ product, addToCart }) {
-  const [selectedVariantIndex, setSelectedVariantIndex] = useState(0);
+  const [selectedVariantIndex, setSelectedVariantIndex] = useState(() => Math.max(0, product.variants?.findIndex((variant) => variant.available !== false) ?? 0));
   const [removedIngredients, setRemovedIngredients] = useState([]);
   const optionsRef = useRef(null);
   const removableIngredients = product.removableIngredients || [];
@@ -16,8 +16,10 @@ function ProductCard({ product, addToCart }) {
     .map((name) => `Sin ${name}`).join(', ');
 
   const hasVariants = product.variants && product.variants.length > 0;
-  const canOrder = product.active === true && product.available === true;
-  const currentPrice = hasVariants ? product.variants[selectedVariantIndex].price : product.price;
+  const productAvailable = product.active === true && product.available === true;
+  const selectedVariant = product.variants?.[selectedVariantIndex];
+  const canOrder = productAvailable && (!hasVariants || (selectedVariant && selectedVariant.available !== false));
+  const currentPrice = hasVariants ? selectedVariant?.price : product.price;
 
   const handleAdd = () => {
     if (!canOrder) return;
@@ -76,14 +78,14 @@ function ProductCard({ product, addToCart }) {
           <div className="flex gap-2">
             {hasVariants ? (
               <select 
-                disabled={!canOrder}
+                disabled={!productAvailable}
                 value={selectedVariantIndex}
                 aria-label={`Variante de ${product.name}`}
                 onChange={(e) => setSelectedVariantIndex(parseInt(e.target.value))}
                 className="flex-1 bg-monu-cream/50 border border-monu-green/10 rounded-xl px-3 py-2 text-sm font-bold text-monu-dark focus:outline-none focus:border-monu-green"
               >
                 {product.variants.map((v, i) => (
-                  <option key={i} value={i}>{v.name} - ${v.price}</option>
+                  <option key={i} value={i} disabled={v.available === false}>{v.name} - ${v.price}{v.available === false ? ' · Sin disponibilidad' : ''}</option>
                 ))}
               </select>
             ) : null}

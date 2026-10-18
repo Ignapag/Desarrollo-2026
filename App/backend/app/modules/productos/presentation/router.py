@@ -2,14 +2,15 @@
 
 from fastapi import APIRouter, status
 
-from app.modules.productos.domain.entidades import DatosProducto, IngredienteProducto
 from app.modules.productos.presentation.dependencias import ServicioProductosDep
 from app.modules.productos.presentation.esquemas import (
     EstadoProductoEntrada,
     ProductoCrear,
     ProductoSalida,
+    RecetaActualizar,
+    RecetaSalida,
 )
-from app.modules.usuarios.presentation.dependencias import AdministradorODuenio
+from app.modules.usuarios.presentation.dependencias import AdministradorODuenio, PersonalInterno
 
 router = APIRouter(prefix="/api/productos", tags=["productos"])
 
@@ -27,16 +28,27 @@ async def crear_producto(
     _sesion: AdministradorODuenio,
     servicio: ServicioProductosDep,
 ) -> ProductoSalida:
-    payload = datos.model_dump(exclude={"ingredientes"})
-    fila = await servicio.crear(
-        DatosProducto(
-            **payload,
-            ingredientes=tuple(
-                IngredienteProducto(**item.model_dump()) for item in datos.ingredientes
-            ),
-        )
-    )
+    fila = await servicio.crear(datos.a_dominio())
     return ProductoSalida(**fila)
+
+
+@router.get("/{producto_id}/receta", response_model=RecetaSalida)
+async def obtener_receta(
+    producto_id: int,
+    _sesion: PersonalInterno,
+    servicio: ServicioProductosDep,
+) -> RecetaSalida:
+    return RecetaSalida(**await servicio.obtener_receta(producto_id))
+
+
+@router.put("/{producto_id}/receta", response_model=RecetaSalida)
+async def actualizar_receta(
+    producto_id: int,
+    datos: RecetaActualizar,
+    _sesion: AdministradorODuenio,
+    servicio: ServicioProductosDep,
+) -> RecetaSalida:
+    return RecetaSalida(**await servicio.actualizar_receta(producto_id, datos.a_dominio()))
 
 
 @router.patch("/{producto_id}/estado", response_model=ProductoSalida)
@@ -46,6 +58,4 @@ async def cambiar_estado_producto(
     _sesion: AdministradorODuenio,
     servicio: ServicioProductosDep,
 ) -> ProductoSalida:
-    return ProductoSalida(
-        **await servicio.cambiar_estado(producto_id, activo=datos.activo)
-    )
+    return ProductoSalida(**await servicio.cambiar_estado(producto_id, activo=datos.activo))

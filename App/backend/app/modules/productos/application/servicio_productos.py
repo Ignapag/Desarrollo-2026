@@ -5,7 +5,12 @@ from __future__ import annotations
 from typing import Protocol
 
 from app.errores import DatosInvalidos, NoEncontrado, ReglaDeNegocio
-from app.modules.productos.domain.entidades import DatosProducto, validar_producto
+from app.modules.productos.domain.entidades import (
+    CambioReceta,
+    DatosProducto,
+    validar_producto,
+    validar_recetas_variantes,
+)
 from app.modules.stock.application.servicio_stock import INGREDIENTES_QUITABLES
 
 
@@ -25,6 +30,8 @@ class RepositorioProductos(Protocol):
     async def ingredientes_validos(self, ids: list[int]) -> bool: ...
     async def crear(self, datos: DatosProducto) -> dict: ...
     async def cambiar_estado(self, producto_id: int, activo: bool) -> dict | None: ...
+    async def obtener_receta(self, producto_id: int, *, bloquear: bool = False) -> dict | None: ...
+    async def guardar_receta(self, producto_id: int, datos: CambioReceta) -> dict: ...
 
 
 class ServicioProductos:
@@ -55,3 +62,25 @@ class ServicioProductos:
         if fila is None:
             raise NoEncontrado("El producto no existe")
         return _con_personalizaciones(fila)
+
+    async def obtener_receta(self, producto_id: int) -> dict:
+        fila = await self.repo.obtener_receta(producto_id)
+        if fila is None:
+            raise NoEncontrado("El producto no existe")
+        return fila
+
+    async def actualizar_receta(self, producto_id: int, datos: CambioReceta) -> dict:
+        try:
+            validar_recetas_variantes(datos.ingredientes, datos.variantes)
+        except ValueError as exc:
+            raise DatosInvalidos(str(exc)) from exc
+        actual = await self.repo.obtener_receta(producto_id, bloquear=True)
+        if actual is None:
+            raise NoEncontrado("El producto no existe")
+        if actual["actualizado_en"] != datos.actualizado_en_esperado:
+            raise ReglaDeNegocio("La receta fue modificada; recargala antes de guardar")
+        if [v.nombre for v in datos.variantes] != [v["nombre"] for v in actual["variantes"]]:
+            raise DatosInvalidos("Deben conservarse las variantes actuales y su orden")
+        if not await self.repo.ingredientes_validos([i.ingrediente_id for i in datos.ingredientes]):
+            raise DatosInvalidos("La receta contiene ingredientes inexistentes o inactivos")
+        return await self.repo.guardar_receta(producto_id, datos)

@@ -62,6 +62,7 @@ class RepositorioBot(Protocol):
     async def cotizar_operacion(self, pedido, cambios) -> Decimal: ...
     async def refrescar_operacion(self, b) -> None: ...
     async def ingredientes(self, producto_id) -> list[dict]: ...
+    async def ingredientes_snapshot(self, receta_snapshot) -> list[dict]: ...
     async def historial(self, b, accion, anterior, posterior, estado, empleado_id=None) -> dict: ...
     async def aplicar_item(
         self, pedido, item, cantidad, aclaraciones, empleado_id=None,
@@ -204,11 +205,16 @@ class ServicioBot:
             "expira_en": b["expira_en"],
         }
 
+    async def _ingredientes_item(self, item):
+        if item.get("receta_snapshot") is not None:
+            return await self.repo.ingredientes_snapshot(item["receta_snapshot"])
+        return await self.repo.ingredientes(item["producto_id"])
+
     async def _validar_notas(self, item):
         notas = item.get("aclaraciones") or ""
         if not notas:
             return
-        receta = {f["nombre"].casefold() for f in await self.repo.ingredientes(item["producto_id"])}
+        receta = {f["nombre"].casefold() for f in await self._ingredientes_item(item)}
         canonicas = []
         for nota in notas.split(","):
             normal = nota.strip().casefold()
@@ -344,7 +350,7 @@ class ServicioBot:
                     "nombre": item.get("nombre_producto", ""),
                     "cantidad": item["cantidad"],
                     "ingredientes": [
-                        r["nombre"] for r in await self.repo.ingredientes(item["producto_id"])
+                        r["nombre"] for r in await self._ingredientes_item(item)
                     ],
                 }
             )
@@ -848,7 +854,7 @@ class ServicioBot:
                 i
                 for i in candidatos
                 if ingrediente
-                in {r["nombre"].casefold() for r in await self.repo.ingredientes(i["producto_id"])}
+                in {r["nombre"].casefold() for r in await self._ingredientes_item(i)}
             ]
         if len(candidatos) != 1:
             b["propuesta"] = {"tipo": "ACLARACION", "version": b["version"], "accion": accion}
@@ -873,7 +879,7 @@ class ServicioBot:
         else:
             ingrediente = str(args.get("ingrediente", "")).casefold()
             receta = {
-                r["nombre"].casefold() for r in await self.repo.ingredientes(item["producto_id"])
+                r["nombre"].casefold() for r in await self._ingredientes_item(item)
             }
             if ingrediente not in QUITABLES & receta:
                 return (

@@ -36,6 +36,7 @@ function mapProduct(product) {
     variants: (product.variantes || []).map((variant) => ({
       name: variant.nombre,
       price: Number(variant.precio),
+      available: variant.disponible ?? true,
     })),
     active: product.activo,
     available: product.disponible,
@@ -447,17 +448,18 @@ export function DataProvider({ children }) {
         descripcion: payload.description,
         precio_base: payload.price,
         imagen_url: payload.image,
-        ingredientes: [{
-          ingrediente_id: Number(payload.ingredientId),
-          cantidad_requerida: Number(payload.ingredientQuantity),
-          es_base: true,
-        }],
+        ingredientes: payload.ingredientes,
+        variantes: payload.variantes,
       }),
     });
     const product = mapProduct(created);
     if (userRef.current === user) dispatch({ type: 'ADD_CATALOG_ITEM', payload: product });
     return product;
   });
+
+  const updateRecipe = async (id, body) => runResourceMutation('catalog', () => apiFetch(`/api/productos/${id}/receta`, {
+    method: 'PUT', body: JSON.stringify(body),
+  }));
 
   const deactivateProduct = async (id) => runResourceMutation('catalog', async () => {
     await apiFetch(`/api/productos/${id}/estado`, {
@@ -533,6 +535,7 @@ export function DataProvider({ children }) {
       loading,
       refreshData,
       createProduct,
+      updateRecipe,
       deactivateProduct,
       changeOrderStatus,
       placeOrder,

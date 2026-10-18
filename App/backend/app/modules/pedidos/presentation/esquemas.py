@@ -69,6 +69,7 @@ class ItemPedidoSalida(BaseModel):
     costo_opciones: Decimal
     subtotal: Decimal
     aclaraciones: str | None
+    variante: str | None = None
 
 
 class PedidoSalida(BaseModel):

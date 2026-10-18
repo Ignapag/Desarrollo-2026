@@ -4,7 +4,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.errores import DatosInvalidos
+from app.errores import DatosInvalidos, ReglaDeNegocio
 from app.modules.pedidos.application.servicio_pedidos import (
     ItemNuevoPedido,
     ServicioPedidos,
@@ -14,6 +14,7 @@ from app.modules.pedidos.application.servicio_pedidos import (
 class RepoPedidosFalso:
     def __init__(self) -> None:
         self.items_creados: list[dict] = []
+        self.triple_disponible = True
 
     async def cliente_valido(self, cliente_id: int) -> bool:
         return cliente_id == 1
@@ -33,7 +34,8 @@ class RepoPedidosFalso:
                 "variantes": [
                     {"nombre": "Simple", "precio": Decimal("12000")},
                     {"nombre": "Doble", "precio": Decimal("14500")},
-                    {"nombre": "Triple", "precio": Decimal("16500")},
+                    {"nombre": "Triple", "precio": Decimal("16500"),
+                     "disponible": self.triple_disponible},
                 ],
                 "disponible": True,
             }
@@ -70,6 +72,7 @@ async def test_variante_define_precio_y_nombre_del_snapshot():
             "cantidad": 2,
             "precio_unitario": Decimal("16500"),
             "aclaraciones": None,
+            "variante": "Triple",
         }
     ]
 
@@ -87,3 +90,16 @@ async def test_rechaza_una_variante_que_no_existe():
             observaciones=None,
             items=[ItemNuevoPedido(10, 1, variante="Cuadruple")],
         )
+
+
+@pytest.mark.asyncio
+async def test_variante_sin_stock_no_se_vende_aunque_otra_este_disponible():
+    repo = RepoPedidosFalso()
+    repo.triple_disponible = False
+    with pytest.raises(ReglaDeNegocio, match="sin stock"):
+        await ServicioPedidos(repo, StockFalso()).crear(
+            cliente_id=1, tipo_entrega="RETIRO", direccion_id=None,
+            direccion_nueva=None, observaciones=None,
+            items=[ItemNuevoPedido(10, 1, variante="Triple")],
+        )
+    assert repo.items_creados == []

@@ -208,3 +208,39 @@ async def test_no_permite_omitir_ingredientes_estructurales(consumo):
         await servicio.procesar_consumo(
             7, [ItemConsumoStock(1, 1, ingredientes_omitidos=("carne",))])
     assert repo.movimientos == []
+
+
+@pytest.mark.asyncio
+async def test_snapshot_fraccionado_no_cambia_al_editar_receta_actual(consumo):
+    servicio, repo = consumo
+    repo.nombres[30] = "Tomate"
+    repo.productos[1] = [(10, "50"), (30, "9")]
+    movimientos = await servicio.procesar_consumo(7, [
+        ItemConsumoStock(1, 3, receta_snapshot=((10, Decimal("1")), (30, Decimal("0.25")))),
+    ])
+    assert {m["ingrediente_id"]: m["cantidad"] for m in movimientos} == {
+        10: Decimal("3"), 30: Decimal("0.75"),
+    }
+    assert repo.saldos[30] == Decimal("9.25")
+
+
+@pytest.mark.asyncio
+async def test_snapshot_doble_respeta_pan_y_omision_por_linea(consumo):
+    servicio, repo = consumo
+    repo.nombres[30] = "Tomate"
+    receta = ((10, Decimal("1")), (20, Decimal("2")), (30, Decimal("0.25")))
+    movimientos = await servicio.procesar_consumo(7, [
+        ItemConsumoStock(1, 2, ingredientes_omitidos=("tomate",), receta_snapshot=receta),
+        ItemConsumoStock(1, 1, receta_snapshot=receta),
+    ])
+    assert {m["ingrediente_id"]: m["cantidad"] for m in movimientos} == {
+        10: Decimal("3"), 20: Decimal("6"), 30: Decimal("0.25"),
+    }
+
+
+@pytest.mark.asyncio
+async def test_snapshot_vacio_no_permite_confirmar_sin_receta(consumo):
+    servicio, repo = consumo
+    with pytest.raises(ReglaDeNegocio, match="sin receta"):
+        await servicio.procesar_consumo(7, [ItemConsumoStock(1, 1, receta_snapshot=())])
+    assert repo.movimientos == []

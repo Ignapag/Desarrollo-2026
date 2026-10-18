@@ -1,9 +1,12 @@
 ﻿import { useData } from '../shared/store/DataContext';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { DataError } from '../fulfillment/operationUi';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Plus, Trash2, Check, Image as ImageIcon } from 'lucide-react';
+import RecipeEditor from './RecipeEditor';
+import RecipeModal from './RecipeModal';
+import { newRecipe, serializeRecipe } from './recipeModel';
 
 export default function Catalog() {
   const [searchParams] = useSearchParams();
@@ -16,9 +19,13 @@ export default function Catalog() {
   }, [refreshCatalog, refreshInventory]);
   const [isAdding, setIsAdding] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const [editingProduct, setEditingProduct] = useState(null);
+  const [recipe, setRecipe] = useState(newRecipe);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const [createError, setCreateError] = useState('');
   const [newItem, setNewItem] = useState({ 
     name: '', category: 'Hamburguesas', price: '', description: '', image: null,
-    ingredientId: '', ingredientQuantity: '1',
   });
 
   const categories = [...new Set(state.catalog.map(p => p.category))];
@@ -35,25 +42,34 @@ export default function Catalog() {
   };
 
   const handleAdd = async () => {
-    if (!newItem.name || !newItem.price || !newItem.ingredientId) {
-      return toast.error('Completá nombre, precio e ingrediente base');
-    }
+    if (savingRef.current) return;
+    setCreateError('');
+    if (!newItem.name.trim() || (!recipe.variants.length && !newItem.price)) return setCreateError('Completá el nombre y el precio.');
     const category = state.catalog.find((product) => product.category === newItem.category);
-    if (!category) return toast.error('Seleccioná una categoría existente');
+    if (!category) return setCreateError('Seleccioná una categoría existente');
     try {
+      const ingredients = serializeRecipe(recipe, { includePrices: true });
+      const price = ingredients.variantes[0]?.precio || newItem.price.replace(',', '.');
+      if (!/^\d{1,10}(?:\.\d{1,2})?$/.test(price) || Number(price) <= 0) throw Error('Completá un precio válido.');
+      savingRef.current = true;
+      setSaving(true);
       await createProduct({
         ...newItem,
+        ...ingredients,
         categoryId: category.categoryId,
-        price: Number(newItem.price),
+        price,
       });
       toast.success('Producto agregado', { description: newItem.name });
       setNewItem({
         name: '', category: categories[0] || '', price: '', description: '', image: null,
-        ingredientId: '', ingredientQuantity: '1',
       });
+      setRecipe(newRecipe());
       setIsAdding(false);
     } catch (error) {
-      toast.error('No se pudo agregar el producto', { description: error.message });
+      setCreateError(error.message);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
   };
 
@@ -87,20 +103,21 @@ export default function Catalog() {
       {isAdding && (
         <div className="bg-white p-5 rounded-2xl shadow-sm border border-monu-green/10 mb-6 flex flex-col gap-4">
           <h3 className="font-extrabold text-lg border-b pb-2">Agregar nuevo producto</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <fieldset disabled={saving} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <div>
-              <label className="block text-xs font-bold text-gray-500 mb-1">Nombre</label>
-              <input type="text" value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} className="w-full border rounded-lg px-3 py-2 font-bold focus:outline-monu-green" placeholder="Ej: Super Burger" />
+              <label htmlFor="new-product-name" className="block text-xs font-bold text-gray-500 mb-1">Nombre</label>
+              <input id="new-product-name" type="text" value={newItem.name} disabled={saving} onChange={e => setNewItem({...newItem, name: e.target.value})} className="min-h-11 w-full border rounded-lg px-3 py-2 font-bold focus:outline-monu-green" placeholder="Ej: Super Burger" />
             </div>
             <div>
-              <label className="block text-xs font-bold text-gray-500 mb-1">Categoría</label>
-              <select value={newItem.category} onChange={e => setNewItem({...newItem, category: e.target.value})} className="w-full border rounded-lg px-3 py-2 font-bold focus:outline-monu-green">
+              <label htmlFor="new-product-category" className="block text-xs font-bold text-gray-500 mb-1">Categoría</label>
+              <select id="new-product-category" value={newItem.category} onChange={e => setNewItem({...newItem, category: e.target.value})} className="min-h-11 w-full border rounded-lg px-3 py-2 font-bold focus:outline-monu-green">
                 {categories.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-xs font-bold text-gray-500 mb-1">Precio Base ($)</label>
-              <input type="number" value={newItem.price} onChange={e => setNewItem({...newItem, price: e.target.value})} className="w-full border rounded-lg px-3 py-2 font-bold focus:outline-monu-green" placeholder="10000" />
+              <label htmlFor="new-product-price" className="block text-xs font-bold text-gray-500 mb-1">Precio base ($)</label>
+              <input id="new-product-price" inputMode="decimal" value={newItem.price} disabled={saving || recipe.variants.length > 0} onChange={e => setNewItem({...newItem, price: e.target.value})} className="min-h-11 w-full border rounded-lg px-3 py-2 font-bold focus:outline-monu-green" placeholder="10000" />
+              {recipe.variants.length > 0 && <p className="mt-1 text-xs text-monu-text">Se usa el precio de la primera variante.</p>}
             </div>
             <div>
               <label className="block text-xs font-bold text-gray-500 mb-1">Foto</label>
@@ -111,24 +128,15 @@ export default function Catalog() {
               </label>
             </div>
             <div className="md:col-span-2 lg:col-span-4">
-              <label className="block text-xs font-bold text-gray-500 mb-1">Ingredientes / Descripción</label>
-              <input type="text" value={newItem.description} onChange={e => setNewItem({...newItem, description: e.target.value})} className="w-full border rounded-lg px-3 py-2 font-bold focus:outline-monu-green" placeholder="Ej: Carne, cheddar, bacon y salsa monu." />
+              <label htmlFor="new-product-description" className="block text-xs font-bold text-gray-500 mb-1">Descripción del menú</label>
+              <input id="new-product-description" type="text" value={newItem.description} onChange={e => setNewItem({...newItem, description: e.target.value})} className="min-h-11 w-full border rounded-lg px-3 py-2 font-bold focus:outline-monu-green" placeholder="Ej: Carne, cheddar, bacon y salsa monu." />
             </div>
-            <div className="md:col-span-2">
-              <label className="block text-xs font-bold text-gray-500 mb-1">Ingrediente base</label>
-              <select value={newItem.ingredientId} onChange={e => setNewItem({...newItem, ingredientId: e.target.value})} className="w-full border rounded-lg px-3 py-2 font-bold focus:outline-monu-green">
-                <option value="">Seleccioná un ingrediente...</option>
-                {state.inventory.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-              </select>
-            </div>
-            <div className="md:col-span-2">
-              <label className="block text-xs font-bold text-gray-500 mb-1">Cantidad por unidad</label>
-              <input type="number" min="0.001" step="0.001" value={newItem.ingredientQuantity} onChange={e => setNewItem({...newItem, ingredientQuantity: e.target.value})} className="w-full border rounded-lg px-3 py-2 font-bold focus:outline-monu-green" />
-            </div>
-          </div>
+          </fieldset>
+          <RecipeEditor value={recipe} onChange={setRecipe} inventory={state.inventory} disabled={saving} basePrice={newItem.price} />
+          <DataError message={createError} />
           <div className="flex justify-end gap-2 mt-2 border-t pt-4">
-            <button onClick={() => setIsAdding(false)} className="px-4 py-2 text-gray-500 font-bold hover:bg-gray-100 rounded-lg">Cancelar</button>
-            <button onClick={handleAdd} className="px-4 py-2 bg-monu-green text-white font-bold rounded-lg hover:bg-[#002b22] flex items-center gap-2">
+            <button disabled={saving} onClick={() => setIsAdding(false)} className="min-h-11 px-4 py-2 text-gray-500 font-bold hover:bg-gray-100 rounded-lg">Cancelar</button>
+            <button disabled={saving} aria-busy={saving} onClick={handleAdd} className="min-h-11 px-4 py-2 bg-monu-green text-white font-bold rounded-lg hover:bg-[#002b22] flex items-center gap-2 disabled:opacity-60">
               <Check className="w-4 h-4" /> Guardar Producto
             </button>
           </div>
@@ -168,6 +176,7 @@ export default function Catalog() {
                   ${product.price ? product.price.toLocaleString('es-AR') : product.variants?.[0]?.price?.toLocaleString('es-AR')}
                 </td>
                 <td className="p-4 text-right">
+                  <button onClick={() => setEditingProduct(product)} className="min-h-11 rounded-lg border border-monu-green/20 px-3 py-2 font-bold text-monu-green hover:bg-monu-cream focus-visible:ring-2 focus-visible:ring-monu-green" aria-label={`Editar receta de ${product.name}`}>Receta</button>
                   {deletingId === product.id ? (
                     <div className="flex flex-col gap-1 items-end">
                       <span className="text-xs font-bold text-red-500">¿Seguro?</span>
@@ -187,6 +196,7 @@ export default function Catalog() {
           </tbody>
         </table>
       </div>
+      {editingProduct && <RecipeModal key={editingProduct.id} product={editingProduct} onClose={() => setEditingProduct(null)} />}
     </div>
   );
 }
