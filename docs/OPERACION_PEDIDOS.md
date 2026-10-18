@@ -28,6 +28,11 @@ se cierra al aceptar el clic. La operación continúa en el provider de la sesi�
 incluso al cambiar de sección; no se aborta al desmontar el formulario. El pedido
 conserva su estado confirmado hasta recibir la respuesta de la API. Una operación
 pendiente impide otra sobre la misma compra, sin bloquear las demás.
+La confirmación del ingreso de una transferencia mantiene el detalle abierto:
+actualiza el pago y habilita enviar a cocina con la respuesta confirmada, sin
+una consulta adicional. Esto incluye transferencias nuevas y cobros pendientes
+de conciliación. Si falla, el detalle conserva el error y el intento financiero;
+se debe actualizar antes de reintentar con el mismo UUID.
 En Cocina, marcar listo retira la tarjeta de la lista de trabajo inmediatamente;
 si falla, reaparece con sus datos anteriores y queda un aviso para revisar.
 

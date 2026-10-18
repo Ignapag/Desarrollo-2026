@@ -174,6 +174,70 @@ test('una transferencia de la sesión anterior no inicia otra llamada con la ses
   assert.equal(calls, 1);
 });
 
+for (const existing of [false, true]) {
+  test(`confirmar transferencia ${existing ? 'pendiente' : 'nueva'} conserva el detalle y habilita cocina al confirmarse`, async (t) => {
+    const writing = deferred();
+    const transfer = { ...order, metodo_pago_acordado: 'TRANSFERENCIA', pagos: existing ? [{ id: 55, tipo: 'COBRO', estado: 'PENDIENTE', metodo_pago: 'TRANSFERENCIA', monto: '12000' }] : [] };
+    const paid = { ...transfer, version: 4, saldo_pendiente: '0', neto_cobrado: '12000', pagos: [{ id: 55, tipo: 'COBRO', estado: 'CONCILIADO', metodo_pago: 'TRANSFERENCIA', monto: '12000' }] };
+    let posts = 0;
+    let reads = 0;
+    let closed = 0;
+    const recordClose = () => { closed += 1; };
+    globalThis.fetch = async (path, options = {}) => {
+      if (options.method === 'POST') { posts += 1; return writing.promise; }
+      if (options.method === 'PATCH') return response({ ...paid, estado: 'EN_PREPARACION', version: 5 });
+      if (path === '/api/pedidos/17') { reads += 1; return response(transfer); }
+      return response([transfer]);
+    };
+    function Screen() { const [open, setOpen] = useState(true); return open ? createElement(OrderDetail, { id: 17, onClose: () => { recordClose(); setOpen(false); } }) : null; }
+    const container = await mount(t, createElement(Screen));
+    const readsBefore = reads;
+    const confirm = elements(container, (node) => node.localName === 'button' && node.textContent.startsWith('Confirmar ingreso de'))[0];
+    assert.ok(confirm);
+    await act(async () => {
+      if (existing) reactProps(confirm).onClick();
+      else void reactProps(elements(container, (node) => node.localName === 'form')[0]).onSubmit({ preventDefault() {} });
+    });
+    assert.equal(closed, 0);
+    assert.equal(elements(container, (node) => node.localName === 'dialog').length, 1);
+    assert.equal(reactProps(confirm).disabled, true);
+    await act(async () => { writing.resolve(response({ id: 55, estado: 'CONCILIADO', pedido: paid })); });
+    assert.match(container.textContent, /Pagado/);
+    assert.equal(closed, 0);
+    assert.equal(reads, readsBefore, 'La respuesta confirmada actualiza el detalle sin otro GET');
+    assert.equal(posts, 1);
+    assert.equal(reactProps(button(container, 'Enviar a cocina')).disabled, false);
+    await act(async () => reactProps(button(container, 'Enviar a cocina')).onClick());
+    assert.equal(closed, 1);
+  });
+}
+
+test('un fallo de transferencia deja el detalle abierto y conserva el intento para reintentar', async (t) => {
+  const transfer = { ...order, metodo_pago_acordado: 'TRANSFERENCIA' };
+  const bodies = [];
+  globalThis.fetch = async (path, options = {}) => {
+    if (options.method === 'POST') {
+      bodies.push(options.body);
+      if (bodies.length === 1) throw Error('Respuesta perdida');
+      return response({ id: 55, estado: 'CONCILIADO', pedido: { ...transfer, version: 4, neto_cobrado: '12000', saldo_pendiente: '0' } });
+    }
+    return response(path === '/api/pedidos/17' ? transfer : [transfer]);
+  };
+  let closed = 0;
+  const container = await mount(t, createElement(OrderDetail, { id: 17, onClose: () => { closed += 1; } }));
+  const submit = async () => { await act(async () => { void reactProps(elements(container, (node) => node.localName === 'form')[0]).onSubmit({ preventDefault() {} }); }); };
+  await submit();
+  assert.equal(closed, 0);
+  assert.match(container.textContent, /Respuesta perdida/);
+  assert.equal(reactProps(button(container, 'Reintentar operación guardada')).disabled, true);
+  await act(async () => { await reactProps(button(container, 'Actualizar detalle')).onClick(); });
+  assert.equal(reactProps(button(container, 'Reintentar operación guardada')).disabled, false);
+  await submit();
+  assert.equal(closed, 0);
+  assert.equal(bodies[1], bodies[0]);
+  assert.match(container.textContent, /Pagado/);
+});
+
 test('una respuesta antigua no borra el UUID al volver a entrar con la misma cuenta', async (t) => {
   const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage');
   const storage = new Map();

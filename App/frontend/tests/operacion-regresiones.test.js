@@ -394,7 +394,9 @@ test('confirmar transferencia habilita cocina con el pedido devuelto por el cobr
   const container = await mount(t, Screen, {}, true);
   assert.equal(reactProps(button(container, 'Enviar a cocina')).disabled, true);
   await act(async () => { void reactProps(elements(container, (node) => node.localName === 'form')[0]).onSubmit({ preventDefault() {} }); });
-  assert.equal(closed, 1);
+  assert.equal(closed, 0);
+  assert.equal(elements(container, (node) => node.localName === 'dialog')[0].open, true);
+  assert.equal(reactProps(button(container, 'Enviar a cocina')).disabled, false);
   assert.equal(Number(data.state.orders[0].saldo_pendiente), 0);
   assert.equal(payments, 1);
   assert.equal(details, 1);

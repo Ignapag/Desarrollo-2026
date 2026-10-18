@@ -64,7 +64,7 @@ export default function OrderPayments({ order, userId, commands, run, busy }) {
       setPending(null);
       setConfirmRefund(false);
       return result;
-    }, 'Pago actualizado.');
+    }, 'Pago actualizado.', { keepOpen: attempt.current.kind === 'transferencia' });
   };
   const submit = async (event) => {
     event.preventDefault();
@@ -99,5 +99,5 @@ export default function OrderPayments({ order, userId, commands, run, busy }) {
 }
 
 function Reconcile({ payment, commands, run, busy }) {
-  return <button type="button" disabled={busy} onClick={() => { if (!busy) void run(() => commands.reconcile(payment.id), 'Ingreso registrado.'); }} className={`${buttonClass} w-full bg-monu-green text-white`}>Confirmar ingreso de {money(payment.monto)}</button>;
+  return <button type="button" disabled={busy} onClick={() => { if (!busy) void run(() => commands.reconcile(payment.id), 'Ingreso registrado.', { keepOpen: payment.metodo_pago === 'TRANSFERENCIA' }); }} className={`${buttonClass} w-full bg-monu-green text-white`}>Confirmar ingreso de {money(payment.monto)}</button>;
 }
