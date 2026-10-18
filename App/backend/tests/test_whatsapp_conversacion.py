@@ -41,7 +41,7 @@ async def test_elegir_un_pedido_mantiene_el_contexto_en_los_mensajes_siguientes(
     assert await cantidad(uow, a) == 2 and await cantidad(uow, b) == 1
 
 
-async def test_datos_no_soportados_no_responden_solo_con_un_resumen(uow, worker):
+async def test_direccion_elegible_se_actualiza_sin_derivar_ni_recrear_pedido(uow, worker):
     s = construir_servicio(uow)
     _, pid = await nuevo_pedido(uow, worker, s, "direccion")
     antes = await uow.valor("SELECT direccion_id FROM pedido WHERE id=%s", (pid,))
@@ -50,11 +50,11 @@ async def test_datos_no_soportados_no_responden_solo_con_un_resumen(uow, worker)
     )
     await worker.procesar_entrada("direccion-nueva")
     respuesta = await uow.valor("SELECT respuesta FROM whatsapp_entrada WHERE id='direccion-nueva'")
-    assert "empleado" in respuesta
-    assert await uow.valor("SELECT direccion_id FROM pedido WHERE id=%s", (pid,)) == antes
+    assert "Cambio guardado" in respuesta
+    assert await uow.valor("SELECT direccion_id FROM pedido WHERE id=%s", (pid,)) != antes
     assert await uow.valor(
         "SELECT count(*) FROM whatsapp_atencion WHERE entrada_id='direccion-nueva'"
-    ) == 1
+    ) == 0
 
 
 @pytest.mark.parametrize("eleccion", ["el último", "1", "el primero"])

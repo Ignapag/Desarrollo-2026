@@ -182,6 +182,12 @@ async def test_total_nuevo_requiere_confirmacion_y_revalida_preparacion(uow):
     await s.pedidos.cambiar_estado(pid, EstadoPedido.EN_PREPARACION, usuario_id=None)
     await s.recibir("confirma", "5492215550000", "confirmar")
     respuesta = await s.procesar("confirma", {"accion": "confirmar", "argumentos": {}})
+    assert "cambió" in respuesta
+    # Se necesita una propuesta nueva con el estado vigente antes de pedir revisión.
+    await s.recibir("cantidad-vigente", "5492215550000", "cantidad 2")
+    await s.procesar("cantidad-vigente", {"accion": "cantidad", "argumentos": {"cantidad": 2}})
+    await s.recibir("confirma-vigente", "5492215550000", "confirmar")
+    respuesta = await s.procesar("confirma-vigente", {"accion": "confirmar", "argumentos": {}})
     assert "aprobación de un empleado" in respuesta
     assert await uow.valor("SELECT cantidad FROM pedido_item WHERE pedido_id=%s", (pid,)) == 1
 
@@ -224,7 +230,8 @@ async def test_comprobante_aprobado_una_sola_vez_y_notificacion_estado(uow):
     await s.pedidos.cambiar_estado(pid, EstadoPedido.EN_PREPARACION, usuario_id=empleado)
     assert (
         await uow.valor(
-            "SELECT count(*) FROM whatsapp_salida WHERE clave=%s", (f"estado:{pid}:EN_PREPARACION",)
+            "SELECT count(*) FROM whatsapp_salida WHERE clave=%s",
+            (f"estado:{pid}:v{(await s.repo.pedido(pid))['version']}",),
         )
         == 1
     )

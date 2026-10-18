@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     jwt_exp_minutos: int = 480  # 8 horas: una jornada de trabajo
     cookie_sesion: str = "monu_session"
 
-    # --- Billeteras virtuales / Mercado Pago --------------------------
+    # Configuracion historica inactiva de Mercado Pago; solo compatibilidad legacy.
     mp_access_token: str | None = None
     mp_webhook_secret: str | None = None
     mp_url_notificacion: str = "https://api.monuburger.local/api/pagos/webhook/mercadopago"
@@ -66,7 +66,7 @@ class Settings(BaseSettings):
     ] = Field(default_factory=list)
     whatsapp_transferencia_datos: str = ""
     gemini_api_key: str = ""
-    gemini_modelo: str = "gemini-3.1-flash-lite"
+    gemini_modelo: str = "gemini-3.5-flash-lite"
     gemini_modo: Literal["simulado", "real"] = "simulado"
 
     @field_validator("debug", mode="before")

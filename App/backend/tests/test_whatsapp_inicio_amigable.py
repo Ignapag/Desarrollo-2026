@@ -188,11 +188,15 @@ async def test_aviso_estado_es_amigable_y_sigue_siendo_unico(uow, momento, tipo)
     pedido_id = (await fila(uow, b))["pedido_id"]
     # La prueba aísla las notificaciones del trigger para una compra válida.
     for estado, emoji in [("EN_PREPARACION", "👨‍🍳"), ("LISTO", "🍔"), ("EN_CAMINO", "🛵")]:
-        for _ in range(2):
-            await uow.ejecutar("UPDATE pedido SET estado=%s WHERE id=%s", (estado, pedido_id))
+        await uow.ejecutar(
+            "UPDATE pedido SET estado=%s,version=version+1 WHERE id=%s", (estado, pedido_id)
+        )
+        # Repetir la misma escritura no crea un nuevo evento.
+        await uow.ejecutar("UPDATE pedido SET estado=%s WHERE id=%s", (estado, pedido_id))
+        version = await uow.valor("SELECT version FROM pedido WHERE id=%s", (pedido_id,))
         salidas = await uow.todos(
             "SELECT texto FROM whatsapp_salida WHERE clave=%s",
-            (f"estado:{pedido_id}:{estado}",),
+            (f"estado:{pedido_id}:v{version}",),
         )
         assert len(salidas) == 1
         assert estado not in salidas[0]["texto"]

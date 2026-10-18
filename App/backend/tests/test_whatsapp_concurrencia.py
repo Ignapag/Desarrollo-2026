@@ -214,6 +214,7 @@ async def worker_independiente(conexiones_locales, monkeypatch):
         await uow.ejecutar("DELETE FROM whatsapp_entrada WHERE telefono=%s", (telefono,))
         await uow.ejecutar("DELETE FROM whatsapp_borrador WHERE telefono=%s", (telefono,))
         await uow.ejecutar("DELETE FROM movimiento_stock WHERE pedido_id = ANY(%s)", (pedidos,))
+        await uow.ejecutar("DELETE FROM pago WHERE pedido_id = ANY(%s)", (pedidos,))
         await uow.ejecutar("DELETE FROM pedido WHERE id = ANY(%s)", (pedidos,))
         await conn1.commit()
 
@@ -318,6 +319,141 @@ async def test_contexto_desactualizado_del_mismo_pedido_se_reinterpreta(worker_i
         "SELECT cantidad,aclaraciones FROM pedido_item WHERE pedido_id=%s", (pedido_a,)
     )
     assert item == {"cantidad": 2, "aclaraciones": "Sin Tomate"}
+
+
+@pytest.mark.parametrize("cambio", ["manual", "asignacion", "devolucion"])
+async def test_proveedor_lento_revalida_operacion_y_fondos(worker_independiente, cambio):
+    from app.modules.pagos.presentation.dependencias import obtener_servicio_conciliacion
+
+    telefono, interpretador, abiertas, conn1, conn2 = worker_independiente
+    uow1, uow2 = UnidadDeTrabajo(conn1), UnidadDeTrabajo(conn2)
+    s = construir_servicio(uow1)
+    b = await borrador_listo(uow1, telefono)
+    pid = await vincular(uow1, telefono, f"{telefono}-inicio", b["mensaje"])
+    actor = await uow1.valor("SELECT id FROM usuario WHERE rol='ADMINISTRADOR' LIMIT 1")
+    if cambio == "asignacion":
+        await s.pedidos.editar_operacion(pid, cambios={
+            "tipo_entrega": "DELIVERY", "direccion_nueva": {
+                "calle": "Calle Prueba", "numero": "77", "localidad": "Ensenada",
+            },
+        }, usuario_id=actor, motivo="Preparar reparto", version_esperada=1)
+    if cambio == "devolucion":
+        await uow1.ejecutar(
+            "INSERT INTO pago(pedido_id,tipo,metodo_pago,monto,estado,registrado_por) "
+            "VALUES (%s,'COBRO','EFECTIVO',100,'CONCILIADO',%s)", (pid, actor),
+        )
+    interpretador.accion = {"accion": "datos", "argumentos": {"metodo_pago": "transferencia"}}
+    await s.recibir(f"{telefono}-operativo", telefono, "pagar por transferencia")
+    await conn1.commit()
+    tarea = None
+    try:
+        async with asyncio.timeout(15):
+            tarea = asyncio.create_task(procesamiento.procesar_entrada(f"{telefono}-operativo"))
+            await interpretador.interpretando.wait()
+            assert abiertas and all(conn.closed for conn in abiertas)
+            async with conn2.transaction():
+                if cambio == "manual":
+                    pedido = await construir_servicio(uow2).repo.pedido(pid)
+                    await construir_servicio(uow2).pedidos.editar_operacion(pid, cambios={
+                        "observaciones": "Cambio manual mientras responde IA",
+                    }, usuario_id=actor, motivo="Corrección manual",
+                        version_esperada=pedido["version"])
+                elif cambio == "asignacion":
+                    await uow2.uno("SELECT id FROM pedido WHERE id=%s FOR UPDATE", (pid,))
+                    await uow2.ejecutar(
+                        "INSERT INTO envio(pedido_id,estado) VALUES (%s,'ASIGNADO')", (pid,),
+                    )
+                else:
+                    await obtener_servicio_conciliacion(uow2).registrar_devolucion(
+                        pedido_id=pid, monto=100, motivo="Devolución durante interpretación",
+                        registrado_por=actor,
+                    )
+            interpretador.continuar.set()
+            await tarea
+        assert len(interpretador.contextos) == 2
+        assert interpretador.contextos[0]["operacion"] != interpretador.contextos[1]["operacion"]
+        pedido = await s.repo.pedido(pid)
+        if cambio == "asignacion":
+            assert pedido["metodo_pago_acordado"] == "EFECTIVO"
+            assert await uow1.valor(
+                "SELECT count(*) FROM whatsapp_atencion WHERE referencia_hash=%s "
+                "AND estado='PENDIENTE'",
+                (hash_referencia(b["referencia"][3:]),),
+            ) == 1
+        else:
+            assert pedido["metodo_pago_acordado"] == "TRANSFERENCIA"
+            if cambio == "devolucion":
+                assert pedido["pagado"] == 0
+    finally:
+        interpretador.continuar.set()
+        if tarea and not tarea.done():
+            tarea.cancel()
+            await asyncio.gather(tarea, return_exceptions=True)
+
+
+async def test_foto_de_asignacion_es_posterior_a_esperar_bloqueo(worker_independiente):
+    telefono, _, _, conn1, conn2 = worker_independiente
+    uow1, uow2 = UnidadDeTrabajo(conn1), UnidadDeTrabajo(conn2)
+    b = await borrador_listo(uow1, telefono)
+    pid = await vincular(uow1, telefono, f"{telefono}-inicio", b["mensaje"])
+    await conn1.commit()
+    await uow1.uno("SELECT id FROM pedido WHERE id=%s FOR UPDATE", (pid,))
+    await uow1.ejecutar("INSERT INTO envio(pedido_id,estado) VALUES (%s,'ASIGNADO')", (pid,))
+    tarea = asyncio.create_task(construir_servicio(uow2).repo.pedido(pid))
+    try:
+        async with asyncio.timeout(10):
+            while not tarea.done():
+                if await uow1.valor(
+                    "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE pid=%s AND NOT granted)",
+                    (conn2.info.backend_pid,),
+                ):
+                    break
+            assert not tarea.done()
+            await conn1.commit()
+            foto = await tarea
+        assert foto["asignado"] and foto["estado_envio"] == "ASIGNADO"
+    finally:
+        if not tarea.done():
+            tarea.cancel()
+            await asyncio.gather(tarea, return_exceptions=True)
+
+
+async def test_edicion_manual_y_bot_respetan_mismo_orden_de_bloqueos(worker_independiente):
+    telefono, _, _, conn1, conn2 = worker_independiente
+    uow1, uow2 = UnidadDeTrabajo(conn1), UnidadDeTrabajo(conn2)
+    s = construir_servicio(uow1)
+    b = await borrador_listo(uow1, telefono)
+    pid = await vincular(uow1, telefono, f"{telefono}-inicio", b["mensaje"])
+    mid = f"{telefono}-datos"
+    await s.recibir(mid, telefono, "pagar por transferencia")
+    preparado = await s.preparar(mid)
+    await conn1.commit()
+    await uow1.uno("SELECT id FROM pedido WHERE id=%s FOR UPDATE", (pid,))
+    tarea = asyncio.create_task(construir_servicio(uow2).procesar(mid, {
+        "accion": "datos", "argumentos": {"metodo_pago": "transferencia"},
+    }, preparado["vinculo"]))
+    try:
+        async with asyncio.timeout(10):
+            while not tarea.done():
+                if await uow1.valor(
+                    "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE pid=%s AND NOT granted)",
+                    (conn2.info.backend_pid,),
+                ):
+                    break
+            assert not tarea.done()
+            await s.pedidos.editar_operacion(pid, cambios={"observaciones": "Editado por personal"},
+                usuario_id=None, motivo="Corrección manual", version_esperada=1)
+            await conn1.commit()
+            respuesta = await tarea
+            await conn2.commit()
+        assert "cambió" in respuesta
+        pedido = await s.repo.pedido(pid)
+        assert pedido["observaciones"] == "Editado por personal"
+        assert pedido["metodo_pago_acordado"] == "EFECTIVO"
+    finally:
+        if not tarea.done():
+            tarea.cancel()
+        await asyncio.gather(tarea, return_exceptions=True)
 
 
 @pytest.mark.parametrize(
