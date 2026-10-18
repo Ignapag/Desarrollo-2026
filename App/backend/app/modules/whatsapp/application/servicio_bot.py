@@ -29,8 +29,6 @@ from app.modules.whatsapp.domain.mensajes import (
     es_saludo_borrador,
     hash_referencia,
     huella_inicio,
-    numeros_pedido_en,
-    referencias_en,
     resumen,
     sin_referencias,
     sin_selector_pedido,
@@ -76,6 +74,7 @@ class RepositorioBot(Protocol):
     async def actualizar_borrador(self, b) -> None: ...
     async def encolar(self, clave, telefono, texto) -> None: ...
     async def derivar(self, referencia_hash, entrada_id, motivo) -> None: ...
+    async def derivar_general(self, entrada_id, motivo) -> None: ...
     async def atencion_pendiente(self, referencia_hash) -> bool: ...
     async def atencion(self, atencion_id, bloquear=False) -> dict | None: ...
     async def respuesta_atencion(self, clave) -> dict | None: ...
@@ -260,6 +259,7 @@ class ServicioBot:
             # Sin conversación la respuesta es fija: el mensaje no se envía al proveedor.
             "interpretar": (
                 b is not None and not await self.repo.atencion_humana(b["referencia_hash"])
+                and not self._solicita_personal(texto)
                 and await self._requiere_interpretacion(entrada, texto, b)
             ),
             "contexto": contexto,
@@ -289,6 +289,36 @@ class ServicioBot:
 
     async def _conversacion(self, entrada, bloquear=False):
         return await resolver_conversacion(self.repo, entrada, bloquear)
+
+    @staticmethod
+    def _vencido(b):
+        return b is not None and not b["pedido_id"] and b["expira_en"] <= datetime.now(UTC)
+
+    @staticmethod
+    def _solicita_personal(texto):
+        texto = texto.casefold().strip(" .!¡?¿")
+        persona = r"(?:emplead[oa]|persona|human[oa]|encargad[oa]|asesor[a]?)"
+        if re.fullmatch(r"(?:(?:un|una|el|la)\s+)?" + persona, texto):
+            return True
+        return bool(
+            re.search(r"\b" + persona + r"\b", texto)
+            and re.search(
+                r"\b(?:quiero|necesito|hablar|comunicarme|contactar|atienda|atenci[oó]n)\b", texto
+            )
+            and not re.search(r"\bno\s+(?:quiero|necesito|deseo)\b", texto)
+        )
+
+    async def _registrar_general(self, entrada, motivo):
+        # El destino sale del remitente verificado, nunca de datos del carrito o la IA.
+        await self.repo.derivar_general(entrada["id"], motivo)
+        respuesta = (
+            "📎 ¡Comprobante recibido! Un empleado va a revisarlo y te responderá por acá. "
+            "El pago todavía no está confirmado."
+            if motivo == "COMPROBANTE" else
+            "💬 Le pasamos tu solicitud a un empleado. Te responderá por acá."
+        )
+        await self.repo.finalizar(entrada, None, respuesta)
+        return respuesta
 
     async def _contexto(self, b) -> dict:
         if not b:
@@ -367,6 +397,17 @@ class ServicioBot:
             raise NoEncontrado("El mensaje no existe")
         if entrada["estado"] == "PROCESADO":
             return entrada["respuesta"]
+        solicita_personal = self._solicita_personal(entrada["texto"])
+        if entrada["media_id"] or solicita_personal:
+            # La lectura previa evita reclamar un carrito o crear un cliente sólo
+            # para recibir un adjunto o atender una consulta sin compra vigente.
+            previa, _ = await self._conversacion(entrada)
+            if entrada["media_id"] and (
+                not previa or not previa["pedido_id"] or previa["metodo_pago"] != "TRANSFERENCIA"
+            ):
+                return await self._registrar_general(entrada, "COMPROBANTE")
+            if solicita_personal and (not previa or self._vencido(previa)):
+                return await self._registrar_general(entrada, "SOLICITUD")
         b, problema = await self._conversacion(entrada, bloquear=True)
         texto = sin_selector_pedido(sin_referencias(entrada["texto"]))
         if vinculo is not None:
@@ -375,6 +416,17 @@ class ServicioBot:
                 mismo = b is not None and b["referencia_hash"] == vinculo.get("referencia_hash")
                 await self.repo.finalizar(entrada, b if mismo else None, rechazo)
                 return rechazo
+        if entrada["media_id"] and (
+            not b or not b["pedido_id"] or b["metodo_pago"] != "TRANSFERENCIA"
+            or (await self.repo.pedido(b["pedido_id"]))["estado"] in {"ENTREGADO", "CANCELADO"}
+        ):
+            return await self._registrar_general(entrada, "COMPROBANTE")
+        if (
+            b and solicita_personal and not entrada["media_id"] and not self._vencido(b)
+            and not es_comando_guiado(texto) and not await self._es_eleccion_variante(b, texto)
+        ):
+            # Pedir personal es una decisión explícita, independiente del intérprete.
+            accion = {"accion": "humano", "motivo": "SOLICITUD"}
         fallo_proveedor = accion.get("motivo") == "PROVEEDOR"
         if b and not fallo_proveedor and not entrada["media_id"]:
             await self.repo.recuperar_proveedor(b)
@@ -438,11 +490,7 @@ class ServicioBot:
                     b["version"] += 1
                 else:
                     self._marcar_pregunta(b, None)
-            respuesta = await self._operar(
-                b, texto, accion, con_referencia=bool(
-                    referencias_en(entrada["texto"]) or numeros_pedido_en(entrada["texto"])
-                )
-            )
+            respuesta = await self._operar(b, texto, accion)
         if b:
             entrada["_memoria_ia"] = resumir_turno(accion, b, QUITABLES)
         await self.repo.guardar_contexto(entrada, b)
@@ -551,8 +599,7 @@ class ServicioBot:
                 }
                 return (
                     f"💰 El nuevo total sería *{dinero(total)}*.\n"
-                    f"Respondé *confirmar para el pedido #{pedido['numero']}* "
-                    "para aplicar el cambio."
+                    "Respondé *confirmar* para aplicar el cambio."
                 )
             if propuesta and Decimal(propuesta["total"]) != total:
                 self._limpiar_solicitud(b)
@@ -739,10 +786,8 @@ class ServicioBot:
             + "\n\nTe avisamos cuando esté listo. Si necesitás cambiar algo, escribinos por acá. 💬"
         )
 
-    async def _operar(self, b, texto, accion, empleado_id=None, con_referencia=False):
+    async def _operar(self, b, texto, accion, empleado_id=None):
         pedido = await self.repo.pedido(b["pedido_id"])
-        # Con varios pedidos activos, la continuación también debe nombrar el pedido.
-        con_ref = f" para el pedido #{pedido['numero']}" if con_referencia else ""
         pendiente = b.get("propuesta")
         aclaracion = re.fullmatch(r"producto\s+(\d+)[.!]?", texto.strip(), flags=re.I)
         if (
@@ -762,7 +807,7 @@ class ServicioBot:
         nombre = accion.get("accion")
         if nombre == "confirmar":
             if texto.strip(" .!¡").casefold() not in CONFIRMACIONES:
-                return f"💬 Para aceptar el nuevo total respondé *confirmar{con_ref}*."
+                return "💬 Para aceptar el nuevo total respondé *confirmar*."
             propuesta = b.get("propuesta")
             if (
                 not propuesta
@@ -780,7 +825,7 @@ class ServicioBot:
         else:
             propuesta = None
         if nombre not in {"quitar_ingrediente", "cantidad"}:
-            return resumen(pedido) + "\n\n" + estado_pedido(pedido, incluir_numero=False)
+            return resumen(pedido) + "\n\n" + estado_pedido(pedido)
         args = accion.get("argumentos", {})
         if set(args) - {"ingrediente", "item_indice", "cantidad"}:
             return "💬 No puedo hacer ese cambio automáticamente. Pedí hablar con un empleado."
@@ -809,7 +854,7 @@ class ServicioBot:
             )
             return (
                 f"🍔 ¿Cuál producto querés modificar?\n{listado}\n"
-                f"Respondé *producto N{con_ref}*."
+                "Respondé *producto N*."
             )
         item = candidatos[0]
         cantidad = item["cantidad"]
@@ -870,7 +915,7 @@ class ServicioBot:
             }
             return (
                 f"💰 El nuevo total sería *{dinero(total)}*.\n"
-                f"Respondé *confirmar{con_ref}* para aplicar el cambio."
+                "Respondé *confirmar* para aplicar el cambio."
             )
         if propuesta and (
             Decimal(propuesta["total"]) != total
@@ -1010,7 +1055,7 @@ class ServicioBot:
                     b["estado_pago"] = "PENDIENTE"
                 respuesta += f"\n💰 Saldo pendiente: *{dinero(nuevo_total-pedido['pagado'])}*."
         else:
-            respuesta = f"💬 No pudimos aplicar el cambio del pedido #{pedido['numero']}. " + motivo
+            respuesta = "💬 No pudimos aplicar el cambio de tu pedido. " + motivo
             b["estado"] = "CREADO"
         estado = "APLICADO" if aprobar else "RECHAZADO"
         await self.repo.cerrar_cambio(cambio_id, estado, empleado_id, motivo)

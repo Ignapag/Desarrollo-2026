@@ -81,13 +81,26 @@ class ColaWhatsAppSQL:
             (proveedor_id,),
         )
 
+    async def avisos(self):
+        """Sólo cantidades pendientes; no descarga historial ni datos de clientes."""
+        return await self.uow.uno(
+            """SELECT
+            (SELECT count(*) FROM whatsapp_comprobante WHERE estado='PENDIENTE') +
+            (SELECT count(*) FROM whatsapp_atencion
+                WHERE estado='PENDIENTE' AND motivo='COMPROBANTE')
+                comprobantes_pendientes,
+            (SELECT count(*) FROM whatsapp_atencion
+                WHERE estado='PENDIENTE' AND motivo<>'COMPROBANTE')
+                atenciones_pendientes"""
+        )
+
     async def bandeja(self):
         comprobantes = await self.uow.todos(
             """SELECT c.id,c.pedido_id,p.numero,p.total,b.metodo_pago,
             c.estado,c.creado_en,c.revisado_por,c.motivo
             FROM whatsapp_comprobante c JOIN pedido p ON p.id=c.pedido_id
             JOIN whatsapp_borrador b ON b.pedido_id=p.id
-            ORDER BY c.creado_en DESC LIMIT 100"""
+            ORDER BY (c.estado='PENDIENTE') DESC,c.creado_en DESC LIMIT 100"""
         )
         cambios = await self.uow.todos(
             "SELECT * FROM whatsapp_cambio WHERE estado='PENDIENTE_EMPLEADO' ORDER BY id LIMIT 100"
@@ -106,20 +119,31 @@ class ColaWhatsAppSQL:
     async def _atenciones(self):
         """Derivaciones pendientes con lo necesario para contactar y resolver."""
         atenciones = await self.uow.todos(
-            """SELECT a.id,a.referencia_hash,a.motivo,a.estado,a.creado_en,a.entrada_id,
-            b.telefono,b.estado estado_conversacion,b.tipo_entrega,b.metodo_pago,b.items,
+            """WITH pendientes AS (
+                (SELECT * FROM whatsapp_atencion
+                 WHERE estado='PENDIENTE' AND motivo='COMPROBANTE'
+                 ORDER BY creado_en,id LIMIT 100)
+                UNION ALL
+                (SELECT * FROM whatsapp_atencion
+                 WHERE estado='PENDIENTE' AND motivo<>'COMPROBANTE'
+                 ORDER BY creado_en,id LIMIT 100)
+            )
+            SELECT a.id,a.referencia_hash,a.motivo,a.estado,a.creado_en,a.entrada_id,
+            COALESCE(a.telefono,b.telefono) telefono,
+            b.estado estado_conversacion,b.tipo_entrega,b.metodo_pago,b.items,
             b.pedido_id,b.contexto_chat,
             (b.pedido_id IS NULL AND b.expira_en<=now()) borrador_vencido,
             p.numero,p.estado estado_pedido,p.total,
-            COALESCE(NULLIF(concat_ws(' ',u.nombre,u.apellido), ''), c.nombre) cliente,
-            e.texto mensaje
-            FROM whatsapp_atencion a
-            JOIN whatsapp_borrador b ON b.referencia_hash=a.referencia_hash
+            COALESCE(NULLIF(concat_ws(' ',u.nombre,u.apellido), ''), c.nombre,
+                e.nombre_remitente) cliente,
+            e.texto mensaje,e.media_id IS NOT NULL tiene_archivo
+            FROM pendientes a
+            LEFT JOIN whatsapp_borrador b ON b.referencia_hash=a.referencia_hash
             JOIN whatsapp_entrada e ON e.id=a.entrada_id
             LEFT JOIN cliente c ON c.id=b.cliente_id
             LEFT JOIN usuario u ON u.id=c.usuario_id
             LEFT JOIN pedido p ON p.id=b.pedido_id
-            WHERE a.estado='PENDIENTE' ORDER BY a.creado_en LIMIT 100"""
+            ORDER BY a.creado_en,a.id"""
         )
         if not atenciones:
             return []
@@ -141,7 +165,7 @@ class ColaWhatsAppSQL:
             fila["id"]: fila["nombre"]
             for fila in await self.uow.todos(
                 "SELECT id,nombre FROM producto WHERE id = ANY(%s)",
-                (sorted({i["producto_id"] for a in atenciones for i in a["items"]}),),
+                (sorted({i["producto_id"] for a in atenciones for i in (a["items"] or [])}),),
             )
         }
         respuestas = await self.uow.todos(
@@ -153,7 +177,7 @@ class ColaWhatsAppSQL:
         )
         for a in atenciones:
             hash_conversacion = a.pop("referencia_hash")
-            items_borrador = a.pop("items")
+            items_borrador = a.pop("items") or []
             # El personal ve el mensaje completo; nunca la referencia de acceso.
             a["mensaje"] = ocultar_referencias(a["mensaje"])
             chat = a.pop("contexto_chat") or {}
@@ -187,6 +211,10 @@ class ColaWhatsAppSQL:
                 for m in mensajes
                 if m["referencia_hash"] == hash_conversacion
             ]
+            if hash_conversacion is None:
+                # Sin compra elegida sólo mostrar el mensaje origen, nunca buscar
+                # una compra ni su historial por el teléfono de contacto declarado.
+                a["mensajes"] = []
             if a["pedido_id"]:
                 a["productos"] = [
                     {k: i[k] for k in ("nombre", "cantidad", "aclaraciones")}

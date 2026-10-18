@@ -54,7 +54,7 @@ def pregunta_pedido(opciones):
     if len(opciones) == 1:
         lineas = ["💬 El pedido anterior ya no está activo. ¿Querés hablar de esta compra?"]
     for indice, opcion in enumerate(opciones, 1):
-        titulo = f"Pedido #{opcion['numero']}" if opcion.get("numero") else "Pedido por completar"
+        titulo = "Pedido" if opcion.get("numero") else "Pedido por completar"
         lineas.append(f"{indice}. *{titulo}* · {opcion['descripcion'][:160]}")
     lineas.append("Podés decirme «el último», «el de Cheese» o elegir una opción. 😊")
     return "\n".join(lineas)

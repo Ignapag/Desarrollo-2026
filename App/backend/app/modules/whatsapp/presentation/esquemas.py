@@ -9,6 +9,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.modules.pedidos.presentation.esquemas import DireccionPedidoEntrada, ItemPedidoEntrada
 
 
+class AvisosSalida(BaseModel):
+    comprobantes_pendientes: int = Field(ge=0)
+    atenciones_pendientes: int = Field(ge=0)
+
+
 class ContactoEntrada(BaseModel):
     """Datos comerciales declarados, sin valor de autenticación."""
 

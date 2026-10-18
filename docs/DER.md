@@ -86,7 +86,7 @@ erDiagram
     WHATSAPP_ENTRADA ||--|| WHATSAPP_COMPROBANTE : entrada_id
     PEDIDO ||--o{ WHATSAPP_COMPROBANTE : pedido_id
     USUARIO o|--o{ WHATSAPP_COMPROBANTE : revisado_por
-    WHATSAPP_BORRADOR ||--o{ WHATSAPP_ATENCION : referencia_hash
+    WHATSAPP_BORRADOR o|--o{ WHATSAPP_ATENCION : referencia_hash
     WHATSAPP_ENTRADA ||--o{ WHATSAPP_ATENCION : entrada_id
     USUARIO o|--o{ WHATSAPP_ATENCION : resuelta_por
     WHATSAPP_BORRADOR o|--o{ WHATSAPP_SESION : referencia_hash
@@ -574,6 +574,7 @@ erDiagram
         bigint resuelta_por FK
         timestamptz resuelta_en
         timestamptz creado_en
+        text telefono
     }
 ```
 
@@ -645,7 +646,7 @@ erDiagram
 | `viaje` | `repartidor_id` | `repartidor` | 1 : N | Sí |
 | `viaje` | `asignado_por` | `usuario` | 1 : N | No |
 | `whatsapp_atencion` | `resuelta_por` | `usuario` | 1 : N | No |
-| `whatsapp_atencion` | `referencia_hash` | `whatsapp_borrador` | 1 : N | Sí |
+| `whatsapp_atencion` | `referencia_hash` | `whatsapp_borrador` | 1 : N | No |
 | `whatsapp_atencion` | `entrada_id` | `whatsapp_entrada` | 1 : N | Sí |
 | `whatsapp_borrador` | `cliente_id` | `cliente` | 1 : N | No |
 | `whatsapp_borrador` | `pedido_id` | `pedido` | 1 : 1 | No |

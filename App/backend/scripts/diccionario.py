@@ -142,6 +142,10 @@ def _agregar_columna(tabla: Tabla, definicion: str) -> None:
         _agregar_restriccion(
             tabla, f"FOREIGN KEY ({columna.nombre}) REFERENCES {destino} ({atributo})"
         )
+    # Los CHECK de columna también tienen nombre implícito en PostgreSQL;
+    # registrarlos permite que una migración posterior los reemplace.
+    if check := re.search(r"(?:CONSTRAINT\s+\w+\s+)?CHECK\s*\(.+\)", definicion, re.I | re.S):
+        _agregar_restriccion(tabla, check.group())
     columna.valores = _valores_de_check(definicion, columna.nombre)
 
 

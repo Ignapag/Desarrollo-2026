@@ -1,9 +1,28 @@
-import { useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { MessageCircle, ChevronDown, RefreshCw, Download, Phone, ExternalLink } from 'lucide-react';
 import { apiFetch } from '../shared/api/http';
 import { useData } from '../shared/store/DataContext';
 
 const actionClass = 'min-h-11 px-4 py-2 rounded-xl text-sm font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-monu-green focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
+
+async function downloadReceipt(kind, id) {
+  // El cliente JSON compartido no admite respuestas binarias.
+  const base = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+  const response = await fetch(`${base}/api/whatsapp/${kind}/${id}/archivo`, { credentials: 'include' });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    const message = body?.mensaje || body?.detail;
+    throw new Error(typeof message === 'string' ? message : 'No se pudo descargar el comprobante.');
+  }
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `comprobante-${kind}-${id}`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 function describeChangeAction(action) {
   const labels = { quitar_ingrediente: 'Quitar ingrediente', cantidad: 'Cambiar cantidad' };
@@ -109,22 +128,7 @@ function ReviewCard({ record, kind, onReviewed, onReviewFailed }) {
     setDownloading(true);
     setError('');
     try {
-      // El cliente JSON compartido no admite respuestas binarias.
-      const base = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
-      const response = await fetch(`${base}/api/whatsapp/comprobantes/${record.id}/archivo`, { credentials: 'include' });
-      if (!response.ok) {
-        const body = await response.json().catch(() => null);
-        const message = body?.mensaje || body?.detail;
-        throw new Error(typeof message === 'string' ? message : 'No se pudo descargar el comprobante.');
-      }
-      const url = URL.createObjectURL(await response.blob());
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `comprobante-${record.id}`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      await downloadReceipt('comprobantes', record.id);
     } catch (failure) {
       setError(failure.message || 'No se pudo descargar el comprobante.');
     } finally {
@@ -182,6 +186,7 @@ function ReviewCard({ record, kind, onReviewed, onReviewFailed }) {
 }
 
 const reasonLabels = {
+  COMPROBANTE: 'Comprobante sin pedido vinculado. Revisá la conversación antes de registrar un pago.',
   SOLICITUD: 'El cliente pidió atención o el bot no pudo clasificar el mensaje',
   PROVEEDOR: 'Falló el intérprete automático; no se aplicaron cambios',
 };
@@ -249,6 +254,8 @@ function AttentionForm({ id, label, help, maxLength, submitLabel, busyLabel, onS
 }
 
 function AttentionCard({ record, onChanged }) {
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState('');
   const requestIdRef = useRef(newRequestId());
   const cardId = `whatsapp-atencion-${record.id}`;
   const phone = /^[0-9]{11,15}$/.test(record.telefono || '') ? record.telefono : null;
@@ -282,9 +289,16 @@ function AttentionCard({ record, onChanged }) {
       <dl className="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-[max-content_1fr]">
         <dt className="font-bold text-monu-dark">Cliente</dt><dd className="text-monu-text break-words">{record.cliente || 'Sin nombre registrado'}</dd>
         <dt className="font-bold text-monu-dark">Teléfono</dt><dd className="text-monu-text">{phone ? `+${phone}` : 'No disponible'}</dd>
-        <dt className="font-bold text-monu-dark">Estado</dt><dd className="text-monu-text">{record.pedido_id ? `Pedido ${record.estado_pedido}` : 'Borrador sin pedido operativo'}{record.total != null && ` · Total ${Number(record.total).toLocaleString('es-AR', { style: 'currency', currency: 'ARS' })}`}</dd>
+        <dt className="font-bold text-monu-dark">Estado</dt><dd className="text-monu-text">{record.pedido_id ? `Pedido ${record.estado_pedido}` : record.estado_conversacion ? 'Borrador sin pedido operativo' : 'Consulta sin compra vinculada'}{record.total != null && ` · Total ${Number(record.total).toLocaleString('es-AR', { style: 'currency', currency: 'ARS' })}`}</dd>
         <dt className="font-bold text-monu-dark">Entrega y pago</dt><dd className="text-monu-text">{record.tipo_entrega || 'Entrega sin definir'} · {record.metodo_pago || 'Pago sin definir'}</dd>
       </dl>
+      {record.tiene_archivo && record.motivo === 'COMPROBANTE' && <button type="button" disabled={downloading} className={`${actionClass} inline-flex items-center gap-2 border border-monu-green text-monu-green hover:bg-monu-green/10`} onClick={async () => {
+        if (downloading) return;
+        setDownloading(true);
+        setDownloadError('');
+        try { await downloadReceipt('atenciones', record.id); } catch (failure) { setDownloadError(failure.message); } finally { setDownloading(false); }
+      }}><Download aria-hidden="true" className="h-4 w-4" />{downloading ? 'Descargando...' : 'Descargar comprobante'}</button>}
+      {downloadError && <p role="alert" className="text-sm text-red-800">{downloadError}</p>}
       {record.borrador_vencido && <p className="p-2 rounded-lg bg-orange-50 text-orange-900 text-sm">El borrador venció: el cliente debe prepararlo nuevamente desde la web. Sus datos siguen visibles aquí.</p>}
       {record.productos?.length > 0 && (
         <ul className="text-sm text-monu-dark list-disc pl-5">
@@ -337,16 +351,21 @@ function AttentionCard({ record, onChanged }) {
   );
 }
 
-export default function WhatsAppInbox() {
+export default function WhatsAppInbox({ section, requestKey }) {
   const { refreshData } = useData();
-  const [expanded, setExpanded] = useState(false);
+  const [expansion, setExpansion] = useState({ requestKey: null, expanded: false });
+  const requestedSection = ['comprobantes', 'atenciones'].includes(section);
+  const expanded = requestedSection && expansion.requestKey !== requestKey ? true : expansion.expanded;
   const [inbox, setInbox] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [feedback, setFeedback] = useState('');
   const loadingRef = useRef(false);
+  const receiptHeading = useRef(null);
+  const attentionHeading = useRef(null);
+  const focusRequested = useRef(false);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     if (loadingRef.current) return;
     loadingRef.current = true;
     setLoading(true);
@@ -360,10 +379,26 @@ export default function WhatsAppInbox() {
       loadingRef.current = false;
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!['comprobantes', 'atenciones'].includes(section)) return;
+    focusRequested.current = true;
+    let active = true;
+    void Promise.resolve().then(() => { if (active) return load(); return undefined; }).catch(() => undefined);
+    return () => { active = false; };
+  }, [section, requestKey, load]);
+
+  useEffect(() => {
+    if (!focusRequested.current || !expanded || !inbox || loading) return;
+    const heading = section === 'comprobantes' ? receiptHeading.current : attentionHeading.current;
+    heading?.focus();
+    heading?.scrollIntoView?.({ block: 'nearest' });
+    focusRequested.current = false;
+  }, [expanded, inbox, loading, section]);
 
   const toggle = () => {
-    setExpanded(!expanded);
+    setExpansion({ requestKey, expanded: !expanded });
     if (!expanded && !inbox) void load().catch(() => undefined);
   };
 
@@ -415,9 +450,10 @@ export default function WhatsAppInbox() {
           {inbox && (
             <>
               <div className="space-y-3">
-                <h3 className="font-extrabold text-monu-dark">Comprobantes</h3>
-                {inbox.comprobantes.length === 0 && <p className="text-sm text-monu-text">No hay comprobantes recibidos.</p>}
+                <h3 ref={receiptHeading} tabIndex={-1} className="font-extrabold text-monu-dark">Comprobantes</h3>
+                {inbox.comprobantes.length === 0 && !inbox.atenciones.some((record) => record.motivo === 'COMPROBANTE') && <p className="text-sm text-monu-text">No hay comprobantes recibidos.</p>}
                 {inbox.comprobantes.map((record) => <ReviewCard key={`${record.id}:${record.estado}:${record.total}`} record={record} kind="comprobantes" onReviewed={onReviewed} onReviewFailed={onReviewFailed} />)}
+                {inbox.atenciones.filter((record) => record.motivo === 'COMPROBANTE').map((record) => <AttentionCard key={record.id} record={record} onChanged={onAttentionChanged} />)}
               </div>
               <div className="space-y-3">
                 <h3 className="font-extrabold text-monu-dark">Cambios pendientes de revisión</h3>
@@ -425,9 +461,9 @@ export default function WhatsAppInbox() {
                 {inbox.cambios.map((record) => <ReviewCard key={`${record.id}:${record.version}:${record.posterior?.total}`} record={record} kind="cambios" onReviewed={onReviewed} onReviewFailed={onReviewFailed} />)}
               </div>
               <div className="space-y-3">
-                <h3 className="font-extrabold text-monu-dark">Conversaciones que requieren atención</h3>
-                {inbox.atenciones.length === 0 && <p className="text-sm text-monu-text">No hay conversaciones derivadas al personal.</p>}
-                {inbox.atenciones.map((record) => <AttentionCard key={record.id} record={record} onChanged={onAttentionChanged} />)}
+                <h3 ref={attentionHeading} tabIndex={-1} className="font-extrabold text-monu-dark">Conversaciones que requieren atención</h3>
+                {!inbox.atenciones.some((record) => record.motivo !== 'COMPROBANTE') && <p className="text-sm text-monu-text">No hay conversaciones derivadas al personal.</p>}
+                {inbox.atenciones.filter((record) => record.motivo !== 'COMPROBANTE').map((record) => <AttentionCard key={record.id} record={record} onChanged={onAttentionChanged} />)}
               </div>
               <div className="space-y-3">
                 <h3 className="font-extrabold text-monu-dark">Estado de los mensajes de salida</h3>

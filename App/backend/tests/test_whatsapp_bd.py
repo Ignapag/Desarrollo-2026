@@ -48,7 +48,7 @@ async def test_borrador_no_crea_pedido_y_recepcion_es_unica(uow):
     pid = await pedido_borrador(uow, borrador)
     assert await uow.valor("SELECT count(*) FROM movimiento_stock WHERE pedido_id=%s", (pid,)) == 0
     respuesta = await uow.valor("SELECT respuesta FROM whatsapp_entrada WHERE id='test-inicio'")
-    assert "Total" in respuesta and "Pedido #" in respuesta
+    assert "Total" in respuesta and "Tu pedido" in respuesta and "Pedido #" not in respuesta
 
 
 @pytest.mark.asyncio
@@ -153,11 +153,13 @@ async def test_sin_tomate_se_persiste_y_cocina_lee_la_version_actual(uow):
 @pytest.mark.asyncio
 async def test_ambiguo_pregunta_y_no_modifica(uow):
     s, pid = await crear_pedido_bot(uow, dos=True)
-    await s.recibir("ambiguo", "5492215550000", "sin tomate")
+    numero = (await s.repo.pedido(pid))["numero"]
+    await s.recibir("ambiguo", "5492215550000", f"sin tomate pedido #{numero}")
     respuesta = await s.procesar(
         "ambiguo", {"accion": "quitar_ingrediente", "argumentos": {"ingrediente": "tomate"}}
     )
     assert "¿Cuál producto" in respuesta
+    assert "Respondé *producto N*" in respuesta and str(numero) not in respuesta
     assert await uow.valor("SELECT count(*) FROM whatsapp_cambio WHERE pedido_id=%s", (pid,)) == 0
     assert await uow.valor("SELECT count(*) FROM pedido_item WHERE pedido_id=%s", (pid,)) == 2
     await s.recibir("aclarar", "5492215550000", "producto 2")
@@ -168,6 +170,27 @@ async def test_ambiguo_pregunta_y_no_modifica(uow):
     )
     assert notas[0]["aclaraciones"] is None
     assert "Sin Tomate" in notas[1]["aclaraciones"]
+
+
+async def test_rechazo_de_cambio_notifica_sin_identificadores_del_pedido(uow):
+    s, pid = await crear_pedido_bot(uow)
+    numero = (await s.repo.pedido(pid))["numero"]
+    await uow.ejecutar("UPDATE pedido SET estado='EN_PREPARACION' WHERE id=%s", (pid,))
+    await s.recibir("cambio-rechazado", "5492215550000", "sin tomate")
+    await s.procesar("cambio-rechazado", {
+        "accion": "quitar_ingrediente", "argumentos": {"ingrediente": "tomate"},
+    })
+    cambio = await uow.valor("SELECT id FROM whatsapp_cambio WHERE pedido_id=%s", (pid,))
+    empleado = await uow.valor("SELECT id FROM usuario WHERE rol='ADMINISTRADOR' LIMIT 1")
+    await s.revisar_cambio(cambio, False, empleado, "La hamburguesa ya está terminada")
+    texto = await uow.valor(
+        "SELECT texto FROM whatsapp_salida WHERE clave=%s", (f"cambio-revision:{cambio}",)
+    )
+    assert "No pudimos aplicar el cambio" in texto and "ya está terminada" in texto
+    assert str(numero) not in texto and str(pid) not in texto
+    assert (
+        await uow.valor("SELECT aclaraciones FROM pedido_item WHERE pedido_id=%s", (pid,))
+    ) is None
 
 
 @pytest.mark.asyncio
@@ -271,7 +294,7 @@ async def test_opcion_obligatoria_faltante_se_pregunta_antes_de_crear(uow):
     variante = producto["variantes"][0]["nombre"]
     await s.recibir("opcion", "5492215550000", f"producto 1; variante: {variante}")
     respuesta = await s.procesar("opcion", {"accion": "humano", "argumentos": {}})
-    assert "Pedido #" in respuesta
+    assert "Tu pedido" in respuesta and "Pedido #" not in respuesta
 
 
 @pytest.mark.asyncio

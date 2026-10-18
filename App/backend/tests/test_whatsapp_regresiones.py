@@ -144,7 +144,11 @@ async def test_comprobante_con_referencia_se_asocia_al_pedido_correcto(uow, work
 
     await uow.ejecutar("DELETE FROM whatsapp_sesion WHERE telefono=%s", (TELEFONO,))
     respuesta = await enviar(uow, worker, s, "foto-sin-ref", "", "media-sin-ref")
-    assert "cuál" in respuesta.lower()
+    assert "Comprobante recibido" in respuesta
+    assert await uow.valor(
+        "SELECT count(*) FROM whatsapp_atencion WHERE entrada_id='foto-sin-ref' "
+        "AND motivo='COMPROBANTE' AND referencia_hash IS NULL"
+    ) == 1
     assert (
         await uow.valor(
             "SELECT count(*) FROM whatsapp_comprobante WHERE pedido_id = ANY(%s)", ([pid_a, pid_b],)
@@ -481,7 +485,7 @@ async def test_atencion_pendiente_impide_crear_o_modificar_hasta_resolver(uow, w
     await s.resolver_atencion((await atencion(uow, b))["id"], persona, "Atendido por teléfono")
     assert (await estado_borrador(uow, b))["estado"] == "VINCULADO"
     respuesta = await enviar(uow, worker, s, "datos-2", "retiro y efectivo")
-    assert "Pedido #" in respuesta
+    assert "Tu pedido" in respuesta and "Pedido #" not in respuesta
     assert await pedido_de(uow, b) is not None
 
 

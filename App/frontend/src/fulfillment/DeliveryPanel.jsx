@@ -8,6 +8,7 @@ import { createOrderCommands } from './orderCommands';
 import { dateTime, isStaff, money } from './orderModel';
 import { buttonClass, Reason, DataError } from './operationUi';
 import OrderDetail from './OrderDetail';
+import WhatsAppAttentionNotice from './WhatsAppAttentionNotice';
 
 const commands = createOrderCommands(apiFetch);
 
@@ -60,6 +61,7 @@ export default function DeliveryPanel() {
     finally { lock.current = false; setBusy(false); }
   };
   return <main className="space-y-6 max-w-4xl mx-auto p-4 sm:p-6 min-h-screen bg-monu-cream text-monu-text">
+    <WhatsAppAttentionNotice />
     <div className="flex flex-wrap justify-between items-start gap-3"><div><h1 className="text-3xl font-extrabold font-heading text-monu-dark">Reparto</h1><p>Viajes y envíos asignados en el sistema.</p></div><div className="flex flex-wrap gap-2">{isStaff(user?.backendRole) && <Link to="/dashboard/orders" className={buttonClass}>Volver a pedidos</Link>}<button type="button" onClick={() => { void logout(); }} className={buttonClass}>Cerrar sesión</button></div></div>
     <button type="button" disabled={busy} onClick={() => { void refresh(); }} className={buttonClass}>{busy ? 'Procesando...' : 'Actualizar viajes'}</button>
     <DataError message={error || state.ordersError} />

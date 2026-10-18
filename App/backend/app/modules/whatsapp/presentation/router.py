@@ -20,6 +20,7 @@ from app.modules.whatsapp.presentation.dependencias import (
     transporte,
 )
 from app.modules.whatsapp.presentation.esquemas import (
+    AvisosSalida,
     BorradorEntrada,
     MensajeSimulado,
     ResolucionAtencionEntrada,
@@ -51,6 +52,12 @@ async def bandeja(personal: Empleado, uow: UoW):
     return await ColaWhatsAppSQL(uow).bandeja()
 
 
+@router.get("/avisos", response_model=AvisosSalida)
+async def avisos(personal: Empleado, uow: UoW, response: Response):
+    response.headers["Cache-Control"] = "private, no-store"
+    return await ColaWhatsAppSQL(uow).avisos()
+
+
 @router.post("/comprobantes/{comprobante_id}/revision")
 async def revisar(
     comprobante_id: int, datos: RevisionEntrada, personal: Empleado, servicio: ServicioBotDep
@@ -72,9 +79,26 @@ async def archivo(comprobante_id: int, personal: Empleado):
         )
     if not fila:
         raise NoEncontrado("El comprobante no existe")
+    return await _adjunto(fila["media_id"])
+
+
+@router.get("/atenciones/{atencion_id}/archivo")
+async def archivo_atencion(atencion_id: int, personal: Empleado):
+    async with conexion() as conn:
+        fila = await UnidadDeTrabajo(conn).uno(
+            """SELECT e.media_id FROM whatsapp_atencion a
+            JOIN whatsapp_entrada e ON e.id=a.entrada_id
+            WHERE a.id=%s AND a.motivo='COMPROBANTE'""", (atencion_id,)
+        )
+    if not fila or not fila["media_id"]:
+        raise NoEncontrado("El comprobante no existe")
+    return await _adjunto(fila["media_id"])
+
+
+async def _adjunto(media_id: str):
     if settings.whatsapp_modo != "real":
         raise DatosInvalidos("El adjunto simulado no tiene archivo real")
-    contenido, mime = await transporte().bajar_comprobante(fila["media_id"])
+    contenido, mime = await transporte().bajar_comprobante(media_id)
     return Response(
         contenido,
         media_type=mime,

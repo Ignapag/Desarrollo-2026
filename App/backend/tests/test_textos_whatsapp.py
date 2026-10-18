@@ -5,6 +5,7 @@ from decimal import Decimal
 
 import pytest
 
+from app.modules.whatsapp.domain.conversacion import elegir_conversacion, pregunta_pedido
 from app.modules.whatsapp.domain.textos import (
     INICIO_WEB,
     dinero,
@@ -35,12 +36,12 @@ def _pedido():
     }
 
 
-def test_resumen_muestra_numero_publico_notas_e_importe():
+def test_resumen_muestra_notas_e_importe_sin_identificadores():
     texto = resumen_pedido(_pedido())
-    assert "*Pedido #37*" in texto
+    assert "*Tu pedido*" in texto
     assert "2 × Monu doble" in texto and "sin cebolla" in texto
     assert "$ 24.000,50" in texto and "Retiro en el local" in texto
-    assert "id-interno" not in texto
+    assert "id-interno" not in texto and "37" not in texto
 
 
 def _carrito():
@@ -112,12 +113,13 @@ def test_retiro_en_estado_en_camino_sigue_listo_para_retirar():
 
 
 @pytest.mark.parametrize(
-    "estado", ["PENDIENTE", "CONFIRMADO", "EN_PREPARACION", "EN_CAMINO", "ENTREGADO", "CANCELADO"]
+    "estado", ["PENDIENTE", "CONFIRMADO", "EN_PREPARACION", "LISTO", "EN_CAMINO",
+               "ENTREGADO", "CANCELADO", "DESCONOCIDO"]
 )
-def test_estado_no_expone_codigo_tecnico(estado):
+def test_estado_no_expone_codigo_tecnico_ni_identificadores(estado):
     pedido = {**_pedido(), "estado": estado}
     texto = estado_pedido(pedido)
-    assert "Pedido #37" in texto and estado not in texto
+    assert "37" not in texto and "id-interno" not in texto and estado not in texto
 
 
 def test_efectivo_no_pide_comprobante_y_transferencia_requiere_revision():
@@ -133,7 +135,22 @@ def test_efectivo_no_pide_comprobante_y_transferencia_requiere_revision():
 
 
 def test_resultado_pago_distingue_aprobacion_y_pide_proximo_paso():
-    assert "Pago confirmado" in resultado_transferencia(37, True)
+    aprobacion = resultado_transferencia(37, True)
+    assert "Pago confirmado" in aprobacion and "37" not in aprobacion
     rechazo = resultado_transferencia(37, False)
-    assert "#37" in rechazo and "No pudimos aprobar" in rechazo
+    assert "37" not in rechazo and "No pudimos aprobar" in rechazo
     assert "mandanos el comprobante correcto" in rechazo
+
+
+def test_lista_identifica_compras_por_opcion_y_producto_sin_numero_pedido():
+    opciones = [
+        {"numero": 987654, "descripcion": "2 × Cheese", "referencia_hash": "interno-a"},
+        {"numero": 876543, "descripcion": "1 × Bacon", "referencia_hash": "interno-b"},
+        {"numero": None, "descripcion": "1 × Monu", "referencia_hash": "interno-c"},
+    ]
+    texto = pregunta_pedido(opciones)
+    assert "1." in texto and "2." in texto and "3." in texto
+    assert "2 × Cheese" in texto and "1 × Bacon" in texto
+    assert "987654" not in texto and "876543" not in texto and "interno-" not in texto
+    assert elegir_conversacion("2", opciones) is opciones[1]
+    assert elegir_conversacion("pedido #987654", opciones) is opciones[0]

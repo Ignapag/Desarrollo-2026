@@ -458,23 +458,36 @@ class RepositorioBotSQL:
             )
         )
 
+    async def derivar_general(self, entrada_id, motivo):
+        await self.uow.valor(
+            "SELECT pg_advisory_xact_lock(hashtext(telefono)) FROM whatsapp_entrada WHERE id=%s",
+            (entrada_id,),
+        )
+        await self.uow.ejecutar(
+            """INSERT INTO whatsapp_atencion (telefono,entrada_id,motivo)
+            SELECT telefono,id,%s FROM whatsapp_entrada WHERE id=%s
+            ON CONFLICT DO NOTHING""",
+            (motivo, entrada_id),
+        )
+
     async def atencion(self, atencion_id, bloquear=False):
         fila = await self.uow.uno(
-            """SELECT a.*,b.telefono FROM whatsapp_atencion a
-            JOIN whatsapp_borrador b ON b.referencia_hash=a.referencia_hash WHERE a.id=%s""",
+            """SELECT a.*,COALESCE(a.telefono,b.telefono) telefono FROM whatsapp_atencion a
+            LEFT JOIN whatsapp_borrador b ON b.referencia_hash=a.referencia_hash WHERE a.id=%s""",
             (atencion_id,),
         )
         if not fila or not bloquear:
             return fila
         # Mismo orden que el bot: teléfono -> conversación -> atención.
         await self.uow.valor("SELECT pg_advisory_xact_lock(hashtext(%s))", (fila["telefono"],))
-        await self.uow.uno(
-            "SELECT referencia_hash FROM whatsapp_borrador WHERE referencia_hash=%s FOR UPDATE",
-            (fila["referencia_hash"],),
-        )
+        if fila["referencia_hash"]:
+            await self.uow.uno(
+                "SELECT referencia_hash FROM whatsapp_borrador WHERE referencia_hash=%s FOR UPDATE",
+                (fila["referencia_hash"],),
+            )
         return await self.uow.uno(
-            """SELECT a.*,b.telefono FROM whatsapp_atencion a
-            JOIN whatsapp_borrador b ON b.referencia_hash=a.referencia_hash
+            """SELECT a.*,COALESCE(a.telefono,b.telefono) telefono FROM whatsapp_atencion a
+            LEFT JOIN whatsapp_borrador b ON b.referencia_hash=a.referencia_hash
             WHERE a.id=%s FOR UPDATE OF a""",
             (atencion_id,),
         )
@@ -497,6 +510,8 @@ class RepositorioBotSQL:
             resuelta_por=%s,resuelta_en=now() WHERE id=%s""",
             (resolucion, empleado_id, atencion["id"]),
         )
+        if not atencion["referencia_hash"]:
+            return
         # La conversación vuelve al bot salvo que siga esperando un cambio del personal.
         await self.uow.ejecutar(
             """UPDATE whatsapp_borrador b SET estado=CASE

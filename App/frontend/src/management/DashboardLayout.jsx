@@ -1,6 +1,7 @@
 ﻿import { Outlet, NavLink, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { preloadPage } from '../shared/pageLoaders';
+import WhatsAppAttentionNotice from '../fulfillment/WhatsAppAttentionNotice';
 import { 
   LayoutDashboard, 
   ListOrdered, 
@@ -128,6 +129,7 @@ export default function DashboardLayout() {
 
         {/* Main Content Area */}
         <main className="flex-1 p-4 md:p-8 bg-monu-cream/20">
+          <WhatsAppAttentionNotice />
           <Suspense fallback={<p role="status" className="text-sm py-4">Abriendo sección...</p>}><Outlet /></Suspense>
         </main>
       </div>

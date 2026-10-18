@@ -54,10 +54,13 @@ async def test_inicio_legible_sin_token_y_reenvio_crea_un_solo_pedido(uow, momen
     s = construir_servicio(uow)
     await s.recibir("inicio-legible", TELEFONO, b["mensaje"])
     assert not (await s.preparar("inicio-legible"))["interpretar"]
-    await s.procesar("inicio-legible", {})
+    respuesta = await s.procesar("inicio-legible", {})
     await enviar(uow, "inicio-legible-reenvio", TELEFONO, "  " + b["mensaje"].upper() + "\n")
     actual = await fila(uow, b)
     assert actual["telefono"] == TELEFONO and actual["pedido_id"]
+    numero = await uow.valor("SELECT numero FROM pedido WHERE id=%s", (actual["pedido_id"],))
+    assert "Tu pedido" in respuesta and "Total" in respuesta
+    assert str(numero) not in respuesta and "pedido_id" not in respuesta
     assert await uow.valor("SELECT count(*) FROM pedido") == antes + 1
 
 
@@ -132,7 +135,8 @@ async def test_recompra_y_seleccion_por_numero_habitual_no_permiten_acceso_ajeno
     assert primera["pedido_id"] != segunda["pedido_id"]
     numero = await uow.valor("SELECT numero FROM pedido WHERE id=%s", (primera["pedido_id"],))
     respuesta = await enviar(uow, "consulta-numero", TELEFONO, f"Estado del pedido #{numero}")
-    assert respuesta.count(f"Pedido #{numero}") == 1
+    assert "Tu pedido" in respuesta and "Total" in respuesta
+    assert str(numero) not in respuesta
     ajena = await enviar(uow, "consulta-numero-ajeno", OTRO, f"Estado del pedido #{numero}")
     assert f"Pedido #{numero}" not in ajena
 
@@ -150,12 +154,13 @@ async def test_variante_en_lenguaje_simple_se_resuelve_sin_ia(uow, momento):
     await s.recibir("respuesta-variante", TELEFONO, "Doble")
     assert not (await s.preparar("respuesta-variante"))["interpretar"]
     respuesta = await s.procesar("respuesta-variante", {"accion": "consulta"})
-    assert "Pedido #" in respuesta and "(Doble)" in respuesta
+    assert "Tu pedido" in respuesta and "Pedido #" not in respuesta and "(Doble)" in respuesta
     assert (await fila(uow, b))["pedido_id"]
 
 
+@pytest.mark.parametrize("confirmacion_legacy", [False, True])
 async def test_cambio_y_confirmacion_por_numero_afectan_solo_a_esa_compra(
-    uow, momento, monkeypatch
+    uow, momento, monkeypatch, confirmacion_legacy
 ):
     a = await preparar(uow)
     await enviar(uow, "seleccion-compra-a", TELEFONO, a["mensaje"])
@@ -169,8 +174,12 @@ async def test_cambio_y_confirmacion_por_numero_afectan_solo_a_esa_compra(
     respuesta = await s.procesar("cambio-por-numero", {
         "accion": "cantidad", "argumentos": {"cantidad": 2},
     })
-    assert f"confirmar para el pedido #{numero}" in respuesta
-    await s.recibir("confirmar-por-numero", TELEFONO, f"confirmar para el pedido #{numero}")
+    assert "Respondé *confirmar*" in respuesta and str(numero) not in respuesta
+    await s.recibir("confirmacion-invalida", TELEFONO, f"me parece para el pedido #{numero}")
+    pregunta = await s.procesar("confirmacion-invalida", {"accion": "confirmar"})
+    assert "respondé *confirmar*" in pregunta and str(numero) not in pregunta
+    confirmacion = f"confirmar para el pedido #{numero}" if confirmacion_legacy else "confirmar"
+    await s.recibir("confirmar-por-numero", TELEFONO, confirmacion)
     assert (await s.preparar("confirmar-por-numero"))["texto"] == "confirmar"
     await s.procesar("confirmar-por-numero", {"accion": "confirmar"})
     assert await uow.valor(
@@ -186,8 +195,17 @@ async def test_aviso_estado_es_amigable_y_sigue_siendo_unico(uow, momento, tipo)
     b = await preparar(uow, tipo=tipo)
     await enviar(uow, "estado-inicio", TELEFONO, b["mensaje"])
     pedido_id = (await fila(uow, b))["pedido_id"]
+    numero = await uow.valor("SELECT numero FROM pedido WHERE id=%s", (pedido_id,))
+    historico = f"Pedido #{numero}: aviso histórico ya encolado"
+    await uow.ejecutar(
+        "INSERT INTO whatsapp_salida(clave,telefono,texto) VALUES (%s,%s,%s)",
+        ("historico-con-numero", TELEFONO, historico),
+    )
     # La prueba aísla las notificaciones del trigger para una compra válida.
-    for estado, emoji in [("EN_PREPARACION", "👨‍🍳"), ("LISTO", "🍔"), ("EN_CAMINO", "🛵")]:
+    for estado, emoji in [
+        ("CONFIRMADO", "✅"), ("EN_PREPARACION", "👨‍🍳"), ("LISTO", "🍔"),
+        ("EN_CAMINO", "🛵"), ("ENTREGADO", "💚"), ("CANCELADO", "💬"), ("PENDIENTE", "🍔"),
+    ]:
         await uow.ejecutar(
             "UPDATE pedido SET estado=%s,version=version+1 WHERE id=%s", (estado, pedido_id)
         )
@@ -200,7 +218,12 @@ async def test_aviso_estado_es_amigable_y_sigue_siendo_unico(uow, momento, tipo)
         )
         assert len(salidas) == 1
         assert estado not in salidas[0]["texto"]
+        assert str(numero) not in salidas[0]["texto"]
+        assert str(pedido_id) not in salidas[0]["texto"]
         if tipo == "DELIVERY" or estado == "EN_PREPARACION":
             assert emoji in salidas[0]["texto"]
         if tipo == "RETIRO" and estado == "EN_CAMINO":
             assert "retirar" in salidas[0]["texto"] and "en camino" not in salidas[0]["texto"]
+    assert await uow.valor(
+        "SELECT texto FROM whatsapp_salida WHERE clave='historico-con-numero'"
+    ) == historico
