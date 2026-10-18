@@ -9,7 +9,7 @@ import pytest
 
 from app.core.config import settings
 from app.core.db import UnidadDeTrabajo
-from app.errores import ReglaDeNegocio
+from app.errores import DatosInvalidos, ReglaDeNegocio
 from app.modules.pedidos.application.servicio_pedidos import ItemNuevoPedido
 from app.modules.pedidos.domain.entidades import EstadoPedido as E
 from app.modules.pedidos.presentation.dependencias import obtener_servicio_pedidos
@@ -315,7 +315,16 @@ async def test_dos_ediciones_concurrentes_solo_una_version_prevalece(escenario_c
 
 
 @pytest.mark.asyncio
-async def test_envio_fallido_mantiene_asignacion_hasta_regreso_real(uow):
+@pytest.mark.parametrize(
+    ("actual", "destino"),
+    [
+        (E.EN_CAMINO, E.LISTO),
+        (E.EN_PREPARACION, E.PENDIENTE),
+        (E.EN_PREPARACION, E.CONFIRMADO),
+        (E.CONFIRMADO, E.PENDIENTE),
+    ],
+)
+async def test_envio_fallido_mantiene_asignacion_hasta_regreso_real(uow, actual, destino):
     cliente, producto, _ = await escenario(uow)
     pedido, _ = await crear_pedido(uow, cliente, producto)
     repartidor = await uow.valor("SELECT usuario_id FROM repartidor LIMIT 1")
@@ -327,16 +336,17 @@ async def test_envio_fallido_mantiene_asignacion_hasta_regreso_real(uow):
     await uow.ejecutar(
         "INSERT INTO envio(pedido_id,viaje_id,estado) VALUES(%s,%s,'FALLIDO')", (pedido, viaje)
     )
-    await uow.ejecutar("UPDATE pedido SET estado='EN_CAMINO' WHERE id=%s", (pedido,))
+    await uow.ejecutar("UPDATE pedido SET estado=%s WHERE id=%s", (actual, pedido))
     with pytest.raises(ReglaDeNegocio, match="asignacion"):
         await obtener_servicio_pedidos(uow).cambiar_estado(
             pedido,
-            E.LISTO,
+            destino,
             usuario_id=None,
             correccion=True,
             motivo="No entregado",
             version_esperada=1,
             rol="EMPLEADO",
+            tratamiento_stock="CONSERVAR",
         )
 
 
@@ -468,3 +478,139 @@ async def test_indicadores_se_releen_despues_de_esperar_bloqueo(escenario_concur
             await unidad.ejecutar("DELETE FROM direccion WHERE id=%s", (direccion,))
         await primera.commit()
         await primera.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("actual", "destino"),
+    [
+        (E.EN_PREPARACION, E.PENDIENTE),
+        (E.EN_PREPARACION, E.CONFIRMADO),
+        (E.CONFIRMADO, E.PENDIENTE),
+    ],
+)
+async def test_corregir_inicio_cocina_conserva_consumo_pagos_fechas_e_historia(
+    uow, actual, destino
+):
+    cliente, producto, (ingrediente,) = await escenario(uow, saldo=Decimal("10"))
+    pedido, _ = await crear_pedido(uow, cliente, producto)
+    await uow.ejecutar("UPDATE pedido SET subtotal=100,total=100 WHERE id=%s", (pedido,))
+    servicio = obtener_servicio_pedidos(uow)
+    anterior = await servicio.cambiar_estado(pedido, actual, usuario_id=None)
+    pago = await uow.valor(
+        "INSERT INTO pago(pedido_id,metodo_pago,monto,estado) "
+        "VALUES(%s,'EFECTIVO',100,'CONCILIADO') RETURNING id",
+        (pedido,),
+    )
+    corregido = await servicio.cambiar_estado(
+        pedido,
+        destino,
+        usuario_id=None,
+        correccion=True,
+        motivo="Inicio marcado por error",
+        version_esperada=2,
+        rol="EMPLEADO",
+        tratamiento_stock="CONSERVAR",
+    )
+    assert corregido["id"] == pedido
+    assert corregido["numero"] == anterior["numero"]
+    assert corregido["estado"] == destino
+    assert corregido["confirmado_en"] == anterior["confirmado_en"]
+    assert corregido["preparacion_en"] == anterior["preparacion_en"]
+    assert corregido["version"] == 3
+    assert corregido["historial"][:-1] == anterior["historial"]
+    assert corregido["historial"][-1]["observacion"] == "Inicio marcado por error"
+    assert corregido["historial"][-1]["tratamiento_stock"] == "CONSERVAR"
+    assert [p["id"] for p in corregido["pagos"]] == [pago]
+    assert corregido["neto_cobrado"] == 100
+    assert (
+        await uow.valor("SELECT cantidad_actual FROM ingrediente WHERE id=%s", (ingrediente,)) == 9
+    )
+    assert (
+        await uow.valor("SELECT count(*) FROM movimiento_stock WHERE pedido_id=%s", (pedido,)) == 1
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("cambio", "error", "mensaje"),
+    [
+        ({"motivo": None}, DatosInvalidos, "motivo"),
+        ({"version_esperada": None}, DatosInvalidos, "version"),
+        ({"tratamiento_stock": None}, DatosInvalidos, "CONSERVAR"),
+        ({"tratamiento_stock": "MERMA"}, DatosInvalidos, "CONSERVAR"),
+        ({"rol": "CLIENTE"}, ReglaDeNegocio, "personal"),
+        ({"correccion": False}, ReglaDeNegocio, "No se puede"),
+    ],
+)
+async def test_retroceder_cocina_exige_correccion_autorizada_y_conservar(
+    uow, cambio, error, mensaje
+):
+    cliente, producto, _ = await escenario(uow)
+    pedido, _ = await crear_pedido(uow, cliente, producto)
+    servicio = obtener_servicio_pedidos(uow)
+    await servicio.cambiar_estado(pedido, E.EN_PREPARACION, usuario_id=None)
+    comando = dict(
+        correccion=True,
+        motivo="Click por error",
+        version_esperada=2,
+        rol="EMPLEADO",
+        tratamiento_stock="CONSERVAR",
+    )
+    comando.update(cambio)
+    with pytest.raises(error, match=mensaje):
+        await servicio.cambiar_estado(pedido, E.PENDIENTE, usuario_id=None, **comando)
+    assert (await servicio.detalle(pedido))["estado"] == E.EN_PREPARACION
+
+
+@pytest.mark.asyncio
+async def test_idas_y_vueltas_de_cocina_conservan_un_solo_consumo_y_cancelacion_exige_merma(uow):
+    cliente, producto, (ingrediente,) = await escenario(uow, saldo=Decimal("10"))
+    pedido, _ = await crear_pedido(uow, cliente, producto)
+    servicio = obtener_servicio_pedidos(uow)
+    vigente = await servicio.cambiar_estado(pedido, E.EN_PREPARACION, usuario_id=None)
+    for destino in (E.PENDIENTE, E.CONFIRMADO, E.PENDIENTE):
+        vigente = await servicio.cambiar_estado(
+            pedido,
+            destino,
+            usuario_id=None,
+            correccion=True,
+            motivo="Corregir captura",
+            version_esperada=vigente["version"],
+            rol="EMPLEADO",
+            tratamiento_stock="CONSERVAR",
+        )
+        assert vigente["preparacion_en"] is not None
+        if destino != E.PENDIENTE:
+            continue
+        vigente = await servicio.cambiar_estado(
+            pedido, E.EN_PREPARACION, usuario_id=None, version_esperada=vigente["version"]
+        )
+    vigente = await servicio.cambiar_estado(
+        pedido,
+        E.PENDIENTE,
+        usuario_id=None,
+        correccion=True,
+        motivo="Corregir captura final",
+        version_esperada=vigente["version"],
+        rol="EMPLEADO",
+        tratamiento_stock="CONSERVAR",
+    )
+    with pytest.raises(ReglaDeNegocio, match="MERMA"):
+        await servicio.cambiar_estado(pedido, E.CANCELADO, usuario_id=None)
+    cancelado = await servicio.cambiar_estado(
+        pedido,
+        E.CANCELADO,
+        usuario_id=None,
+        motivo="Insumos utilizados",
+        tratamiento_stock="MERMA",
+        version_esperada=vigente["version"],
+    )
+    assert cancelado["preparacion_en"] is not None
+    assert cancelado["historial"][-1]["tratamiento_stock"] == "MERMA"
+    assert (
+        await uow.valor("SELECT cantidad_actual FROM ingrediente WHERE id=%s", (ingrediente,)) == 9
+    )
+    assert (
+        await uow.valor("SELECT count(*) FROM movimiento_stock WHERE pedido_id=%s", (pedido,)) == 1
+    )

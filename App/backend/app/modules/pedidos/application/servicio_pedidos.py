@@ -244,15 +244,28 @@ class ServicioPedidos:
                 raise ReglaDeNegocio("La correccion requiere personal autorizado")
         cerrado = actual in {EstadoPedido.CANCELADO, EstadoPedido.ENTREGADO}
         recuperacion = correccion and cerrado
-        retroceso = correccion and (
-            (actual, nuevo)
-            in {
-                (EstadoPedido.LISTO, EstadoPedido.EN_PREPARACION),
-                (EstadoPedido.EN_CAMINO, EstadoPedido.LISTO),
-            }
-            or (
-                actual in {EstadoPedido.EN_PREPARACION, EstadoPedido.LISTO}
-                and nuevo == EstadoPedido.CANCELADO
+        retroceso_inicio = correccion and (actual, nuevo) in {
+            (EstadoPedido.EN_PREPARACION, EstadoPedido.PENDIENTE),
+            (EstadoPedido.EN_PREPARACION, EstadoPedido.CONFIRMADO),
+            (EstadoPedido.CONFIRMADO, EstadoPedido.PENDIENTE),
+        }
+        if retroceso_inicio and tratamiento_stock != "CONSERVAR":
+            raise DatosInvalidos("El retroceso requiere tratamiento_stock CONSERVAR explicito")
+        # Corregir la captura no deshace una cocina que ya empezo: el consumo y
+        # preparacion_en siguen vigentes incluso si el estado vuelve a pendiente.
+        retroceso = (
+            retroceso_inicio
+            or correccion
+            and (
+                (actual, nuevo)
+                in {
+                    (EstadoPedido.LISTO, EstadoPedido.EN_PREPARACION),
+                    (EstadoPedido.EN_CAMINO, EstadoPedido.LISTO),
+                }
+                or (
+                    actual in {EstadoPedido.EN_PREPARACION, EstadoPedido.LISTO}
+                    and nuevo == EstadoPedido.CANCELADO
+                )
             )
         )
         retiro_entregado = (

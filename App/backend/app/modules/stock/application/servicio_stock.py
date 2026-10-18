@@ -257,7 +257,11 @@ class ServicioStock:
             raise NoEncontrado("El item no pertenece al pedido")
         if item["estado"] in {"ENTREGADO", "CANCELADO"}:
             raise ReglaDeNegocio("No se puede ajustar stock de un pedido cerrado")
-        if usuario_id is None and item["estado"] not in {"PENDIENTE", "CONFIRMADO"}:
+        cocina_iniciada = bool(item.get("preparacion_en")) or item["estado"] not in {
+            "PENDIENTE",
+            "CONFIRMADO",
+        }
+        if usuario_id is None and cocina_iniciada:
             raise ReglaDeNegocio("Los cambios en cocina requieren aprobacion del personal")
         motivo = f"WHATSAPP_CANTIDAD:{clave_cambio.strip()}"
         if await self.repo.ajuste_existente(pedido_id, motivo):
@@ -265,7 +269,7 @@ class ServicioStock:
         delta = nueva_cantidad - item["cantidad"]
         if delta == 0 or not await self.repo.consumo_existente(pedido_id):
             return
-        if delta < 0 and item["estado"] not in {"PENDIENTE", "CONFIRMADO"}:
+        if delta < 0 and cocina_iniciada:
             return
         if await self.repo.pedido_tiene_opciones(pedido_id):
             raise ReglaDeNegocio("El ajuste con opciones estructuradas todavia no esta soportado")
@@ -324,7 +328,7 @@ class ServicioStock:
         item = await self.repo.ingrediente_item_para_devolucion(pedido_id, item_id, nombre)
         if item is None:
             raise NoEncontrado("El item o ingrediente no pertenece al pedido")
-        if item["estado"] not in {"PENDIENTE", "CONFIRMADO"}:
+        if item["estado"] not in {"PENDIENTE", "CONFIRMADO"} or item.get("preparacion_en"):
             raise ReglaDeNegocio("Solo se devuelve stock antes de comenzar la preparacion")
         ingrediente_id = item["ingrediente_id"]
         motivo = f"WHATSAPP_RETIRO:{item_id}:{ingrediente_id}"

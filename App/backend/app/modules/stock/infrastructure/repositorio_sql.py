@@ -52,7 +52,7 @@ class RepositorioStockSQL:
 
     async def item_para_ajuste(self, pedido_id: int, item_id: int) -> dict | None:
         return await self.uow.uno(
-            "SELECT p.estado, i.producto_id, i.cantidad, i.aclaraciones "
+            "SELECT p.estado, p.preparacion_en, i.producto_id, i.cantidad, i.aclaraciones "
             "FROM pedido p JOIN pedido_item i ON i.pedido_id = p.id "
             "WHERE p.id = %s AND i.id = %s FOR UPDATE OF i",
             (pedido_id, item_id),
@@ -72,7 +72,7 @@ class RepositorioStockSQL:
     ) -> dict | None:
         return await self.uow.uno(
             """
-            SELECT p.estado, i.cantidad, i.aclaraciones,
+            SELECT p.estado, p.preparacion_en, i.cantidad, i.aclaraciones,
                    ing.id AS ingrediente_id, receta.cantidad_requerida
             FROM pedido p
             JOIN pedido_item i ON i.pedido_id = p.id
