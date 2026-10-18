@@ -14,6 +14,7 @@ el estado de su fecha y pueden describir trabajo que ya cambió.
 | [Flujo de IA](FLUJO_IA.md) | Skills, roles, delegación y uso eficiente del contexto. |
 | [Alcance de WhatsApp](WHATSAPP_ALCANCE.md) | Flujo acordado de recepción de pedidos, IA, modificaciones y revisión humana de transferencias; integración directa sin n8n. |
 | [Desarrollo de WhatsApp](WHATSAPP_DESARROLLO.md) | Demostración local, contratos, worker, revisión humana y conexión de recursos de prueba Meta/Gemini. |
+| [Operación de pedidos](OPERACION_PEDIDOS.md) | Cobros, cocina, reparto y correcciones sin perder el pedido ni su historial. |
 | [Deuda técnica](DEUDA_TECNICA.md) | Limitaciones conocidas; no es autorización para corregirlas todas. |
 | [Guía del equipo](GUIA_EQUIPO.md) | Responsabilidad sobre la base compartida y colaboración con Git. |
 | [DER](DER.md) | Diagrama generado del esquema SQL. |

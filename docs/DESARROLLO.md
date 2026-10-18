@@ -134,13 +134,16 @@ npm run lint
 npm run build
 npm run test:portales
 npm run test:panel
+npm run test:operacion
 ```
 
 El lint ejecuta oxlint; build genera `dist/` con Vite. No hay script `npm test`
 ni suite de navegador en el manifiesto actual. Un build exitoso no prueba login,
 pagos ni apariencia. La deuda heredada se registra en [DEUDA_TECNICA.md](DEUDA_TECNICA.md).
 `test:portales` verifica rutas mediante renderizado React y el proxy con HTTP local,
-sin base de datos. Para las variantes `build:clientes` y `build:personal`, la
+sin base de datos. `test:operacion` cubre comandos HTTP, reintentos financieros,
+versiones, frescura y renderizado de formularios operativos; no reemplaza una
+prueba interactiva en navegador. Para las variantes `build:clientes` y `build:personal`, la
 configuración de Pages y los checks posteriores, ver [despliegue](DESPLIEGUE.md).
 
 Desde la raíz al terminar:
@@ -178,7 +181,7 @@ esos resultados ni regenerarlos por una tarea que no cambió el esquema.
 
 [ci.yml](../.github/workflows/ci.yml) corre en push a `main` y en pull requests:
 
-- Frontend: Node 22, `npm ci`, oxlint y build.
+- Frontend: Node 22, `npm ci`, oxlint, pruebas de portales/panel/operación y build.
 - Backend: Python 3.12, PostgreSQL 16 descartable, dependencias, Ruff, migraciones
   con seed, estado, pytest y comprobación del esquema generado.
 

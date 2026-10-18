@@ -25,6 +25,7 @@ decisiones bloqueantes; resolvé los detalles locales con el código y las guía
 | Esquema, migraciones y seed | `App/db` | [AGENTS SQL](App/db/AGENTS.md) |
 | Guías técnicas | `docs` | [AGENTS docs](docs/AGENTS.md) y [índice](docs/README.md) |
 | Límites y flujos del sistema | Áreas afectadas | [Arquitectura](docs/ARQUITECTURA.md) |
+| Estados, cobros, reparto y correcciones | `pedidos`, `stock`, `pagos`, `delivery`, WhatsApp y panel | [Operación de pedidos](docs/OPERACION_PEDIDOS.md) |
 | Convenciones del código | Archivos afectados | [Código limpio](docs/CLEAN_CODE.md) |
 | Setup, comandos y CI | Paquete afectado | [Desarrollo](docs/DESARROLLO.md) |
 | Skills, roles y delegación | `.agents`, `.codex` | [Flujo de IA](docs/FLUJO_IA.md) |

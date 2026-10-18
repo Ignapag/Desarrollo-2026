@@ -37,6 +37,9 @@ jobs:
       - name: Pruebas del panel operativo
         run: npm run test:panel
 
+      - name: Pruebas de operacion de pedidos y reparto
+        run: npm run test:operacion
+
       - name: Compilar frontend
         run: npm run build
 

@@ -22,7 +22,8 @@ flowchart LR
     UseCases --> Repos[Repositorios SQL con UnidadDeTrabajo]
     Repos --> DB[(PostgreSQL)]
     UseCases --> Adapters[Adaptadores externos]
-    Adapters --> MP[Mercado Pago]
+    Adapters --> Meta[WhatsApp Cloud API]
+    Adapters --> Gemini[Gemini]
     Adapters --> Sim[Notificaciones simuladas]
 ```
 
@@ -38,7 +39,8 @@ flowchart LR
   a Render. Los modos de build separan clientes y personal manteniendo un único
   frontend. [Configuración y verificaciones](DESPLIEGUE.md). Estos archivos no
   demuestran que ambas variantes estén publicadas.
-  Compose define PostgreSQL, backend y n8n opcional; no incluye frontend.
+  Compose define PostgreSQL y backend, conserva un perfil opcional heredado de
+  n8n y no incluye frontend. El bot se integra directamente y no usa ese perfil.
 
 ## Estructura canonica
 
@@ -81,7 +83,7 @@ recuperarlas desde el historial de Git si una tarea de producto las retoma.
 | `productos` | Consulta del menú y gestión de productos con receta. |
 | `pedidos` | Creación, variantes, dirección, consulta y transición de estado. |
 | `stock` | Ingredientes, movimientos y consumo asociado al pedido. |
-| `pagos` | Efectivo, billeteras, conciliación y caja; publica `router.py` y `router_caja.py`. |
+| `pagos` | Efectivo, transferencias, conciliación humana y caja; conserva el historial de medios anteriores. |
 | `delivery` | Agrupación, asignación y ciclo de entrega de repartidores. |
 | `reportes` | Consultas y agregaciones del negocio. |
 | `notificaciones` | Plantillas, encolado y envío; el adaptador actual es simulado. |
@@ -172,24 +174,21 @@ Vite reenvía `/api` a `http://127.0.0.1:8000` en desarrollo.
    dirección, disponibilidad, cantidades y variante. Construye el snapshot de precio
    en servidor. `cliente.id` identifica al comprador comercial; `usuario_id` es un
    vínculo opcional con credenciales. Las cuentas anteriores resuelven ese vínculo
-   para consultar sus pedidos. Al salir de pendiente hacia confirmado o preparación llama al puerto
-   de stock antes de actualizar el estado. **Excepción vigente:** `pagos` (efectivo,
-   webhook, conciliación) confirma el pedido saldado y `delivery` lo pasa a en camino o
-   entregado con SQL propio, sin `puede_transicionar` ni consumo de stock. Ver
-   [deuda técnica](DEUDA_TECNICA.md) antes de tocar esas transiciones.
-   La entrada a preparación ahora consume el stock faltante también desde
-   `CONFIRMADO`; tolera únicamente el consumo ya registrado. Una transferencia
-   de WhatsApp sin aprobación humana bloquea preparación. Los retiros de
-   ingredientes admitidos se reflejan en el consumo por línea; si se retiran
-   después de confirmar y antes de preparar, stock registra una devolución
-   idempotente con el mismo UoW.
+   para consultar sus pedidos. `ServicioPedidos` concentra las transiciones y
+   correcciones; delivery lo consume por su fábrica pública con el mismo UoW.
+   Pagos no modifica el estado físico. La preparación consume stock pendiente y
+   exige el neto conciliado suficiente cuando el método acordado es transferencia.
+   Las correcciones validan versión, situación de reparto y tratamiento de stock,
+   preservando el número y el historial. [Reglas de operación](OPERACION_PEDIDOS.md).
 3. **Stock y transacción:** `UnidadDeTrabajo` envuelve la conexión de psycopg.
    La dependencia del request comparte esa unidad con los repositorios; el contexto
    confirma al salir o revierte ante una excepción. Cambiar ese alcance puede dejar
    pedido, stock y auditoría inconsistentes.
-4. **Pagos y caja:** los servicios de pagos, conciliación y caja conservan sus
-   reglas bajo `modules/pagos`. El webhook de Mercado Pago es una frontera pública:
-   revisar validación propia, estados y reintentos antes de cambiarlo.
+4. **Pagos y caja:** efectivo y transferencia se registran bajo `modules/pagos`.
+   Solo los movimientos conciliados integran el saldo acreditado y caja. Las
+   operaciones se serializan por pedido y admiten reintentos identificados por
+   UUID y contenido. Las rutas de Mercado Pago están retiradas; el adaptador
+   histórico rechaza operaciones en lugar de simular pagos aprobados.
 5. **Notificaciones:** el servicio compone plantillas y registra estado mediante
    repositorio. `EnviadorSimulado` registra el envío en logs; la sustitución por un
    proveedor real se conecta en `notificaciones/presentation/dependencias.py`.

@@ -61,7 +61,7 @@ la información que recibe cocina indiquen **doble sin tomate**.
 | Situación | Resolución |
 | --- | --- |
 | Pedido todavía fuera de preparación, sin diferencia de precio | Cambio automático permitido si el backend lo valida y el producto es inequívoco. |
-| Pedido ya en preparación | La solicitud requiere aprobación de un empleado. |
+| Cambio de productos o ingredientes con el pedido ya en preparación | La solicitud requiere aprobación de un empleado. |
 | Pedido ya pagado y modificación que cambia el total | Siempre interviene un empleado para resolver diferencia o devolución. |
 | Pedido ya pagado, modificación sin diferencia de precio y todavía fuera de preparación | Puede modificarse automáticamente si el backend lo valida. |
 | Pedido o producto ambiguo | El bot solicita aclaración; mantiene el pedido vigente hasta resolverla. |
@@ -69,6 +69,18 @@ la información que recibe cocina indiquen **doble sin tomate**.
 La entrada en preparación debe comprobarse al aplicar la modificación, para evitar
 aceptar un cambio mientras cocina ya comenzó a trabajar con la versión anterior.
 La confirmación de un nuevo total en pedidos aún no pagados se detallará en el diseño.
+
+Los datos de entrega tienen una regla diferente de los ingredientes que cocina
+ya puede estar usando. Dirección, retiro/delivery y método acordado pueden
+cambiar en pendiente, confirmado, preparación o listo **si no hay repartidor
+asignado**. El backend valida cobertura, saldo y versión; un importe distinto
+requiere confirmación. Si el nuevo total es menor al dinero acreditado, primero
+interviene el personal para registrar el reintegro real.
+
+Después de asignar un repartidor se coordina la modificación con el personal.
+La IA no cambia estados físicos de cocina o reparto a partir del texto de un
+cliente. Los recorridos de regreso y corrección manual están en
+[operación de pedidos](OPERACION_PEDIDOS.md).
 
 ## Pagos
 
@@ -116,6 +128,10 @@ de pedidos o pagos. Google lo documenta como estable, con llamadas a funciones
 y salidas estructuradas. Su adecuación al español del negocio y a las solicitudes
 de modificación debe comprobarse con casos representativos; aún no se hicieron
 pruebas reales contra Gemini.
+
+Esa fue la propuesta inicial. La implementación usa ahora
+`gemini-3.5-flash-lite` como valor predeterminado; configuración y costos vigentes
+de referencia en la [guía de desarrollo](WHATSAPP_DESARROLLO.md#gemini-modelo-y-consumo).
 
 Google anuncia el retiro de este endpoint para el 7 de mayo de 2027 y recomienda
 `gemini-3.5-flash-lite` como reemplazo. El modelo debe elegirse por configuración
