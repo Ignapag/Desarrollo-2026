@@ -323,7 +323,7 @@ export function DataProvider({ children }) {
   };
 
   // La operación vive en el provider, no en el modal que la inició.
-  const startOrderOperation = ({ id, number, operation, success = 'Pedido actualizado.' }) => {
+  const startOrderOperation = ({ id, number, operation, success = 'Pedido actualizado.', onSuccess, onError }) => {
     if (!user || userRef.current !== user || orderOperationPending(id)) return false;
     clearTimeout(operationsRef.current.get(id)?.timer);
     const entry = { id, number, status: 'pending', message: 'En segundo plano' };
@@ -336,11 +336,12 @@ export function DataProvider({ children }) {
       if (userRef.current !== user) return result;
       // Reparto y adaptadores anteriores pueden devolver sólo el movimiento.
       return confirmedOrder(result, id) || await apiFetch(`/api/pedidos/${id}`);
-    }).then(() => {
+    }).then((result) => {
       if (userRef.current !== user || operationsRef.current.get(id) !== entry) return;
       entry.status = 'success';
       entry.message = success;
       publishOperations();
+      onSuccess?.(result);
       entry.timer = setTimeout(() => {
         if (userRef.current === user && operationsRef.current.get(id) === entry) dismissOrderOperation(id);
       }, 4000);
@@ -351,6 +352,7 @@ export function DataProvider({ children }) {
         ? `La acción se registró, pero falta actualizar el pedido. ${error.message}`
         : `${error.message} Revisá el pedido antes de reintentar.`;
       publishOperations();
+      onError?.(entry.message);
     });
     return true;
   };

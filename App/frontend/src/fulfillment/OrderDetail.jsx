@@ -46,7 +46,7 @@ export default function OrderDetail({ id, onClose, requireFresh = false }) {
     Promise.resolve().then(() => { if (active) return load(); return undefined; })
       .catch((failure) => { if (active && mounted.current) { setStale(true); setError(failure.message); } })
       .finally(() => { if (active && mounted.current) setLoading(false); });
-    return () => { active = false; mounted.current = false; request.current += 1; readController.current?.abort(); };
+    return () => { active = false; mounted.current = false; lock.current = false; request.current += 1; readController.current?.abort(); };
   }, [load]);
   const close = () => {
     mounted.current = false;
@@ -63,12 +63,30 @@ export default function OrderDetail({ id, onClose, requireFresh = false }) {
     try { await load(); } catch (failure) { if (mounted.current) setError(`No se pudo actualizar el detalle. ${failure.message}`); }
     finally { lock.current = false; if (mounted.current) setLoading(false); }
   };
-  const run = (operation, success) => {
+  const run = (operation, success, { keepOpen = false } = {}) => {
     if (lock.current || busy || stale) return;
     lock.current = true;
-    const accepted = startOrderOperation({ id, number: order.numero, operation, success });
-    if (accepted) close();
-    else lock.current = false;
+    const ticket = ++request.current;
+    const accepted = startOrderOperation({
+      id, number: order.numero, operation, success,
+      onSuccess: keepOpen ? (updated) => {
+        if (!mounted.current || ticket !== request.current) return;
+        lock.current = false;
+        request.current += 1;
+        readController.current?.abort();
+        setOrder(updated);
+        setStale(false);
+        setError('');
+      } : undefined,
+      onError: keepOpen ? (message) => {
+        if (!mounted.current || ticket !== request.current) return;
+        lock.current = false;
+        setStale(true);
+        setError(message);
+      } : undefined,
+    });
+    if (accepted && !keepOpen) close();
+    else if (!accepted) lock.current = false;
   };
   return <dialog ref={dialog} aria-labelledby="order-detail-title" aria-busy={busy} onCancel={(event) => { event.preventDefault(); close(); }} className="m-auto max-h-[90dvh] w-[calc(100%_-_2rem)] max-w-3xl rounded-2xl bg-monu-bone p-0 text-monu-text backdrop:bg-black/50">
     <div className="p-4 sm:p-6 space-y-5 overflow-y-auto">
@@ -90,7 +108,7 @@ export default function OrderDetail({ id, onClose, requireFresh = false }) {
           <StateOperation order={order} role={user.backendRole} commands={commands} run={run} busy={busy || stale} />
           <OrderDelivery order={order} role={user.backendRole} commands={commands} run={run} busy={busy || stale} />
         </div>}
-        {isStaff(user?.backendRole) && <OrderPayments order={order} userId={user.id} commands={commands} run={run} busy={busy || stale} />}
+        {isStaff(user?.backendRole) && <OrderPayments key={user.id} order={order} userId={user.id} commands={commands} run={run} busy={busy || stale} />}
         {isStaff(user?.backendRole) && <EditOperation key={`edit:${order.id}:${order.version}`} order={order} role={user.backendRole} commands={commands} run={run} busy={busy || stale} />}
         <details className="space-y-3 border-t border-monu-green/20 pt-3"><summary className="cursor-pointer min-h-11 flex items-center font-bold text-monu-green">Historial y detalles</summary>
           <dl className="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-[max-content_1fr]">{[['creado_en', 'Creado'], ['confirmado_en', 'Confirmado'], ['preparacion_en', 'Preparación'], ['listo_en', 'Listo'], ['entregado_en', 'Entregado'], ['cancelado_en', 'Cancelado']].filter(([key]) => order[key]).map(([key, label]) => <div className="contents" key={key}><dt className="font-bold">{label}</dt><dd>{dateTime(order[key])}</dd></div>)}</dl>
