@@ -72,7 +72,7 @@ def mensaje_web(datos: dict, productos: list[dict], momento: datetime) -> str:
 
 
 def resumen_pedido(pedido: dict) -> str:
-    lineas = [f"🍔 *Pedido #{pedido['numero']}*"]
+    lineas = ["🍔 *Tu pedido*"]
     for item in pedido["items"]:
         lineas.append(f"• {item['cantidad']} × {item['nombre_producto']}")
         if item.get("aclaraciones"):
@@ -98,7 +98,7 @@ def instrucciones_pago(metodo: str, transferencia: str, tipo_entrega: str) -> st
     return "💬 Elegí cómo querés pagar: efectivo o transferencia."
 
 
-def estado_pedido(pedido: dict, *, incluir_numero: bool = True) -> str:
+def estado_pedido(pedido: dict) -> str:
     estado = pedido.get("estado", pedido.get("estado_pedido"))
     textos = {
         "PENDIENTE": "📝 Recibimos tu pedido y está pendiente de confirmación.",
@@ -118,17 +118,17 @@ def estado_pedido(pedido: dict, *, incluir_numero: bool = True) -> str:
         "CANCELADO": "Tu pedido fue cancelado. Si necesitás ayuda, escribinos por acá. 💬",
     }
     texto = textos.get(estado, "💬 Consultanos por acá y te ayudamos con el estado de tu pedido.")
-    return f"*Pedido #{pedido['numero']}*\n{texto}" if incluir_numero else texto
+    return texto
 
 
 def resultado_transferencia(numero: int, aprobar: bool) -> str:
     if aprobar:
         return (
-            f"✅ *Pago confirmado — pedido #{numero}*\n"
+            "✅ *Pago confirmado*\n"
             "El personal verificó tu transferencia. ¡Gracias! 🍔"
         )
     return (
-        f"💬 *Revisión del pago — pedido #{numero}*\n"
+        "💬 *Revisión del pago*\n"
         "No pudimos aprobar el comprobante. Revisá los datos de la transferencia y "
         "mandanos el comprobante correcto, o escribinos por acá para que te ayudemos."
     )

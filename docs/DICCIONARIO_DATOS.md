@@ -64,6 +64,10 @@ columnas, tipos, obligatoriedad, relaciones y valores permitidos.
 
 **Saldo operativo transferencia** — sin tablas nuevas
 
+**Whatsapp sin numero pedido** — sin tablas nuevas
+
+**Whatsapp atencion general** — sin tablas nuevas
+
 Total: **35 tablas**.
 
 ---
@@ -671,14 +675,15 @@ _Derivaciones a personal: visibles en la bandeja hasta que un empleado las resue
 | Columna | Tipo | Obligatoria | Notas |
 |---------|------|-------------|-------|
 | `id` | BIGINT | Sí | PK · autonumérico |
-| `referencia_hash` | TEXT | Sí | FK → `whatsapp_borrador.referencia_hash` |
+| `referencia_hash` | TEXT | No | FK → `whatsapp_borrador.referencia_hash` |
 | `entrada_id` | TEXT | Sí | FK → `whatsapp_entrada.id` |
-| `motivo` | TEXT | Sí | valores: `SOLICITUD`, `PROVEEDOR` |
+| `motivo` | TEXT | Sí | valores: `SOLICITUD`, `PROVEEDOR`, `COMPROBANTE` |
 | `estado` | TEXT | Sí | valores: `PENDIENTE`, `RESUELTA` · default `'PENDIENTE'` |
 | `resolucion` | TEXT | No | — |
 | `resuelta_por` | BIGINT | No | FK → `usuario.id` |
 | `resuelta_en` | TIMESTAMPTZ | No | — |
 | `creado_en` | TIMESTAMPTZ | Sí | default `now()` |
+| `telefono` | TEXT | No | — |
 
 ## 015_clientes_sin_cuenta — Clientes sin cuenta
 
@@ -716,3 +721,9 @@ _Foco y pregunta de selección por remitente; no almacena credenciales ni histor
 ## 022_saldo_operativo_transferencia — Saldo operativo transferencia
 
 **Funciones:** `whatsapp_validar_saldo_transferencia`
+
+## 023_whatsapp_sin_numero_pedido — Whatsapp sin numero pedido
+
+**Funciones:** `whatsapp_evento_estado`
+
+## 024_whatsapp_atencion_general — Whatsapp atencion general

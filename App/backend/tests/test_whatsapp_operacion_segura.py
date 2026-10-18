@@ -47,6 +47,7 @@ async def test_delivery_recalcula_y_confirma_importe_sin_crear_otro_pedido(uow):
         "localidad": "Ensenada",
     })
     assert "nuevo total" in respuesta and "confirmar" in respuesta
+    assert "Respondé *confirmar*" in respuesta and str(anterior["numero"]) not in respuesta
     assert (await s.repo.pedido(pid))["tipo_entrega"] == "RETIRO"
     assert "Cambio guardado" in await confirmar(s)
     actual = await s.repo.pedido(pid)

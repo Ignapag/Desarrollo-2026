@@ -38,7 +38,7 @@ $env:WHATSAPP_TRANSFERENCIA_DATOS = ''
 
 La preparación aplica las migraciones, incluidas `011_whatsapp.sql`,
 `012_whatsapp_estados_envio.sql`, `013_whatsapp_saldo_transferencia.sql` y
-`014_whatsapp_atencion.sql` hasta `021_mensajes_operacion_segura.sql`, y carga
+`014_whatsapp_atencion.sql` hasta `024_whatsapp_atencion_general.sql`, y carga
 usuarios, catálogo y recetas de prueba.
 Estas variables prevalecen sobre `App/.env`, que puede apuntar a la base
 compartida. No aplicar estos comandos a esa base ni habilitar excepciones para
@@ -156,6 +156,8 @@ la web; otros cambios se consultan por WhatsApp.
    (`/dashboard/orders`). Para transferencia, simular otro mensaje con
    `media_id` ficticio: el empleado debe revisar importe y acreditación antes de
    aprobar. En simulación, descargar ese adjunto no devuelve un archivo real.
+   El panel muestra **Comprobante por verificar** mientras haya comprobantes
+   pendientes, con un enlace **Revisar** que abre esa sección de la bandeja.
 6. Simular `quiero hablar con una persona` y ejecutar el worker. En la bandeja,
    **Conversaciones que requieren atención** muestra cliente, teléfono, estado
    del pedido o borrador, productos, el mensaje que originó la derivación y los
@@ -165,6 +167,23 @@ la web; otros cambios se consultan por WhatsApp.
    respuesta queda `PENDIENTE` hasta que el worker la procesa; con el transporte
    simulado pasa a `SIMULADO` y no llega a WhatsApp. Pulsar **Actualizar bandeja**
    muestra el estado real de envío.
+   **Se necesita un empleado** avisa de las atenciones pendientes (`SOLICITUD`
+   o `PROVEEDOR`) y **Atender** abre la sección de conversaciones. Ambos avisos
+   están disponibles en las pantallas del personal, también en reparto para
+   empleados; no se consultan ni muestran a clientes o repartidores.
+   Consultan sólo cantidades cada ocho segundos con la pestaña visible y al
+   volver a ella. Permanecen hasta la revisión/resolución; si falla la consulta,
+   conservan el último resultado con una indicación de error y reintento.
+   No acreditan pagos ni modifican pedidos.
+   Una solicitud explícita de empleado sin compra activa genera una atención
+   general usando el remitente verificado de WhatsApp. Los adjuntos sin compra
+   de transferencia elegida generan **Comprobante sin pedido vinculado**, en la
+   sección de comprobantes: el personal puede descargar el archivo, responder y
+   resolver la atención, pero no acreditar dinero sobre una compra supuesta.
+   Cada adjunto distinto se conserva como tarea; repetir el mismo evento no
+   duplica el aviso. Las solicitudes generales de empleado se agrupan mientras
+   estén pendientes. La bandeja ofrece hasta 100 atenciones por categoría y
+   prioriza comprobantes pendientes sobre el historial de revisados.
 
 Ejemplo del cuerpo de una entrada simulada, con el texto obtenido de la web:
 
@@ -190,11 +209,13 @@ Los contratos y permisos efectivos están en
 | --- | --- |
 | `POST /api/whatsapp/borradores` | Público, sin sesión; `201`. Acepta items y, opcionalmente, modalidad, pago, dirección nueva y `contacto` con `nombre`, `apellido` (1–80 caracteres) y `telefono` (11–15 dígitos internacionales). El frontend requiere los tres datos; el contacto es opcional en la API para compatibilidad. Rechaza teléfono de identidad en la raíz, cliente_id, precios y campos extra. Devuelve referencia, mensaje, vencimiento y enlace si hay número configurado. No crea cliente ni pedido operativo. |
 | `POST /api/whatsapp/simular` | Empleado, administrador o dueño; solo entorno no productivo con WhatsApp simulado. `202`, guarda una entrada con `id`, `telefono`, `texto` y `media_id` opcional. |
-| `GET /api/whatsapp/bandeja` | Empleado, administrador o dueño. Devuelve `comprobantes` con total vigente, `cambios` pendientes, `atenciones` pendientes y `salidas`. Cada atención incluye `id`, `motivo` (`SOLICITUD` o `PROVEEDOR`), `telefono`, `cliente`, `pedido_id`/`numero`/`estado_pedido`/`total` (nulos sin pedido), `tipo_entrega`, `metodo_pago`, `borrador_vencido`, `productos`, `mensaje` que la originó, hasta cinco `mensajes` recientes y sus `respuestas` con el estado de la outbox. Las referencias `MB-` se reemplazan por `[referencia]`. |
+| `GET /api/whatsapp/avisos` | Empleado, administrador o dueño. Resumen sin datos personales: `comprobantes_pendientes` (incluye adjuntos sin compra) y `atenciones_pendientes` (solicitudes y derivaciones por fallo de proveedor); cuenta únicamente `PENDIENTE`, sin límite de 100. Respuesta privada sin caché. |
+| `GET /api/whatsapp/bandeja` | Empleado, administrador o dueño. Devuelve `comprobantes` con total vigente, `cambios` pendientes, `atenciones` pendientes y `salidas`. Cada atención incluye `id`, `motivo` (`SOLICITUD`, `PROVEEDOR` o `COMPROBANTE`), `telefono`, `cliente`, `pedido_id`/`numero`/`estado_pedido`/`total` (nulos sin pedido), `tipo_entrega`, `metodo_pago`, `borrador_vencido`, `productos`, `mensaje` que la originó, `tiene_archivo` y sus `respuestas` con el estado de la outbox. Las vinculadas incluyen hasta cinco `mensajes` recientes; las generales sólo muestran su mensaje origen. Las referencias `MB-` se reemplazan por `[referencia]`. |
 | `POST /api/whatsapp/atenciones/{id}/respuesta` | Mismos roles internos. Cuerpo `texto` (1 a 1000 caracteres) y `solicitud_id` (UUID). `202`: crea una salida en `whatsapp_salida` con `atencion_id` y `enviado_por`; devuelve `id`, `atencion_id` y `estado` (`PENDIENTE`). No significa enviado. Repetir el mismo `solicitud_id` devuelve la misma salida; una atención resuelta responde `409`. |
 | `POST /api/whatsapp/atenciones/{id}/resolucion` | Mismos roles internos. Cuerpo `resolucion` (1 a 500 caracteres). Registra empleado, fecha y detalle; devuelve `estado: "RESUELTA"` y es idempotente. No envía mensajes. La conversación vuelve a `VINCULADO` o `CREADO` salvo que tenga un cambio pendiente de revisión. |
 | `POST /api/whatsapp/comprobantes/{id}/revision` | Mismos roles internos. Cuerpo `aprobar`, `motivo` y, al aprobar, `total_verificado` observado en la bandeja. Una diferencia con el total vigente rechaza la aprobación: recargar y revisar nuevamente. |
 | `GET /api/whatsapp/comprobantes/{id}/archivo` | Mismos roles internos. Solo modo real; descarga autenticada como adjunto, sin caché y con `nosniff`. |
+| `GET /api/whatsapp/atenciones/{id}/archivo` | Mismos roles internos y protección de descarga; sólo atenciones de motivo `COMPROBANTE`, usando el archivo del mensaje origen. No expone URLs ni credenciales del proveedor. |
 | `POST /api/whatsapp/cambios/{id}/revision` | Mismos roles internos. `aprobar` y `motivo`; al cambiar importe requiere `total_verificado` igual al nuevo total y `resolucion_financiera: "COBRO_PENDIENTE"`. Revalida versión, estado, stock y saldo. |
 | `GET /api/whatsapp/webhook` | Público, habilitado en modo real. Verifica `hub.mode`, `hub.verify_token` y responde el `hub.challenge`. |
 | `POST /api/whatsapp/webhook` | Público con firma `X-Hub-Signature-256` válida sobre los bytes originales, límite de 256 KiB y coincidencia del phone-number-ID configurado. Persiste entradas y callbacks; el worker procesa después. |
@@ -271,8 +292,12 @@ corresponde comprobar compra, recompra y mensajes repetidos con WhatsApp real.
 Para continuar una conversación se valida el remitente firmado. La migración
 `018_whatsapp_contexto_chat.sql` guarda en `whatsapp_sesion` el pedido del que se
 está hablando, con vencimiento de 30 minutos. Enviar el resumen web o seleccionar
-una compra establece ese foco: los mensajes siguientes ya no necesitan repetir
-el número aunque haya otros pedidos abiertos. Los saludos y agradecimientos tienen
+una compra establece ese foco: los mensajes siguientes continúan sobre esa compra
+aunque haya otros pedidos abiertos. Los mensajes del bot y los avisos automáticos
+de estado omiten el número de pedido; el panel conserva sus identificadores para
+la operación interna. La migración `023_whatsapp_sin_numero_pedido.sql` actualiza
+el generador de avisos nuevos; no reescribe mensajes históricos ni la outbox previa.
+Los saludos y agradecimientos tienen
 respuestas breves y no borran el contexto ni una pregunta pendiente.
 
 Sin un foco vigente y con varios pedidos, el bot muestra hasta diez compras

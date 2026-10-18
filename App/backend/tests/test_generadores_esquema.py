@@ -3,6 +3,26 @@
 from scripts import der, diccionario
 
 
+def test_reemplaza_check_implicito_de_columna(tmp_path):
+    original = tmp_path / "001_original.sql"
+    original.write_text(
+        "CREATE TABLE aviso (\n"
+        "id BIGINT PRIMARY KEY,\n"
+        "motivo TEXT NOT NULL CHECK (motivo IN ('SOLICITUD','PROVEEDOR'))\n);\n",
+        encoding="utf-8",
+    )
+    cambio = tmp_path / "002_cambio.sql"
+    cambio.write_text(
+        "ALTER TABLE aviso DROP CONSTRAINT aviso_motivo_check, "
+        "ADD CONSTRAINT aviso_motivo_check "
+        "CHECK (motivo IN ('SOLICITUD','PROVEEDOR','COMPROBANTE'));",
+        encoding="utf-8",
+    )
+    tabla, = diccionario.parsear_esquema([original, cambio])
+    motivo = next(c for c in tabla.columnas if c.nombre == "motivo")
+    assert motivo.valores == ["SOLICITUD", "PROVEEDOR", "COMPROBANTE"]
+
+
 def test_diccionario_refleja_cliente_independiente_y_borrador_publico():
     documento = diccionario.generar()
 

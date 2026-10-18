@@ -65,6 +65,9 @@ async def test_pregunta_y_retoma_la_solicitud_sin_hacerla_repetir(uow, worker, e
     await sin_foco(uow)
     pregunta = await enviar(uow, worker, s, "consulta-ambigua", "sin tomate")
     assert "cuál" in pregunta and "Armá tu carrito" not in pregunta
+    numeros = await uow.todos("SELECT numero FROM pedido WHERE id=ANY(%s)", ([a, b],))
+    assert "1." in pregunta and "2." in pregunta and "Pedido #" not in pregunta
+    assert all(str(fila["numero"]) not in pregunta for fila in numeros)
     assert await notas(uow, a) is None and await notas(uow, b) is None
     respuesta = await enviar(uow, worker, s, "eleccion-natural", eleccion)
     assert "Cambio guardado" in respuesta
@@ -132,17 +135,25 @@ async def test_otro_telefono_no_ve_las_opciones_ni_puede_elegir_un_pedido(uow, w
     assert await notas(uow, pid) is None
 
 
-async def test_comprobante_sin_foco_se_asocia_solo_tras_elegir_y_no_acredita_pago(uow, worker):
+async def test_comprobante_sin_foco_deriva_y_no_se_reasigna_tras_elegir(uow, worker):
     s = construir_servicio(uow)
     _, a = await nuevo_pedido(uow, worker, s, "recibo-a", metodo="TRANSFERENCIA")
     _, b = await nuevo_pedido(uow, worker, s, "recibo-b", metodo="TRANSFERENCIA")
     await sin_foco(uow)
     await enviar(uow, worker, s, "recibo-original", "", "imagen-ficticia")
     assert await uow.valor("SELECT count(*) FROM whatsapp_comprobante") == 0
-    respuesta = await enviar(uow, worker, s, "recibo-elegido", "el último")
+    assert await uow.valor(
+        "SELECT count(*) FROM whatsapp_atencion WHERE entrada_id='recibo-original' "
+        "AND motivo='COMPROBANTE' AND referencia_hash IS NULL"
+    ) == 1
+    await enviar(uow, worker, s, "recibo-elegido", "el último")
+    assert await uow.valor("SELECT count(*) FROM whatsapp_comprobante") == 0
+    # Un adjunto nuevo con foco elegido sí se registra sobre esa compra;
+    # la imagen ambigua original sigue disponible para el personal.
+    respuesta = await enviar(uow, worker, s, "recibo-ya-elegido", "", "imagen-con-foco")
     assert "Comprobante recibido" in respuesta
     assert await uow.valor(
-        "SELECT pedido_id FROM whatsapp_comprobante WHERE entrada_id='recibo-original'"
+        "SELECT pedido_id FROM whatsapp_comprobante WHERE entrada_id='recibo-ya-elegido'"
     ) == b
     assert await uow.valor(
         "SELECT count(*) FROM pago WHERE pedido_id=ANY(%s)", ([a, b],)
