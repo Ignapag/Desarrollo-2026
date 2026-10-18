@@ -22,14 +22,20 @@ from app.modules.stock.domain.entidades import (
 
 
 class RepositorioStock(Protocol):
+    async def reservas_antes_preparacion(self, pedido_id: int) -> list[dict] | None: ...
     async def bloquear_pedido(self, pedido_id: int) -> bool: ...
     async def consumo_existente(self, pedido_id: int) -> bool: ...
     async def pedido_tiene_opciones(self, pedido_id: int) -> bool: ...
     async def recetas(self, producto_ids: list[int]) -> list[dict]: ...
     async def bloquear_ingredientes(self, ingrediente_ids: list[int]) -> list[dict]: ...
     async def consumir(
-        self, ingrediente_id: int, cantidad: Decimal, pedido_id: int, *,
-        motivo: str | None = None, usuario_id: int | None = None,
+        self,
+        ingrediente_id: int,
+        cantidad: Decimal,
+        pedido_id: int,
+        *,
+        motivo: str | None = None,
+        usuario_id: int | None = None,
     ) -> dict | None: ...
     async def item_para_ajuste(self, pedido_id: int, item_id: int) -> dict | None: ...
     async def ajuste_existente(self, pedido_id: int, motivo: str) -> bool: ...
@@ -39,8 +45,12 @@ class RepositorioStock(Protocol):
     async def devolucion_existente(self, pedido_id: int, motivo: str) -> bool: ...
     async def consumo_neto_ingrediente(self, pedido_id: int, ingrediente_id: int) -> Decimal: ...
     async def devolver(
-        self, ingrediente_id: int, cantidad: Decimal, pedido_id: int,
-        usuario_id: int | None, motivo: str,
+        self,
+        ingrediente_id: int,
+        cantidad: Decimal,
+        pedido_id: int,
+        usuario_id: int | None,
+        motivo: str,
     ) -> None: ...
     async def listar(
         self,
@@ -82,7 +92,12 @@ class ServicioStock:
         self.repo = repositorio
 
     async def procesar_consumo(
-        self, pedido_id: int, items: Sequence[ItemConsumoStock]
+        self,
+        pedido_id: int,
+        items: Sequence[ItemConsumoStock],
+        *,
+        clave_ciclo: str | None = None,
+        usuario_id: int | None = None,
     ) -> list[dict]:
         """Consume una vez por pedido dentro de la transaccion del llamador.
 
@@ -119,7 +134,9 @@ class ServicioStock:
         # mismo pedido sin cambiar su estado ni requerir una migracion.
         if not await self.repo.bloquear_pedido(pedido_id):
             raise NoEncontrado("El pedido no existe")
-        if await self.repo.consumo_existente(pedido_id):
+        if clave_ciclo is not None and await self.repo.ajuste_existente(pedido_id, clave_ciclo):
+            raise PedidoYaProcesado("El ciclo ya consumio stock")
+        if clave_ciclo is None and await self.repo.consumo_existente(pedido_id):
             raise PedidoYaProcesado("El pedido ya consumio stock", {"pedido_id": pedido_id})
         if await self.repo.pedido_tiene_opciones(pedido_id):
             raise ReglaDeNegocio("El consumo con personalizaciones todavia no esta soportado")
@@ -167,7 +184,16 @@ class ServicioStock:
 
         movimientos = []
         for ingrediente_id, requerido in sorted(requeridos.items()):
-            movimiento = await self.repo.consumir(ingrediente_id, requerido, pedido_id)
+            if clave_ciclo is None:
+                movimiento = await self.repo.consumir(ingrediente_id, requerido, pedido_id)
+            else:
+                movimiento = await self.repo.consumir(
+                    ingrediente_id,
+                    requerido,
+                    pedido_id,
+                    motivo=clave_ciclo,
+                    usuario_id=usuario_id,
+                )
             if movimiento is None:
                 raise StockInsuficiente(
                     "El stock cambio durante el descuento",
@@ -176,24 +202,51 @@ class ServicioStock:
             movimientos.append(movimiento)
         return movimientos
 
+    async def devolver_reserva_pedido(self, pedido_id: int, usuario_id: int | None) -> None:
+        """Devuelve el neto reservado solo cuando nunca comenzo la cocina."""
+        if not await self.repo.bloquear_pedido(pedido_id):
+            raise NoEncontrado("El pedido no existe")
+        reservas = await self.repo.reservas_antes_preparacion(pedido_id)
+        if reservas is None:
+            raise ReglaDeNegocio("Los insumos utilizados no se devuelven automaticamente")
+        await self.repo.bloquear_ingredientes([fila["ingrediente_id"] for fila in reservas])
+        for fila in reservas:
+            if fila["cantidad"] > 0:
+                await self.repo.devolver(
+                    fila["ingrediente_id"],
+                    fila["cantidad"],
+                    pedido_id,
+                    usuario_id,
+                    "CANCELACION_RESERVA",
+                )
+
     async def ajustar_cantidad_item(
-        self, pedido_id: int, item_id: int, nueva_cantidad: int,
-        clave_cambio: str, usuario_id: int | None,
+        self,
+        pedido_id: int,
+        item_id: int,
+        nueva_cantidad: int,
+        clave_cambio: str,
+        usuario_id: int | None,
     ) -> None:
         """Ajusta solo el diferencial antes de actualizar el item, en el mismo UoW.
 
         La clave identifica la version confirmada y debe ser unica por cambio.
         Una reduccion desde cocina conserva el consumo como insumos ya utilizados.
         """
-        if any(isinstance(valor, bool) or not isinstance(valor, int) or valor <= 0
-               for valor in (pedido_id, item_id)):
+        if any(
+            isinstance(valor, bool) or not isinstance(valor, int) or valor <= 0
+            for valor in (pedido_id, item_id)
+        ):
             raise DatosInvalidos("El pedido, item o usuario no es valido")
         if usuario_id is not None and (
             isinstance(usuario_id, bool) or not isinstance(usuario_id, int) or usuario_id <= 0
         ):
             raise DatosInvalidos("El usuario no es valido")
-        if (isinstance(nueva_cantidad, bool) or not isinstance(nueva_cantidad, int)
-                or not 1 <= nueva_cantidad <= 50):
+        if (
+            isinstance(nueva_cantidad, bool)
+            or not isinstance(nueva_cantidad, int)
+            or not 1 <= nueva_cantidad <= 50
+        ):
             raise DatosInvalidos("La cantidad debe ser un entero entre 1 y 50")
         if not isinstance(clave_cambio, str) or not clave_cambio.strip():
             raise DatosInvalidos("La clave del cambio es obligatoria")
@@ -232,8 +285,10 @@ class ServicioStock:
         }
         for ingrediente_id, requerido in sorted(requeridos.items()):
             if delta > 0 and saldos[ingrediente_id]["cantidad_actual"] < requerido:
-                raise StockInsuficiente("Stock insuficiente para aumentar la cantidad",
-                                        {"ingrediente_id": ingrediente_id})
+                raise StockInsuficiente(
+                    "Stock insuficiente para aumentar la cantidad",
+                    {"ingrediente_id": ingrediente_id},
+                )
             if delta < 0:
                 neto = await self.repo.consumo_neto_ingrediente(pedido_id, ingrediente_id)
                 if neto < requerido:
@@ -241,7 +296,8 @@ class ServicioStock:
         for ingrediente_id, requerido in sorted(requeridos.items()):
             if delta > 0:
                 resultado = await self.repo.consumir(
-                    ingrediente_id, requerido, pedido_id, motivo=motivo, usuario_id=usuario_id)
+                    ingrediente_id, requerido, pedido_id, motivo=motivo, usuario_id=usuario_id
+                )
                 if resultado is None:
                     raise StockInsuficiente("El stock cambio durante el ajuste")
             else:
@@ -255,8 +311,10 @@ class ServicioStock:
         Usa el item y la receta persistidos y la misma transaccion del cambio.
         El bloqueo del pedido serializa preparacion, devoluciones y reintentos.
         """
-        if any(isinstance(valor, bool) or not isinstance(valor, int) or valor <= 0
-               for valor in (pedido_id, item_id)):
+        if any(
+            isinstance(valor, bool) or not isinstance(valor, int) or valor <= 0
+            for valor in (pedido_id, item_id)
+        ):
             raise DatosInvalidos("El pedido o item no es valido")
         nombre = nombre.strip().casefold() if isinstance(nombre, str) else ""
         if nombre not in INGREDIENTES_QUITABLES:

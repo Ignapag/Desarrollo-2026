@@ -209,6 +209,8 @@ async def test_sql_solo_bloquea_transferencias_sin_aprobar(uow, metodo, estado_p
         "metodo_pago, estado_pago, pedido_id) VALUES (%s, %s, '5492215550000', '[]', %s, %s, %s)",
         (uuid4().hex, cliente_id, metodo, estado_pago, pedido["id"]),
     )
+    await uow.ejecutar("UPDATE pedido SET metodo_pago_acordado=%s WHERE id=%s",
+                       (metodo,pedido["id"]))
     if metodo == "TRANSFERENCIA" and estado_pago == "APROBADO":
         # La revisión acredita un pago conciliado por el importe observado.
         assert (await repo.obtener(pedido["id"], bloquear=True))["puede_preparar"] is False
