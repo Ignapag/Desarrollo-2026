@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
+from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.modules.delivery.application.servicio_delivery import (
     ResultadoPlanificacion,
@@ -97,6 +99,10 @@ class ViajeActivo(BaseModel):
 
 class EnvioDelViaje(BaseModel):
     id: int
+    envio_id: int
+    viaje_id: int
+    total: Decimal
+    saldo_pendiente: Decimal
     pedido_id: int
     numero: int
     estado: str
@@ -133,3 +139,19 @@ class ResultadoEntrega(BaseModel):
     envio_id: int
     pedido_id: int
     viaje_finalizado: bool
+
+
+class MotivoOperacion(BaseModel):
+    motivo: str = Field(min_length=1, max_length=1000)
+
+
+class AsignacionManual(MotivoOperacion):
+    repartidor_id: int = Field(gt=0)
+
+
+class RegresoEnvio(MotivoOperacion):
+    version_esperada: int = Field(ge=0)
+
+
+class CorreccionEntrega(RegresoEnvio):
+    regreso_confirmado: Literal[True]

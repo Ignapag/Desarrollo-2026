@@ -16,20 +16,21 @@ import pytest_asyncio
 
 from app.core.db import UnidadDeTrabajo
 from app.modules.delivery.application.servicio_delivery import ServicioDelivery
-from app.modules.delivery.infrastructure.repositorio_sql import RepositorioDeliverySQL
+from app.modules.delivery.presentation.dependencias import obtener_servicio_delivery
 
 # Coordenadas reales de la zona de reparto
 ENSENADA_CENTRO = (-34.860, -57.907)
-ENSENADA_CERCA = (-34.8620, -57.9090)   # ~300 m del centro
-ENSENADA_LEJOS = (-34.8840, -57.9350)   # ~3,5 km del centro
+ENSENADA_CERCA = (-34.8620, -57.9090)  # ~300 m del centro
+ENSENADA_LEJOS = (-34.8840, -57.9350)  # ~3,5 km del centro
 
 
 @pytest_asyncio.fixture
 async def servicio(uow: UnidadDeTrabajo) -> ServicioDelivery:
-    return ServicioDelivery(uow, RepositorioDeliverySQL(uow))
+    return obtener_servicio_delivery(uow)
 
 
 # ------------------------------------------------------------------ ayudas
+
 
 async def crear_cliente(uow: UnidadDeTrabajo, sufijo: str) -> int:
     fila = await uow.uno(
@@ -77,13 +78,13 @@ async def crear_pedido_listo(
 async def liberar_repartidores(uow: UnidadDeTrabajo) -> None:
     """Deja a todos los repartidores disponibles y sin viajes abiertos."""
     await uow.ejecutar(
-        "UPDATE viaje SET estado = 'FINALIZADO'"
-        " WHERE estado IN ('PLANIFICADO','EN_RUTA')"
+        "UPDATE viaje SET estado = 'FINALIZADO'" " WHERE estado IN ('PLANIFICADO','EN_RUTA')"
     )
     await uow.ejecutar("UPDATE repartidor SET estado = 'DISPONIBLE'")
 
 
 # ------------------------------------------------------- lectura de datos
+
 
 @pytest.mark.asyncio
 async def test_detecta_los_pedidos_listos_con_su_zona(uow, servicio):
@@ -116,6 +117,7 @@ async def test_los_repartidores_del_seed_estan_disponibles(uow, servicio):
 
 
 # --------------------------------------------------- asignacion completa
+
 
 @pytest.mark.asyncio
 async def test_dos_pedidos_cercanos_salen_en_un_solo_viaje(uow, servicio):
@@ -150,9 +152,7 @@ async def test_la_asignacion_deja_el_envio_y_el_repartidor_en_estado(uow, servic
     resultado = await servicio.planificar_y_asignar()
     viaje = next(v for v in resultado.viajes if pedido_id in v.pedidos)
 
-    estado_envio = await uow.valor(
-        "SELECT estado FROM envio WHERE pedido_id = %s", (pedido_id,)
-    )
+    estado_envio = await uow.valor("SELECT estado FROM envio WHERE pedido_id = %s", (pedido_id,))
     estado_repartidor = await uow.valor(
         "SELECT estado FROM repartidor WHERE usuario_id = %s", (viaje.repartidor_id,)
     )
@@ -167,9 +167,7 @@ async def test_un_repartidor_ocupado_no_recibe_otro_viaje(uow, servicio):
 
     # Un pedido por cada repartidor, todos lejanos entre si
     for i in range(disponibles + 1):
-        await crear_pedido_listo(
-            uow, f"o{i}", (-34.860 - i * 0.02, -57.907 - i * 0.02)
-        )
+        await crear_pedido_listo(uow, f"o{i}", (-34.860 - i * 0.02, -57.907 - i * 0.02))
 
     resultado = await servicio.planificar_y_asignar()
 
@@ -204,6 +202,7 @@ async def test_no_reasigna_un_pedido_ya_asignado(uow, servicio):
 
 
 # ------------------------------------------------------ ciclo de entrega
+
 
 @pytest.mark.asyncio
 async def test_iniciar_viaje_pone_los_pedidos_en_camino(uow, servicio):
@@ -262,9 +261,7 @@ async def test_entregar_el_ultimo_pedido_cierra_el_viaje_y_libera_al_repartidor(
 
     assert entrega["viaje_finalizado"] is True
     assert await uow.valor("SELECT estado FROM pedido WHERE id = %s", (pedido_id,)) == "ENTREGADO"
-    estado_viaje = await uow.valor(
-        "SELECT estado FROM viaje WHERE id = %s", (viaje.viaje_id,)
-    )
+    estado_viaje = await uow.valor("SELECT estado FROM viaje WHERE id = %s", (viaje.viaje_id,))
     assert estado_viaje == "FINALIZADO"
     assert (
         await uow.valor(
@@ -341,9 +338,65 @@ async def test_la_distancia_de_python_coincide_con_la_de_postgres(uow):
     lat1, lng1 = ENSENADA_CENTRO
     lat2, lng2 = ENSENADA_LEJOS
 
-    en_sql = float(
-        await uow.valor("SELECT distancia_km(%s, %s, %s, %s)", (lat1, lng1, lat2, lng2))
-    )
+    en_sql = float(await uow.valor("SELECT distancia_km(%s, %s, %s, %s)", (lat1, lng1, lat2, lng2)))
     en_python = distancia_km(lat1, lng1, lat2, lng2)
 
     assert abs(en_sql - en_python) < 0.01
+
+
+@pytest.mark.asyncio
+async def test_inicio_no_resucita_un_pedido_cancelado(uow, servicio):
+    from app.errores import ReglaDeNegocio
+
+    await liberar_repartidores(uow)
+    pedido_id = await crear_pedido_listo(uow, "cancelado", ENSENADA_CENTRO)
+    resultado = await servicio.planificar_y_asignar()
+    viaje = next(v for v in resultado.viajes if pedido_id in v.pedidos)
+    await uow.ejecutar("UPDATE pedido SET estado = 'CANCELADO' WHERE id = %s", (pedido_id,))
+    with pytest.raises(ReglaDeNegocio):
+        await servicio.iniciar_viaje(viaje.viaje_id)
+    assert await uow.valor("SELECT estado FROM pedido WHERE id = %s", (pedido_id,)) == "CANCELADO"
+    assert (
+        await uow.valor("SELECT estado FROM viaje WHERE id = %s", (viaje.viaje_id,))
+        == "PLANIFICADO"
+    )
+
+
+@pytest.mark.asyncio
+async def test_entrega_exige_salida_real_del_viaje(uow, servicio):
+    from app.errores import ReglaDeNegocio
+
+    await liberar_repartidores(uow)
+    pedido_id = await crear_pedido_listo(uow, "sin_salida", ENSENADA_CENTRO)
+    await servicio.planificar_y_asignar()
+    envio_id = await uow.valor("SELECT id FROM envio WHERE pedido_id = %s", (pedido_id,))
+    with pytest.raises(ReglaDeNegocio):
+        await servicio.registrar_entrega(envio_id)
+    assert await uow.valor("SELECT estado FROM pedido WHERE id = %s", (pedido_id,)) == "LISTO"
+
+
+@pytest.mark.asyncio
+async def test_repartidor_no_consulta_viaje_ajeno(uow, servicio):
+    from app.errores import SinPermiso
+
+    await liberar_repartidores(uow)
+    pedido_id = await crear_pedido_listo(uow, "ajeno", ENSENADA_CENTRO)
+    resultado = await servicio.planificar_y_asignar()
+    viaje = next(v for v in resultado.viajes if pedido_id in v.pedidos)
+    with pytest.raises(SinPermiso):
+        await servicio.detalle_viaje(viaje.viaje_id, usuario_id=-1, rol="REPARTIDOR")
+
+
+@pytest.mark.asyncio
+async def test_desasignar_conserva_pedido_y_libera_viaje(uow, servicio):
+    await liberar_repartidores(uow)
+    pedido_id = await crear_pedido_listo(uow, "desasignado", ENSENADA_CENTRO)
+    resultado = await servicio.planificar_y_asignar()
+    viaje = next(v for v in resultado.viajes if pedido_id in v.pedidos)
+    envio_id = await uow.valor("SELECT id FROM envio WHERE pedido_id = %s", (pedido_id,))
+    await servicio.desasignar_envio(envio_id, motivo="Corregir domicilio", rol="EMPLEADO")
+    assert await uow.valor("SELECT estado FROM pedido WHERE id = %s", (pedido_id,)) == "LISTO"
+    assert await uow.valor("SELECT viaje_id FROM envio WHERE id = %s", (envio_id,)) is None
+    assert (
+        await uow.valor("SELECT estado FROM viaje WHERE id = %s", (viaje.viaje_id,)) == "CANCELADO"
+    )
