@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { act, createElement } from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import { installMinimalDom, elements, reactProps, deferred } from './minimal-dom.js';
@@ -11,6 +11,7 @@ let dom;
 let createRoot;
 let Notice;
 let Inbox;
+let Orders;
 let setTestUser;
 let tick;
 const previousFetch = globalThis.fetch;
@@ -24,11 +25,12 @@ before(async () => {
   ({ createRoot } = await import('react-dom/client'));
   server = await createServer({ configFile: false, cacheDir: `node_modules/.vite-avisos-test-${process.pid}`, plugins: [{ name: 'sesion-avisos', enforce: 'pre', load(id) {
     if (id.replaceAll('\\', '/').endsWith('/src/auth/AuthContext.jsx')) return "let user; export const setTestUser=(value)=>{user=value}; export const useAuth=()=>({user});";
-    if (id.replaceAll('\\', '/').endsWith('/src/shared/store/DataContext.jsx')) return "export const useData=()=>({refreshData: async()=>{}});";
+    if (id.replaceAll('\\', '/').endsWith('/src/shared/store/DataContext.jsx')) return "const state={orders:[],ordersStatus:'ready'}; export const useData=()=>({state,orderOperationPending:()=>false,refreshData: async()=>{}});";
     return null;
   } }, react()], server: { middlewareMode: true, hmr: false, ws: false }, optimizeDeps: { noDiscovery: true }, appType: 'custom', logLevel: 'silent' });
   ({ default: Notice } = await server.ssrLoadModule('/src/fulfillment/WhatsAppAttentionNotice.jsx'));
   ({ default: Inbox } = await server.ssrLoadModule('/src/fulfillment/WhatsAppInbox.jsx'));
+  ({ default: Orders } = await server.ssrLoadModule('/src/fulfillment/Orders.jsx'));
   ({ setTestUser } = await server.ssrLoadModule('/src/auth/AuthContext.jsx'));
 });
 after(async () => { globalThis.fetch = previousFetch; await server?.close(); dom?.restore(); });
@@ -148,4 +150,21 @@ test('un comprobante sin compra abre revisión manual sin botón para acreditar 
   assert.doesNotMatch(container.textContent, /No hay comprobantes recibidos/);
   assert.equal(elements(container, (node) => node.localName === 'button' && node.textContent.includes('Aprobar')).length, 0);
   assert.equal(elements(container, (node) => node.localName === 'h4' && node.textContent.includes('Atención #44')).length, 1);
+});
+
+test('buscar pedidos después de abrir un aviso no reactiva la navegación ni roba foco', async (t) => {
+  globalThis.fetch = async () => response({ comprobantes: [], cambios: [], atenciones: [], salidas: [] });
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  function Location() { return createElement('output', null, useLocation().search); }
+  t.after(async () => { await act(async () => root.unmount()); document.body.removeChild(container); });
+  await act(async () => root.render(createElement(MemoryRouter, { initialEntries: ['/dashboard/orders?bandeja=atenciones'] }, createElement(Orders), createElement(Location))));
+  const input = elements(container, (node) => node.localName === 'input')[0];
+  input.focus();
+  await act(async () => reactProps(input).onChange({ target: { value: 'Ana' } }));
+  const query = elements(container, (node) => node.localName === 'output')[0].textContent;
+  assert.equal(new URLSearchParams(query).has('bandeja'), false);
+  assert.equal(new URLSearchParams(query).get('q'), 'Ana');
+  assert.equal(document.activeElement, input);
 });
