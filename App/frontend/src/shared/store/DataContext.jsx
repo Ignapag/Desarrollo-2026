@@ -160,9 +160,11 @@ export function DataProvider({ children }) {
   const customerCache = useRef(new Map());
   const orderSubscribers = useRef(0);
   const lastOrdersRead = useRef(0);
+  const operationsRef = useRef(new Map());
+  const [operations, setOperations] = useState({ owner: user, entries: [] });
 
   useLayoutEffect(() => {
-    freshnessRef.current.invalidate();
+    freshnessRef.current = createFreshnessFence();
     // Las escrituras pendientes de otra sesión conservan su propia barrera.
     catalogFence.current = createFreshnessFence();
     inventoryFence.current = createFreshnessFence();
@@ -173,7 +175,11 @@ export function DataProvider({ children }) {
     inventoryLoadedAt.current = 0;
     lastOrdersRead.current = 0;
     customerCache.current.clear();
-    return () => { userRef.current = null; };
+    operationsRef.current = new Map();
+    return () => {
+      userRef.current = null;
+      for (const entry of operationsRef.current.values()) clearTimeout(entry.timer);
+    };
   }, [user]);
 
   const refreshOrders = useCallback((signal, force = false) => {
@@ -283,8 +289,9 @@ export function DataProvider({ children }) {
 
   const runOrderMutation = async (operation) => {
     const owner = user;
+    const fence = freshnessRef.current;
     let confirmed = null;
-    freshnessRef.current.beginMutation();
+    fence.beginMutation();
     try {
       const result = await operation();
       confirmed = confirmedOrder(result);
@@ -293,12 +300,59 @@ export function DataProvider({ children }) {
       }
       return result;
     } finally {
-      freshnessRef.current.endMutation();
+      fence.endMutation();
       if (userRef.current === owner && !confirmed) {
         // El error queda visible en el tablero; no convierte un comando confirmado en un fallo.
         void refreshOrders(undefined, true).catch(() => undefined);
       }
     }
+  };
+
+  const publishOperations = () => {
+    if (userRef.current !== user) return;
+    setOperations({ owner: user, entries: [...operationsRef.current.values()].map(({ id, number, status, message }) => ({ id, number, status, message })) });
+  };
+
+  const orderOperationPending = (id) => userRef.current === user && operationsRef.current.get(id)?.status === 'pending';
+
+  const dismissOrderOperation = (id) => {
+    if (orderOperationPending(id) || userRef.current !== user) return;
+    clearTimeout(operationsRef.current.get(id)?.timer);
+    operationsRef.current.delete(id);
+    publishOperations();
+  };
+
+  // La operación vive en el provider, no en el modal que la inició.
+  const startOrderOperation = ({ id, number, operation, success = 'Pedido actualizado.' }) => {
+    if (!user || userRef.current !== user || orderOperationPending(id)) return false;
+    clearTimeout(operationsRef.current.get(id)?.timer);
+    const entry = { id, number, status: 'pending', message: 'En segundo plano' };
+    operationsRef.current.set(id, entry);
+    publishOperations();
+    let committed = false;
+    void runOrderMutation(async () => {
+      const result = await operation(() => userRef.current === user);
+      committed = true;
+      if (userRef.current !== user) return result;
+      // Reparto y adaptadores anteriores pueden devolver sólo el movimiento.
+      return confirmedOrder(result, id) || await apiFetch(`/api/pedidos/${id}`);
+    }).then(() => {
+      if (userRef.current !== user || operationsRef.current.get(id) !== entry) return;
+      entry.status = 'success';
+      entry.message = success;
+      publishOperations();
+      entry.timer = setTimeout(() => {
+        if (userRef.current === user && operationsRef.current.get(id) === entry) dismissOrderOperation(id);
+      }, 4000);
+    }).catch((error) => {
+      if (userRef.current !== user || operationsRef.current.get(id) !== entry) return;
+      entry.status = 'error';
+      entry.message = committed
+        ? `La acción se registró, pero falta actualizar el pedido. ${error.message}`
+        : `${error.message} Revisá el pedido antes de reintentar.`;
+      publishOperations();
+    });
+    return true;
   };
 
   const refreshData = useCallback(async (signal) => {
@@ -487,6 +541,10 @@ export function DataProvider({ children }) {
       cachedCustomers,
       getCustomers,
       runOrderMutation,
+      startOrderOperation,
+      orderOperationPending,
+      dismissOrderOperation,
+      orderOperations: operations.owner === user ? operations.entries : [],
       createIngredient,
       replenishIngredient,
     }}>
