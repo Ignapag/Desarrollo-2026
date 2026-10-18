@@ -76,7 +76,11 @@ class RepositorioPedidosSQL:
     async def productos(self, ids: list[int]) -> list[dict]:
         return await self.uow.todos(
             """
-            SELECT p.id, p.nombre, p.precio_base, p.variantes,
+            SELECT p.id, p.nombre, p.precio_base,
+                   COALESCE((SELECT jsonb_agg(v || jsonb_build_object(
+                       'disponible', variante_producto_disponible(p.id, v->>'nombre')) ORDER BY n)
+                       FROM jsonb_array_elements(p.variantes) WITH ORDINALITY x(v,n)),
+                       '[]'::jsonb) AS variantes,
                    p.activo AND pd.disponible AS disponible
             FROM producto p
             JOIN producto_disponible pd ON pd.producto_id = p.id
@@ -127,12 +131,22 @@ class RepositorioPedidosSQL:
         pedido_id = fila["id"]
         for item in items:
             item_subtotal = Decimal(str(item["precio_unitario"])) * item["cantidad"]
+            receta = await self.uow.todos(
+                "SELECT ingrediente_id, cantidad_requerida, es_base "
+                "FROM receta_producto(%s, %s) ORDER BY ingrediente_id",
+                (item["producto_id"], item.get("variante")),
+            )
+            receta_snapshot = [
+                {**ingrediente, "cantidad_requerida": str(ingrediente["cantidad_requerida"])}
+                for ingrediente in receta
+            ]
             await self.uow.ejecutar(
                 """
                 INSERT INTO pedido_item
                     (pedido_id, producto_id, nombre_producto, cantidad,
-                     precio_unitario, costo_opciones, subtotal, aclaraciones)
-                VALUES (%s, %s, %s, %s, %s, 0, %s, %s)
+                     precio_unitario, costo_opciones, subtotal, aclaraciones,
+                     variante, receta_snapshot)
+                VALUES (%s, %s, %s, %s, %s, 0, %s, %s, %s, %s::jsonb)
                 """,
                 (
                     pedido_id,
@@ -142,6 +156,8 @@ class RepositorioPedidosSQL:
                     item["precio_unitario"],
                     item_subtotal,
                     item["aclaraciones"],
+                    item.get("variante"),
+                    json.dumps(receta_snapshot),
                 ),
             )
         await self.uow.ejecutar(
@@ -344,7 +360,7 @@ class RepositorioPedidosSQL:
         return await self.uow.todos(
             """
             SELECT id, producto_id, nombre_producto, cantidad, precio_unitario,
-                   costo_opciones, subtotal, aclaraciones
+                   costo_opciones, subtotal, aclaraciones, variante, receta_snapshot
             FROM pedido_item WHERE pedido_id = %s ORDER BY id
             """,
             (pedido_id,),
@@ -388,7 +404,8 @@ class RepositorioPedidosSQL:
 
     async def items_para_stock(self, pedido_id: int) -> list[dict]:
         return await self.uow.todos(
-            "SELECT producto_id, cantidad, aclaraciones FROM pedido_item "
+            "SELECT producto_id, cantidad, aclaraciones, variante, receta_snapshot "
+            "FROM pedido_item "
             "WHERE pedido_id = %s ORDER BY id",
             (pedido_id,),
         )

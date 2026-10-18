@@ -52,7 +52,8 @@ class RepositorioStockSQL:
 
     async def item_para_ajuste(self, pedido_id: int, item_id: int) -> dict | None:
         return await self.uow.uno(
-            "SELECT p.estado, p.preparacion_en, i.producto_id, i.cantidad, i.aclaraciones "
+            "SELECT p.estado, p.preparacion_en, i.producto_id, i.cantidad, i.aclaraciones, "
+            "i.receta_snapshot "
             "FROM pedido p JOIN pedido_item i ON i.pedido_id = p.id "
             "WHERE p.id = %s AND i.id = %s FOR UPDATE OF i",
             (pedido_id, item_id),
@@ -76,7 +77,15 @@ class RepositorioStockSQL:
                    ing.id AS ingrediente_id, receta.cantidad_requerida
             FROM pedido p
             JOIN pedido_item i ON i.pedido_id = p.id
-            JOIN producto_ingrediente receta ON receta.producto_id = i.producto_id
+            CROSS JOIN LATERAL (
+                SELECT (r->>'ingrediente_id')::bigint AS ingrediente_id,
+                       (r->>'cantidad_requerida')::numeric AS cantidad_requerida
+                FROM jsonb_array_elements(i.receta_snapshot) r
+                UNION ALL
+                SELECT pi.ingrediente_id, pi.cantidad_requerida
+                FROM producto_ingrediente pi
+                WHERE i.receta_snapshot IS NULL AND pi.producto_id = i.producto_id
+            ) receta
             JOIN ingrediente ing ON ing.id = receta.ingrediente_id
             WHERE p.id = %s AND i.id = %s AND lower(ing.nombre) = %s
             FOR UPDATE OF i, ing

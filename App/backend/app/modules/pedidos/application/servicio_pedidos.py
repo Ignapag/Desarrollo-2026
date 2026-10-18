@@ -167,6 +167,8 @@ class ServicioPedidos:
                     raise DatosInvalidos(
                         f"Debe seleccionar una variante valida para {producto['nombre']}"
                     )
+                if seleccionada.get("disponible") is False:
+                    raise ReglaDeNegocio("La variante seleccionada esta sin stock o inactiva")
                 precio = seleccionada["precio"]
                 nombre = f"{nombre} ({seleccionada['nombre']})"
             elif variante is not None:
@@ -178,6 +180,7 @@ class ServicioPedidos:
                     "cantidad": cantidad,
                     "precio_unitario": precio,
                     "aclaraciones": aclaracion,
+                    **({"variante": variante} if variante is not None else {}),
                 }
             )
         if metodo_pago_acordado not in {"EFECTIVO", "TRANSFERENCIA"}:

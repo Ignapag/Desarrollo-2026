@@ -321,6 +321,14 @@ class RepositorioBotSQL:
             (producto_id,),
         )
 
+    async def ingredientes_snapshot(self, receta_snapshot):
+        return await self.uow.todos(
+            """SELECT i.nombre, r.es_base FROM jsonb_to_recordset(%s::jsonb)
+            AS r(ingrediente_id bigint, es_base boolean)
+            JOIN ingrediente i ON i.id=r.ingrediente_id ORDER BY i.nombre, i.id""",
+            (Jsonb(receta_snapshot),),
+        )
+
     async def historial(self, b, accion, anterior, posterior, estado, empleado_id=None):
         return await self.uow.uno(
             """INSERT INTO whatsapp_cambio

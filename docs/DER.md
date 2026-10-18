@@ -7,7 +7,7 @@ Modelo de datos **tal como está implementado** en la base.
 > quedar desactualizado respecto del esquema real. CI verifica que
 > este al dia.
 
-**35 entidades · 62 relaciones.**
+**36 entidades · 64 relaciones.**
 
 Este diagrama reemplaza al entregado en la Actividad N°2: las diferencias
 están explicadas una por una en [CAMBIOS_DER.md](CAMBIOS_DER.md) (C-01 a C-12).
@@ -91,6 +91,8 @@ erDiagram
     USUARIO o|--o{ WHATSAPP_ATENCION : resuelta_por
     WHATSAPP_BORRADOR o|--o{ WHATSAPP_SESION : referencia_hash
     WHATSAPP_ENTRADA o|--o{ WHATSAPP_SESION : solicitud_id
+    PRODUCTO ||--o{ PRODUCTO_VARIANTE_INGREDIENTE : producto_id
+    INGREDIENTE ||--o{ PRODUCTO_VARIANTE_INGREDIENTE : ingrediente_id
 ```
 
 ---
@@ -321,6 +323,8 @@ erDiagram
         numeric costo_opciones
         numeric subtotal
         text aclaraciones
+        text variante
+        jsonb receta_snapshot
     }
     PEDIDO_ITEM_OPCION {
         bigint id PK
@@ -592,6 +596,19 @@ erDiagram
     }
 ```
 
+### Recetas variantes
+
+```mermaid
+erDiagram
+    PRODUCTO_VARIANTE_INGREDIENTE {
+        bigint producto_id PK
+        text variante PK
+        bigint ingrediente_id PK
+        numeric cantidad_requerida
+        boolean es_base
+    }
+```
+
 ---
 
 ## Relaciones en detalle
@@ -640,6 +657,8 @@ erDiagram
 | `producto_ingrediente` | `producto_id` | `producto` | 1 : N | Sí |
 | `producto_opcion` | `ingrediente_id` | `ingrediente` | 1 : N | Sí |
 | `producto_opcion` | `producto_id` | `producto` | 1 : N | Sí |
+| `producto_variante_ingrediente` | `ingrediente_id` | `ingrediente` | 1 : N | Sí |
+| `producto_variante_ingrediente` | `producto_id` | `producto` | 1 : N | Sí |
 | `promocion` | `creada_por` | `usuario` | 1 : N | No |
 | `punto_encuentro` | `zona_id` | `zona_cobertura` | 1 : N | No |
 | `repartidor` | `usuario_id` | `usuario` | 1 : 1 | Sí |

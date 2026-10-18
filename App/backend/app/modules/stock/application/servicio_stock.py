@@ -15,6 +15,7 @@ from app.modules.stock.domain.entidades import (
     TIPOS_MOVIMIENTO,
     DatosIngrediente,
     ItemConsumoStock,
+    cantidades_de_snapshot,
     ingredientes_omitidos_de_aclaraciones,
     validar_ingrediente,
     validar_reposicion,
@@ -108,7 +109,6 @@ class ServicioStock:
             raise DatosInvalidos("El pedido_id no es valido")
         if not items:
             raise DatosInvalidos("El pedido debe contener al menos un item")
-        producto_ids: set[int] = set()
         for item in items:
             if not isinstance(item, ItemConsumoStock):
                 raise DatosInvalidos("El item de consumo no es valido")
@@ -128,7 +128,6 @@ class ServicioStock:
                 for nombre in item.ingredientes_omitidos
             ):
                 raise ReglaDeNegocio("Hay ingredientes que no se pueden retirar")
-            producto_ids.add(item.producto_id)
 
         # El bloqueo de la fila del pedido serializa intentos simultaneos del
         # mismo pedido sin cambiar su estado ni requerir una migracion.
@@ -141,31 +140,54 @@ class ServicioStock:
         if await self.repo.pedido_tiene_opciones(pedido_id):
             raise ReglaDeNegocio("El consumo con personalizaciones todavia no esta soportado")
 
-        recetas = await self.repo.recetas(sorted(producto_ids))
+        productos_sin_snapshot = {
+            item.producto_id for item in items if item.receta_snapshot is None
+        }
+        recetas = (
+            await self.repo.recetas(sorted(productos_sin_snapshot))
+            if productos_sin_snapshot else []
+        )
         encontrados = {fila["producto_id"] for fila in recetas}
-        faltan_productos = sorted(producto_ids - encontrados)
+        faltan_productos = sorted(productos_sin_snapshot - encontrados)
         if faltan_productos:
             raise NoEncontrado("Hay productos inexistentes", {"producto_ids": faltan_productos})
         sin_receta = {fila["producto_id"] for fila in recetas if fila["ingrediente_id"] is None}
         if sin_receta:
             raise ReglaDeNegocio("Hay productos sin receta", {"producto_ids": sorted(sin_receta)})
 
-        ingrediente_ids = {fila["ingrediente_id"] for fila in recetas}
+        recetas_items = []
+        for item in items:
+            receta = item.receta_snapshot
+            if receta is None:
+                receta = tuple(
+                    (fila["ingrediente_id"], fila["cantidad_requerida"])
+                    for fila in recetas if fila["producto_id"] == item.producto_id
+                )
+            if not receta:
+                raise ReglaDeNegocio("Hay productos sin receta")
+            if any(
+                isinstance(ingrediente_id, bool)
+                or not isinstance(ingrediente_id, int) or ingrediente_id <= 0
+                or not isinstance(cantidad, Decimal) or not cantidad.is_finite() or cantidad <= 0
+                for ingrediente_id, cantidad in receta
+            ):
+                raise ReglaDeNegocio("La receta del pedido no es valida")
+            recetas_items.append((item, receta))
+        ingrediente_ids = {
+            ingrediente_id for _, receta in recetas_items for ingrediente_id, _ in receta
+        }
         bloqueados = await self.repo.bloquear_ingredientes(sorted(ingrediente_ids))
         saldos = {fila["id"]: fila for fila in bloqueados}
         if ingrediente_ids != set(saldos):
             raise ReglaDeNegocio("La receta contiene ingredientes inexistentes")
 
         requeridos: dict[int, Decimal] = {}
-        for item in items:
-            for fila in recetas:
-                if fila["producto_id"] != item.producto_id:
-                    continue
-                ingrediente_id = fila["ingrediente_id"]
+        for item, receta in recetas_items:
+            for ingrediente_id, cantidad in receta:
                 if saldos[ingrediente_id]["nombre"].casefold() in item.ingredientes_omitidos:
                     continue
                 requeridos[ingrediente_id] = requeridos.get(ingrediente_id, Decimal("0")) + (
-                    fila["cantidad_requerida"] * item.cantidad
+                    cantidad * item.cantidad
                 )
         faltantes = [
             {
@@ -273,7 +295,13 @@ class ServicioStock:
             return
         if await self.repo.pedido_tiene_opciones(pedido_id):
             raise ReglaDeNegocio("El ajuste con opciones estructuradas todavia no esta soportado")
-        recetas = await self.repo.recetas([item["producto_id"]])
+        snapshot = cantidades_de_snapshot(item.get("receta_snapshot"))
+        recetas = (
+            [
+                {"ingrediente_id": ingrediente_id, "cantidad_requerida": cantidad}
+                for ingrediente_id, cantidad in snapshot
+            ] if snapshot is not None else await self.repo.recetas([item["producto_id"]])
+        )
         if not recetas or any(fila["ingrediente_id"] is None for fila in recetas):
             raise ReglaDeNegocio("El producto no tiene una receta para ajustar el consumo")
         ingrediente_ids = sorted({fila["ingrediente_id"] for fila in recetas})

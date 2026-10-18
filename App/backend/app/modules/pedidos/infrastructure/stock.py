@@ -1,7 +1,11 @@
 """Adaptador del puerto de consumo de stock requerido por Pedidos."""
 
 from app.modules.stock.application.servicio_stock import PedidoYaProcesado, ServicioStock
-from app.modules.stock.domain.entidades import INGREDIENTES_QUITABLES, ItemConsumoStock
+from app.modules.stock.domain.entidades import (
+    INGREDIENTES_QUITABLES,
+    ItemConsumoStock,
+    cantidades_de_snapshot,
+)
 
 
 def ingredientes_omitidos(aclaraciones: str | None) -> tuple[str, ...]:
@@ -31,6 +35,7 @@ class AdaptadorConsumoStock:
                     item["producto_id"],
                     item["cantidad"],
                     ingredientes_omitidos=ingredientes_omitidos(item.get("aclaraciones")),
+                    receta_snapshot=cantidades_de_snapshot(item.get("receta_snapshot")),
                 )
                 for item in items
             ],
@@ -48,6 +53,7 @@ class AdaptadorConsumoStock:
                         cantidad=item["cantidad"],
                         opciones=(),
                         ingredientes_omitidos=ingredientes_omitidos(item.get("aclaraciones")),
+                        receta_snapshot=cantidades_de_snapshot(item.get("receta_snapshot")),
                     )
                     for item in items
                 ],

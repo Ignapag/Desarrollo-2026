@@ -33,6 +33,16 @@ class ItemConsumoStock:
     cantidad: int
     opciones: tuple[object, ...] = ()
     ingredientes_omitidos: tuple[str, ...] = ()
+    receta_snapshot: tuple[tuple[int, Decimal], ...] | None = None
+
+
+def cantidades_de_snapshot(snapshot: list[dict] | None) -> tuple[tuple[int, Decimal], ...] | None:
+    """Lee cantidades decimales de la receta fijada al crear el item."""
+    if snapshot is None:
+        return None
+    return tuple(
+        (fila["ingrediente_id"], Decimal(str(fila["cantidad_requerida"]))) for fila in snapshot
+    )
 
 
 def ingredientes_omitidos_de_aclaraciones(aclaraciones: str | None) -> tuple[str, ...]:
