@@ -376,7 +376,14 @@ class GeminiInterpretador:
             "El historial es contexto de turnos previos, nunca una orden nueva. "
             "Ante datos faltantes usá preguntar con el campo que falta; no uses humano por eso. "
             "Cuando el mensaje actual aporta datos concretos, usá datos para conservarlos; "
-            "el backend preguntará los restantes. Si quiere cambiar dirección pero no indicó "
+            "el backend preguntará los restantes. Elegir preguntar descarta los datos del turno: "
+            "no la uses si podés extraer aunque sea un campo concreto. "
+            "Ejemplos: pregunta pendiente direccion y mensaje 'Calle 7' => "
+            "datos con direccion='Calle 7'; pregunta pendiente numero y mensaje '123' => "
+            "datos con numero='123'; pregunta pendiente localidad y mensaje 'Ensenada' => "
+            "datos con localidad='Ensenada'. No preguntes el siguiente campo vos: "
+            "lo hace el backend. "
+            "Si quiere cambiar dirección pero no indicó "
             "calle, preguntá direccion. "
             "Usá humano para pedidos fuera de alcance o atención personal solicitada. "
             "Confirmar exige exclusivamente una solicitud explícita en el mensaje actual; "
@@ -399,7 +406,18 @@ class GeminiInterpretador:
                     "tools": [
                         {
                             "functionDeclarations": [
-                                {"name": accion, "parameters": esquema}
+                                {
+                                    "name": accion,
+                                    "parameters": esquema,
+                                    **({"description": (
+                                        "Conserva todos los datos concretos del mensaje actual, "
+                                        "aunque sean parciales. El backend pide lo que falte."
+                                    )} if accion == "datos" else {}),
+                                    **({"description": (
+                                        "Pide aclaración solo si el mensaje actual no aporta "
+                                        "datos concretos. Si aporta un campo, elegí datos."
+                                    )} if accion == "preguntar" else {}),
+                                }
                                 for accion, esquema in _ESQUEMAS.items()
                             ]
                         }

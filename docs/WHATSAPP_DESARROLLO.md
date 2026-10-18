@@ -593,6 +593,12 @@ Google anuncia su retiro para el 7 de mayo de 2027 y propone
 de pedidos al migrarlo; aún se debe evaluar su interpretación con casos reales
 del negocio, sin datos personales.
 
+Si el modelo configurado devuelve HTTP 503 o `TimeoutError`, revisar disponibilidad
+antes de atribuirlo a falta de contexto. Se puede configurar
+`GEMINI_MODELO=gemini-3.5-flash-lite` y volver a desplegar; usa el mismo adaptador y
+admite las herramientas del bot. Verificar la respuesta real y las cuotas del
+proyecto: que otro modelo responda no garantiza disponibilidad permanente.
+
 El adaptador hace una llamada `generateContent` por turno y permite **un solo
 reintento** tras 250 ms para HTTP 500, 502, 503 o 504. No reintenta cuotas, credenciales,
 timeouts ni salidas inválidas. Ambas llamadas ocurren fuera de la transacción, sin
