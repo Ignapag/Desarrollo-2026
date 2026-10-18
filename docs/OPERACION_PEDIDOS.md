@@ -4,6 +4,18 @@ El pedido conserva su ID y número público durante toda la operación. Las
 correcciones agregan historial; no se elimina una compra para volver a crearla.
 El estado de cocina, el dinero recibido y el viaje son registros diferentes.
 
+El panel muestra la siguiente acción como botón directo. Los retrocesos y la
+cancelación están en «Más acciones»; editar datos, ver movimientos e historial
+se despliegan cuando hacen falta. No se exige escribir un motivo: se registra
+la acción elegida junto con el actor y la versión; se puede agregar una nota.
+Cancelar, iniciar una nueva preparación de un cerrado, registrar una devolución
+y confirmar el regreso al local conservan una confirmación contextual.
+
+El cobro exacto usa el saldo preparado. Para cobrar otro importe o calcular
+vuelto se despliegan los campos correspondientes. La transferencia sigue
+requiriendo que una persona confirme el ingreso real mediante su botón;
+el comprobante por sí solo no acredita dinero.
+
 ## Cobrar y preparar
 
 | Modalidad de pago | Acción del personal | Cocina |

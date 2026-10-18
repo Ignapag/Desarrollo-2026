@@ -5,10 +5,7 @@ export function Field({ label, children }) {
   return <label className="block space-y-1 text-sm font-bold text-monu-dark"><span>{label}</span>{children}</label>;
 }
 export function Reason({ value, onChange, disabled }) {
-  return <Field label="Motivo (obligatorio)"><textarea required maxLength={500} rows={2} value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled} className={inputClass} /></Field>;
-}
-export function Confirmation({ checked, onChange, children, disabled }) {
-  return <label className="flex items-start gap-3 min-h-11 text-sm text-monu-dark"><input type="checkbox" required checked={checked} onChange={(event) => onChange(event.target.checked)} disabled={disabled} className="mt-1 w-5 h-5 shrink-0 accent-monu-green" /><span>{children}</span></label>;
+  return <details className="text-sm"><summary className="cursor-pointer min-h-11 flex items-center font-bold text-monu-green">Agregar nota (opcional)</summary><Field label="Nota (opcional)"><textarea maxLength={500} rows={2} value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled} className={inputClass} /></Field></details>;
 }
 export function DataError({ message, retry, busy = false }) {
   return message ? <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 space-y-2 text-sm text-red-900"><p>{message}</p>{retry && <button type="button" disabled={busy} onClick={retry} className={buttonClass}>Actualizar y revisar</button>}</div> : null;

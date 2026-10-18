@@ -6,7 +6,7 @@ import { useData } from '../shared/store/DataContext';
 import { apiFetch } from '../shared/api/http';
 import { createOrderCommands } from './orderCommands';
 import { dateTime, isStaff, money } from './orderModel';
-import { buttonClass, Reason, Confirmation, DataError } from './operationUi';
+import { buttonClass, Reason, DataError } from './operationUi';
 import OrderDetail from './OrderDetail';
 
 const commands = createOrderCommands(apiFetch);
@@ -77,12 +77,10 @@ export default function DeliveryPanel() {
 }
 
 function StartTrip({ trip, run, busy }) {
-  const [confirmed, setConfirmed] = useState(false);
-  return <div className="space-y-2"><Confirmation checked={confirmed} onChange={setConfirmed} disabled={busy}>Confirmo la salida física del repartidor con estos pedidos.</Confirmation><button type="button" disabled={busy || !confirmed} onClick={() => { void run(() => commands.startTrip(trip.id)); }} className={`${buttonClass} bg-monu-green text-white`}>Registrar salida del viaje</button></div>;
+  return <button type="button" disabled={busy} onClick={() => { if (!busy) void run(() => commands.startTrip(trip.id)); }} className={`${buttonClass} bg-monu-green text-white`}>Salir a repartir</button>;
 }
 
 function Shipment({ shipment, trip, run, busy, onDetail }) {
-  const [confirmed, setConfirmed] = useState(false);
   const [reason, setReason] = useState('');
   const address = [shipment.calle, shipment.altura, shipment.piso_depto, shipment.zona_nombre].filter(Boolean).join(', ');
   const phone = shipment.telefono_cliente?.replace(/[^+\d]/g, '');
@@ -101,9 +99,8 @@ function Shipment({ shipment, trip, run, busy, onDetail }) {
       {onDetail && <button type="button" onClick={onDetail} disabled={busy} className={buttonClass}>Detalle y correcciones</button>}
     </div>
     {onRoad && <div className="space-y-3">
-      <Confirmation checked={confirmed} onChange={setConfirmed} disabled={busy}>Confirmo que entregué físicamente este pedido al cliente.</Confirmation>
-      <button type="button" disabled={busy || !confirmed} onClick={() => { void run(() => commands.shipment(shipment.id, 'entregar')); }} className={`${buttonClass} bg-monu-dark text-white`}>Registrar entrega real</button>
-      <form className="space-y-2" onSubmit={(event) => { event.preventDefault(); if (reason.trim()) void run(() => commands.shipment(shipment.id, 'fallo', { motivo: reason.trim() })); }}><Reason value={reason} onChange={setReason} disabled={busy} /><button disabled={busy || !reason.trim()} className={buttonClass}>Registrar problema de entrega</button><p className="text-sm">El fallo mantiene la asignación. El personal del local confirma el regreso físico.</p></form>
+      <button type="button" disabled={busy} onClick={() => { if (!busy) void run(() => commands.shipment(shipment.id, 'entregar')); }} className={`${buttonClass} bg-monu-dark text-white`}>Marcar entregado</button>
+      <details><summary className="cursor-pointer min-h-11 flex items-center text-sm font-bold text-monu-green">Problema con la entrega</summary><form className="space-y-2" onSubmit={(event) => { event.preventDefault(); if (!busy) void run(() => commands.shipment(shipment.id, 'fallo', { motivo: reason.trim() || 'Problema de entrega registrado por el repartidor.' })); }}><Reason value={reason} onChange={setReason} disabled={busy} /><button disabled={busy} className={buttonClass}>Registrar problema de entrega</button><p className="text-sm">El pedido sigue asignado hasta registrar su regreso al local.</p></form></details>
     </div>}
   </article>;
 }
