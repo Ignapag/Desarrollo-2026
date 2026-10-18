@@ -9,6 +9,7 @@
     "build:clientes": "vite build --mode clientes",
     "build:personal": "vite build --mode personal",
     "test:portales": "node --test tests/portal.test.js tests/api-proxy.test.js tests/portal-routes.test.js",
+    "test:panel": "node --test tests/panel-datos.test.js",
     "lint": "oxlint",
     "preview": "vite preview"
   },

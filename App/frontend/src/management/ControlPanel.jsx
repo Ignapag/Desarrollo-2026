@@ -1,100 +1,189 @@
-import { DollarSign, TrendingUp, Users, ShoppingBag } from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
+﻿import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { AlertTriangle, CalendarDays, CalendarRange, RefreshCw, ShoppingBag } from 'lucide-react';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { useAuth } from '../auth/AuthContext';
+import { apiFetch } from '../shared/api/http';
+import { periodoPanel, unidadesPorDia } from './datosPanel';
 
-const dataVentas = [
-  { name: 'Lun', total: 150000 },
-  { name: 'Mar', total: 180000 },
-  { name: 'Mié', total: 120000 },
-  { name: 'Jue', total: 245500 },
-  { name: 'Vie', total: 310000 },
-  { name: 'Sáb', total: 450000 },
-  { name: 'Dom', total: 380000 },
-];
+const cantidad = new Intl.NumberFormat('es-AR');
+const moneda = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
+const hora = new Intl.DateTimeFormat('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour: '2-digit', minute: '2-digit' });
+const tarjeta = 'bg-monu-bone rounded-2xl p-6 shadow-sm border border-monu-green/10 min-w-0';
 
-const dataProductos = [
-  { name: 'Monu Clásica', ventas: 145 },
-  { name: 'Doble Cheddar', ventas: 210 },
-  { name: 'Smash Onion', ventas: 110 },
-  { name: 'Papas Monu', ventas: 280 },
-];
+function useReportes(rol) {
+  const [datos, setDatos] = useState(null);
+  const [error, setError] = useState('');
+  const [cargando, setCargando] = useState(true);
+  const [intento, setIntento] = useState(0);
+
+  useEffect(() => {
+    if (!['ADMINISTRADOR', 'DUENIO'].includes(rol)) return undefined;
+    let activo = true;
+    let pendiente = false;
+    let ultimoInicio = 0;
+    const controller = new AbortController();
+
+    async function cargar(forzar = false) {
+      if (pendiente || document.visibilityState === 'hidden') return;
+      if (!forzar && Date.now() - ultimoInicio < 10000) return;
+      pendiente = true;
+      ultimoInicio = Date.now();
+      setCargando(true);
+      const periodo = periodoPanel();
+      const query = new URLSearchParams({ fecha_desde: periodo.desde, fecha_hasta: periodo.hasta });
+      try {
+        const respuestas = await Promise.allSettled([
+          apiFetch(`/api/reportes/dashboard?${query}`, { signal: controller.signal }),
+          apiFetch(`/api/reportes/ventas?${query}&agrupacion=DIA`, { signal: controller.signal }),
+        ]);
+        const fallida = respuestas.find((respuesta) => respuesta.status === 'rejected');
+        if (fallida) throw fallida.reason;
+        const [resumen, ventas] = respuestas.map((respuesta) => respuesta.value);
+        if (activo) {
+          setDatos({ rol, resumen, serie: unidadesPorDia(periodo.dias, ventas) });
+          setError('');
+        }
+      } catch (fallo) {
+        if (activo) setError(fallo.message || 'No se pudo cargar el panel.');
+      } finally {
+        pendiente = false;
+        if (activo) setCargando(false);
+      }
+    }
+
+    cargar(true);
+    const refrescar = () => cargar();
+    const intervalo = window.setInterval(refrescar, 45000);
+    window.addEventListener('focus', refrescar);
+    document.addEventListener('visibilitychange', refrescar);
+    return () => {
+      activo = false;
+      controller.abort();
+      window.clearInterval(intervalo);
+      window.removeEventListener('focus', refrescar);
+      document.removeEventListener('visibilitychange', refrescar);
+    };
+  }, [rol, intento]);
+
+  return { datos: datos?.rol === rol ? datos : null, error, cargando, recargar: () => setIntento((anterior) => anterior + 1) };
+}
 
 export default function ControlPanel() {
-  const stats = [
-    { label: 'Ventas del Día', value: '$245.500', trend: '+12.5%', icon: DollarSign, color: 'text-monu-green', bg: 'bg-monu-green/10' },
-    { label: 'Pedidos Completados', value: '48', trend: '+5.2%', icon: ShoppingBag, color: 'text-monu-orange', bg: 'bg-monu-orange/10' },
-    { label: 'Nuevos Clientes', value: '12', trend: '+18.1%', icon: Users, color: 'text-monu-dark', bg: 'bg-monu-dark/10' },
-    { label: 'Crecimiento', value: '+24%', trend: 'Mensual', icon: TrendingUp, color: 'text-monu-burnt', bg: 'bg-monu-burnt/10' }
-  ];
+  const { user } = useAuth();
+  const habilitado = ['ADMINISTRADOR', 'DUENIO'].includes(user?.backendRole);
+  const { datos, error, cargando, recargar } = useReportes(user?.backendRole);
+  const resumen = datos?.resumen;
+  const ranking = resumen?.ranking_productos.slice(0, 5) || [];
+  const stats = resumen ? [
+    { label: 'Pedidos hoy', value: resumen.pedidos_dia, icon: ShoppingBag },
+    { label: 'Pedidos esta semana', value: resumen.pedidos_semana, icon: CalendarDays },
+    { label: 'Pedidos este mes', value: resumen.pedidos_mes, icon: CalendarRange },
+    { label: 'Alertas de stock', value: resumen.alertas_stock.length, icon: AlertTriangle },
+  ] : [];
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-end">
+      <div className="flex flex-wrap justify-between items-end gap-4">
         <div>
           <h1 className="text-3xl font-extrabold font-heading text-monu-dark mb-1">Panel de Control</h1>
           <p className="text-monu-text/70">Métricas y resumen operativo general.</p>
         </div>
+        {habilitado && (
+          <button type="button" onClick={recargar} disabled={cargando} className="min-h-11 inline-flex items-center gap-2 rounded-xl border border-monu-green/20 bg-monu-bone px-4 text-sm font-bold text-monu-dark hover:bg-monu-green/10 disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-monu-green">
+            <RefreshCw className="h-4 w-4" aria-hidden="true" />
+            {cargando ? 'Actualizando…' : 'Actualizar'}
+          </button>
+        )}
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        {stats.map((stat, i) => (
-          <div key={i} className="bg-monu-bone rounded-2xl p-6 shadow-sm border border-monu-green/5">
-            <div className="flex justify-between items-start mb-4">
-              <div className={`p-3 rounded-xl ${stat.bg}`}>
-                <stat.icon className={`w-6 h-6 ${stat.color}`} />
-              </div>
-              <span className={`text-sm font-bold ${stat.trend.startsWith('+') ? 'text-monu-green' : 'text-monu-text/70'}`}>
-                {stat.trend}
-              </span>
+      {!habilitado ? (
+        <section className={tarjeta}>
+          <h2 className="font-bold text-lg text-monu-dark">Todo listo para trabajar</h2>
+          <p className="mt-2 text-monu-text/70">Consultá los pedidos y la cocina. Las métricas están disponibles para administración y el dueño.</p>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <Link to="/dashboard/orders" className="min-h-11 inline-flex items-center rounded-xl bg-monu-green px-4 font-bold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-monu-green">Ver pedidos</Link>
+            <Link to="/dashboard/kitchen" className="min-h-11 inline-flex items-center rounded-xl border border-monu-green/20 px-4 font-bold text-monu-dark focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-monu-green">Ir a cocina</Link>
+          </div>
+        </section>
+      ) : (
+        <>
+          {error && (
+            <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-800">
+              <p className="font-bold">No pudimos actualizar las métricas.</p>
+              <p className="text-sm mt-1">{error} {datos ? 'Se muestran los últimos datos recibidos.' : 'Todavía no hay datos disponibles.'}</p>
+              <button type="button" onClick={recargar} disabled={cargando} className="mt-2 min-h-11 font-bold underline focus-visible:outline-2 focus-visible:outline-offset-2">Reintentar</button>
             </div>
-            <h3 className="text-3xl font-extrabold text-monu-dark mb-1">{stat.value}</h3>
-            <p className="text-sm font-bold text-monu-text/70">{stat.label}</p>
+          )}
+          <p role="status" className="text-sm text-monu-text/70">
+            {!datos ? (cargando ? 'Cargando métricas…' : 'No se pudieron obtener las métricas.') : `Actualizado a las ${hora.format(new Date(resumen.actualizado_en))} · Hora Argentina${cargando ? ' · Actualizando…' : ''}`}
+          </p>
+          <div aria-busy={cargando} className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
+            {resumen ? stats.map(({ label, value, icon: Icon }) => (
+              <article key={label} className={tarjeta}>
+                <div className="mb-4 w-fit rounded-xl bg-monu-green/10 p-3"><Icon aria-hidden="true" className="h-6 w-6 text-monu-green" /></div>
+                <p className="text-3xl font-extrabold text-monu-dark mb-1">{cantidad.format(value)}</p>
+                <h2 className="text-sm font-bold text-monu-text/70">{label}</h2>
+              </article>
+            )) : ['Pedidos hoy', 'Pedidos esta semana', 'Pedidos este mes', 'Alertas de stock'].map((label) => (
+              <article key={label} className={`${tarjeta} min-h-44`}><p className="text-3xl text-monu-text/40 mb-4">—</p><h2 className="text-sm font-bold text-monu-text/70">{label}</h2></article>
+            ))}
           </div>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-monu-bone rounded-2xl p-6 shadow-sm border border-monu-green/5 h-[400px] flex flex-col">
-          <h3 className="font-bold text-monu-dark mb-6">Gráfico de Ventas (Última Semana)</h3>
-          <div className="flex-1 min-h-0">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={dataVentas} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#1C5A3F" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#1C5A3F" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6b7280' }} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6b7280' }} tickFormatter={(value) => `$${value/1000}k`} />
-                <Tooltip 
-                  contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)' }}
-                  formatter={(value) => [`$${value.toLocaleString()}`, 'Ventas']}
-                />
-                <Area type="monotone" dataKey="total" stroke="#1C5A3F" strokeWidth={3} fillOpacity={1} fill="url(#colorTotal)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        <div className="bg-monu-bone rounded-2xl p-6 shadow-sm border border-monu-green/5 h-[400px] flex flex-col">
-          <h3 className="font-bold text-monu-dark mb-6">Productos Más Vendidos</h3>
-          <div className="flex-1 min-h-0">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={dataProductos} layout="vertical" margin={{ top: 0, right: 0, left: 20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e5e7eb" />
-                <XAxis type="number" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6b7280' }} />
-                <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#191C1A', fontWeight: 'bold' }} width={100} />
-                <Tooltip 
-                  cursor={{ fill: '#f3f4f6' }}
-                  contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)' }}
-                />
-                <Bar dataKey="ventas" fill="#E85D2C" radius={[0, 4, 4, 0]} barSize={24} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      </div>
+          {resumen && (
+            <>
+              <p className="text-sm text-monu-text/70">Pedidos confirmados, sin cancelados. Semana desde el lunes y mes calendario. Los gráficos abarcan los últimos 7 días, incluido hoy.</p>
+              {user.backendRole === 'DUENIO' && (
+                <section className={tarjeta}>
+                  <h2 className="text-sm font-bold text-monu-text/70">Ingreso neto confirmado · Últimos 7 días</h2>
+                  <p className="mt-2 text-3xl font-extrabold text-monu-dark">{moneda.format(Number(resumen.ingreso_neto_confirmado))}</p>
+                  <p className="mt-1 text-sm text-monu-text/70">Cobros conciliados menos devoluciones conciliadas.</p>
+                </section>
+              )}
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                <section className={tarjeta}>
+                  <h2 className="font-bold text-monu-dark mb-6">Unidades vendidas · Últimos 7 días</h2>
+                  {datos.serie.some((dia) => dia.unidades > 0) ? (
+                    <>
+                      <div className="h-64 min-w-0" aria-hidden="true">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={datos.serie} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-monu-cream)" />
+                            <XAxis dataKey="nombre" axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
+                            <YAxis allowDecimals={false} axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
+                            <Tooltip formatter={(value) => [cantidad.format(value), 'Unidades']} />
+                            <Area type="linear" dataKey="unidades" stroke="var(--color-monu-green)" strokeWidth={3} fill="var(--color-monu-green)" fillOpacity={0.12} isAnimationActive={false} />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <details className="mt-3 text-sm text-monu-dark">
+                        <summary className="cursor-pointer min-h-11 py-3 focus-visible:outline-2 focus-visible:outline-offset-2">Ver datos por día</summary>
+                        <table className="w-full text-left"><caption className="sr-only">Unidades vendidas por día</caption><thead><tr><th scope="col" className="py-2">Día</th><th scope="col">Unidades</th></tr></thead><tbody>{datos.serie.map((dia) => <tr key={dia.fecha}><th scope="row" className="py-2 font-normal">{dia.nombre}</th><td>{cantidad.format(dia.unidades)}</td></tr>)}</tbody></table>
+                      </details>
+                    </>
+                  ) : <EstadoVacio texto="Todavía no hay ventas confirmadas en estos 7 días." />}
+                </section>
+                <section className={tarjeta}>
+                  <h2 className="font-bold text-monu-dark mb-6">Productos más vendidos · Últimos 7 días</h2>
+                  {ranking.length ? (
+                    <ol className="space-y-5">
+                      {ranking.map((producto) => (
+                        <li key={producto.producto_id}>
+                          <div className="flex justify-between gap-4 text-sm mb-2"><span className="font-bold text-monu-dark break-words min-w-0">{producto.producto}</span><span className="shrink-0 text-monu-text/70">{cantidad.format(producto.cantidad_vendida)} uds.</span></div>
+                          <div aria-hidden="true" className="h-2 rounded-full bg-monu-cream overflow-hidden"><div className="h-full bg-monu-orange rounded-full" style={{ width: `${producto.cantidad_vendida / ranking[0].cantidad_vendida * 100}%` }} /></div>
+                        </li>
+                      ))}
+                    </ol>
+                  ) : <EstadoVacio texto="Cuando se confirmen pedidos, verás acá los productos más vendidos." />}
+                </section>
+              </div>
+            </>
+          )}
+        </>
+      )}
     </div>
   );
+}
+
+function EstadoVacio({ texto }) {
+  return <div className="min-h-64 flex flex-col items-center justify-center text-center gap-4"><ShoppingBag aria-hidden="true" className="h-9 w-9 text-monu-green/60" /><p className="max-w-xs text-monu-text/70">{texto}</p><Link to="/dashboard/orders" className="min-h-11 inline-flex items-center font-bold text-monu-green underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-monu-green">Ver pedidos</Link></div>;
 }
