@@ -17,22 +17,22 @@ before(async () => {
 });
 after(async () => { await server?.close(); });
 
-test('formulario de corrección muestra destinos reales, motivo y confirmación física', () => {
+test('acciones de estado directas con correcciones secundarias y nota opcional', () => {
   const html = renderToStaticMarkup(createElement(forms.StateOperation, props));
-  assert.match(html, /value="PENDIENTE"/);
-  assert.match(html, /value="CONFIRMADO"/);
-  assert.match(html, /conservar insumos/);
-  assert.match(html, /Cancelar y declarar merma/);
-  assert.match(html, /Motivo \(obligatorio\)/);
-  assert.match(html, /pedido #31/);
-  assert.doesNotMatch(html, /pedido #909/);
+  assert.match(html, /Marcar listo/);
+  assert.match(html, /Volver a nuevos/);
+  assert.match(html, /Volver a confirmados/);
+  assert.match(html, /Cancelar pedido/);
+  assert.match(html, /Más acciones/);
+  assert.match(html, /Nota \(opcional\)/);
+  assert.doesNotMatch(html, /required|type="checkbox"|Motivo \(obligatorio\)/);
 });
 
 test('empleado no ve reapertura privilegiada y dueño sí', () => {
   const closed = { ...order, estado: 'CANCELADO' };
   assert.equal(renderToStaticMarkup(createElement(forms.StateOperation, { ...props, order: closed })), '');
   const html = renderToStaticMarkup(createElement(forms.StateOperation, { ...props, order: closed, role: 'DUENIO' }));
-  assert.match(html, /Reabrir y consumir insumos nuevamente/);
+  assert.match(html, /Reabrir pedido/);
 });
 
 test('repartidor no tiene formulario de edición ni comandos locales', () => {
@@ -51,13 +51,12 @@ test('edición conserva campos de domicilio y ofrece sólo efectivo o transferen
   assert.match(html, /type="submit"|Guardar cambios/);
 });
 
-test('pagos explica acreditación humana, diferencia neto/saldo y exige verificación', () => {
-  const html = renderToStaticMarkup(createElement(OrderPayments, { ...props, userId: 1 }));
-  assert.match(html, /Neto conciliado/);
-  assert.match(html, /Saldo pendiente/);
-  assert.match(html, /Una imagen de transferencia no acredita dinero/);
-  assert.match(html, /Registrar transferencia e ingreso verificado/);
-  assert.match(html, /type="checkbox" required=""/);
+test('pagos ofrece importe preparado y confirmación humana explícita sin casillas', () => {
+  const html = renderToStaticMarkup(createElement(OrderPayments, { ...props, order: { ...order, metodo_pago_acordado: 'TRANSFERENCIA' }, userId: 1 }));
+  assert.match(html, /Pendiente:/);
+  assert.match(html, /Confirmá sólo cuando veas el dinero ingresado/);
+  assert.match(html, /Confirmar ingreso de/);
+  assert.doesNotMatch(html, /type="checkbox"|required=""/);
   assert.match(html, /max="1000"/);
   assert.doesNotMatch(html, /billetera|MERCADO_PAGO/);
 });

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
-import { act, createElement, useLayoutEffect } from 'react';
+import { act, createElement, useLayoutEffect, useState } from 'react';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import { installMinimalDom, elements, reactProps, deferred } from './minimal-dom.js';
@@ -9,6 +9,9 @@ let server;
 let dom;
 let createRoot;
 let EditOperation;
+let StateOperation;
+let OrderPayments;
+let OrderDelivery;
 let OrderDetail;
 let DataProvider;
 let useData;
@@ -24,7 +27,9 @@ before(async () => {
       return null;
     } }, react(),
   ], server: { middlewareMode: true, hmr: false, ws: false }, optimizeDeps: { noDiscovery: true }, appType: 'custom', logLevel: 'silent' });
-  ({ EditOperation } = await server.ssrLoadModule('/src/fulfillment/OrderOperationForms.jsx'));
+  ({ EditOperation, StateOperation } = await server.ssrLoadModule('/src/fulfillment/OrderOperationForms.jsx'));
+  ({ default: OrderPayments } = await server.ssrLoadModule('/src/fulfillment/OrderPayments.jsx'));
+  ({ default: OrderDelivery } = await server.ssrLoadModule('/src/fulfillment/OrderDelivery.jsx'));
   ({ default: OrderDetail } = await server.ssrLoadModule('/src/fulfillment/OrderDetail.jsx'));
   ({ DataProvider, useData } = await server.ssrLoadModule('/src/shared/store/DataContext.jsx'));
   ({ default: WhatsAppInbox } = await server.ssrLoadModule('/src/fulfillment/WhatsAppInbox.jsx'));
@@ -51,7 +56,6 @@ test('cambiar sólo pago conserva dirección existente y sus datos logísticos n
   let sent;
   const container = await mount(t, EditOperation, { order, role: 'EMPLEADO', busy: false, commands: { edit: (_order, changes) => { sent = changes; } }, run: async (operation) => operation() });
   await change(control(container, 'Método de pago acordado'), 'TRANSFERENCIA');
-  await change(control(container, 'Motivo (obligatorio)'), 'Cliente cambió el medio de pago');
   await submit(container);
   assert.deepEqual(sent, { metodo_pago_acordado: 'TRANSFERENCIA' });
 });
@@ -60,7 +64,6 @@ test('cambiar sólo observaciones conserva dirección y omite los otros campos i
   let sent;
   const container = await mount(t, EditOperation, { order, role: 'EMPLEADO', busy: false, commands: { edit: (_order, changes) => { sent = changes; } }, run: async (operation) => operation() });
   await change(control(container, 'Observaciones'), 'Llamar al llegar');
-  await change(control(container, 'Motivo (obligatorio)'), 'Indicación del cliente');
   await submit(container);
   assert.deepEqual(sent, { observaciones: 'Llamar al llegar' });
 });
@@ -69,7 +72,6 @@ test('editar el domicilio explícitamente manda sólo la dirección nueva', asyn
   let sent;
   const container = await mount(t, EditOperation, { order, role: 'EMPLEADO', busy: false, commands: { edit: (_order, changes) => { sent = changes; } }, run: async (operation) => operation() });
   await change(control(container, 'Calle'), 'Nueva calle');
-  await change(control(container, 'Motivo (obligatorio)'), 'Cliente corrigió calle');
   await submit(container);
   assert.deepEqual(sent, { direccion_nueva: { calle: 'Nueva calle', numero: '10', localidad: 'Localidad histórica', referencia: 'Entrada lateral' } });
 });
@@ -77,10 +79,153 @@ test('editar el domicilio explícitamente manda sólo la dirección nueva', asyn
 test('guardar sin cambiar campos no emite una operación ni crea dirección nueva', async (t) => {
   let calls = 0;
   const container = await mount(t, EditOperation, { order, role: 'EMPLEADO', busy: false, commands: { edit: () => { calls += 1; } }, run: async (operation) => operation() });
-  await change(control(container, 'Motivo (obligatorio)'), 'Sin cambios');
   await submit(container);
   assert.equal(calls, 0);
   assert.equal(reactProps(button(container, 'Guardar cambios')).disabled, true);
+});
+
+test('enviar a cocina es una acción directa sin motivo ni casilla, con registro automático', async (t) => {
+  let sent;
+  const container = await mount(t, StateOperation, { order, role: 'EMPLEADO', busy: false,
+    commands: { state: (current, command, reason) => { sent = { current, command, reason }; } }, run: async (operation) => operation() });
+  const cook = button(container, 'Enviar a cocina');
+  assert.ok(cook, 'La acción principal debe ser un botón directo');
+  await act(async () => reactProps(cook).onClick());
+  assert.equal(sent.current.id, order.id);
+  assert.equal(sent.command.estado, 'EN_PREPARACION');
+  assert.match(sent.reason, /cocina/i);
+  assert.equal(elements(container, (node) => node.localName === 'input' && reactProps(node).type === 'checkbox').length, 0);
+});
+
+test('cancelar pide una sola confirmación contextual y conserva el tratamiento de stock', async (t) => {
+  const calls = [];
+  const container = await mount(t, StateOperation, { order: { ...order, estado: 'EN_PREPARACION' }, role: 'EMPLEADO', busy: false,
+    commands: { state: (_order, command, reason) => { calls.push({ command, reason }); } }, run: async (operation) => operation() });
+  assert.ok(button(container, 'Cancelar pedido'));
+  await act(async () => reactProps(button(container, 'Cancelar pedido')).onClick());
+  assert.equal(calls.length, 0);
+  assert.match(container.textContent, /merma/i);
+  await act(async () => reactProps(button(container, 'Confirmar cancelación')).onClick());
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].command.tratamiento_stock, 'MERMA');
+  assert.ok(calls[0].reason.trim());
+});
+
+test('cobro exacto usa el saldo preparado sin completar campos ni confirmar casillas', async (t) => {
+  let sent;
+  globalThis.fetch = async (path, options) => { sent = { path, body: JSON.parse(options.body) }; return response({ id: 51, estado: 'CONCILIADO' }); };
+  const container = await mount(t, OrderPayments, { order, userId: 1, commands: {}, busy: false, run: async (operation) => operation() });
+  await submit(container);
+  assert.equal(sent?.path, '/api/pagos/efectivo');
+  assert.equal(sent.body.monto_recibido, '12000');
+  assert.equal(sent.body.monto_a_pagar, '12000');
+  assert.equal(sent.body.conciliar_inmediato, true);
+  assert.ok(sent.body.clave_operacion);
+});
+
+test('transferencia ya pendiente se confirma por su ID sin crear otro cobro', async (t) => {
+  const calls = [];
+  const transferOrder = { ...order, metodo_pago_acordado: 'TRANSFERENCIA', pagos: [{ id: 73, tipo: 'COBRO', estado: 'PENDIENTE', metodo_pago: 'TRANSFERENCIA', monto: '12000' }] };
+  const container = await mount(t, OrderPayments, { order: transferOrder, userId: 1, busy: false,
+    commands: { reconcile: (id) => { calls.push(id); } }, run: async (operation) => operation() });
+  const confirm = elements(container, (node) => node.localName === 'button' && node.textContent.startsWith('Confirmar ingreso de'))[0];
+  assert.ok(confirm);
+  await act(async () => reactProps(confirm).onClick());
+  assert.deepEqual(calls, [73]);
+});
+
+test('efectivo registrado pendiente se concilia por su ID sin crear otro cobro', async (t) => {
+  const calls = [];
+  const cashOrder = { ...order, pagos: [{ id: 74, tipo: 'COBRO', estado: 'PENDIENTE', metodo_pago: 'EFECTIVO', monto: '12000' }] };
+  const container = await mount(t, OrderPayments, { order: cashOrder, userId: 1, busy: false,
+    commands: { reconcile: (id) => { calls.push(id); } }, run: async (operation) => operation() });
+  const confirm = elements(container, (node) => node.localName === 'button' && node.textContent.startsWith('Confirmar ingreso de'))[0];
+  assert.ok(confirm, 'El cobro pendiente existente debe poder confirmarse');
+  await act(async () => reactProps(confirm).onClick());
+  assert.deepEqual(calls, [74]);
+});
+
+test('un cancelado permite registrar una transferencia pendiente que efectivamente ingresó', async (t) => {
+  const calls = [];
+  const canceled = { ...order, estado: 'CANCELADO', metodo_pago_acordado: 'TRANSFERENCIA', pagos: [{ id: 75, tipo: 'COBRO', estado: 'PENDIENTE', metodo_pago: 'TRANSFERENCIA', monto: '12000' }] };
+  const container = await mount(t, OrderPayments, { order: canceled, userId: 1, busy: false,
+    commands: { reconcile: (id) => { calls.push(id); } }, run: async (operation) => operation() });
+  const confirm = elements(container, (node) => node.localName === 'button' && node.textContent.startsWith('Confirmar ingreso de'))[0];
+  assert.ok(confirm, 'Cancelar no debe ocultar un ingreso pendiente real');
+  await act(async () => reactProps(confirm).onClick());
+  assert.deepEqual(calls, [75]);
+});
+
+test('el cobro simplificado conserva cuerpo y UUID al perder una respuesta', async (t) => {
+  const calls = [];
+  globalThis.fetch = async (path, options) => {
+    calls.push({ path, body: JSON.parse(options.body) });
+    if (calls.length === 1) throw new Error('Respuesta perdida');
+    return response({ id: 51, estado: 'CONCILIADO' });
+  };
+  const container = await mount(t, OrderPayments, { order, userId: 1, commands: {}, busy: false,
+    run: async (operation) => { try { await operation(); } catch { /* El panel muestra el error y conserva el intento. */ } } });
+  await submit(container);
+  assert.match(container.textContent, /Reintentar operación guardada/);
+  assert.equal(elements(container, (node) => node.localName === 'select').length, 0);
+  await submit(container);
+  assert.deepEqual(calls[1], calls[0]);
+  assert.ok(calls[1].body.clave_operacion);
+});
+
+test('un cancelado ofrece devolver sólo lo cobrado y exige confirmar que se devolvió', async (t) => {
+  const calls = [];
+  globalThis.fetch = async (path, options) => { calls.push({ path, body: JSON.parse(options.body) }); return response({ id: 52, estado: 'CONCILIADO' }); };
+  const container = await mount(t, OrderPayments, { order: { ...order, estado: 'CANCELADO', neto_cobrado: '500' }, userId: 1, commands: {}, busy: false, run: async (operation) => operation() });
+  await submit(container);
+  assert.equal(calls.length, 0);
+  const confirm = button(container, 'Sí, registrar devolución');
+  assert.ok(confirm);
+  await act(async () => reactProps(confirm).onClick());
+  assert.equal(calls[0].path, '/api/pagos/devolucion');
+  assert.equal(calls[0].body.monto, '500');
+  assert.ok(calls[0].body.motivo.trim());
+});
+
+test('actualizar el saldo después de cobrar no deja habilitado el importe anterior', async (t) => {
+  let update;
+  function PaymentSnapshot() {
+    const [snapshot, setSnapshot] = useState(order);
+    useLayoutEffect(() => { update = setSnapshot; }, [setSnapshot]);
+    return createElement(OrderPayments, { order: snapshot, userId: 1, commands: {}, busy: false, run: async (operation) => operation() });
+  }
+  const container = await mount(t, PaymentSnapshot, {});
+  assert.match(container.textContent, /Cobrar/);
+  await act(async () => update({ ...order, saldo_pendiente: '0', neto_cobrado: '12000' }));
+  assert.equal(elements(container, (node) => node.localName === 'button' && node.textContent.startsWith('Cobrar')).length, 0);
+  assert.match(container.textContent, /Pagado/);
+});
+
+test('la acción directa no permite preparar una transferencia aún impaga', async (t) => {
+  let calls = 0;
+  const container = await mount(t, StateOperation, { order: { ...order, metodo_pago_acordado: 'TRANSFERENCIA' }, role: 'EMPLEADO', busy: false,
+    commands: { state: () => { calls += 1; } }, run: async (operation) => operation() });
+  const cook = button(container, 'Enviar a cocina');
+  assert.equal(reactProps(cook).disabled, true);
+  await act(async () => reactProps(cook).onClick());
+  assert.equal(calls, 0);
+});
+
+test('regreso de delivery requiere confirmar el regreso real, sin escribir un motivo', async (t) => {
+  let sent;
+  const delivered = { ...order, estado: 'ENTREGADO', envio: { id: 7, viaje_id: 4, repartidor_id: 8, estado: 'ENTREGADO', estado_viaje: 'FINALIZADO' } };
+  const container = await mount(t, OrderDelivery, { order: delivered, role: 'DUENIO', busy: false,
+    commands: { trip: async () => ({ repartidor_nombre: 'Ana' }), shipment: (id, action, body) => { sent = { id, action, body }; } }, run: async (operation) => operation() });
+  await submit(container);
+  assert.equal(sent, undefined);
+  const confirm = button(container, 'Confirmar regreso al local');
+  assert.ok(confirm);
+  await act(async () => reactProps(confirm).onClick());
+  assert.equal(sent.id, 7);
+  assert.equal(sent.action, 'corregir-entrega');
+  assert.equal(sent.body.regreso_confirmado, true);
+  assert.equal(sent.body.version_esperada, order.version);
+  assert.ok(sent.body.motivo.trim());
 });
 
 test('refreshData tras una revisión ignora GET anterior e inicia lectura posterior', async (t) => {
@@ -191,14 +336,7 @@ test('comando físico en curso protege el cierre; su GET posterior permite salir
     return response([]);
   };
   const container = await mount(t, OrderDetail, { id: 17, onClose: () => { closed += 1; } }, true);
-  const stateForm = elements(container, (node) => node.localName === 'form' && node.textContent.includes('Estado y correcciones'))[0];
-  const select = elements(stateForm, (node) => node.localName === 'select')[0];
-  const reason = elements(stateForm, (node) => node.localName === 'textarea')[0];
-  const confirmation = elements(stateForm, (node) => node.localName === 'input')[0];
-  await change(select, 'CONFIRMADO');
-  await change(reason, 'Personal confirmó');
-  await act(async () => reactProps(confirmation).onChange({ target: { checked: true } }));
-  await act(async () => reactProps(stateForm).onSubmit({ preventDefault() {} }));
+  await act(async () => reactProps(button(container, 'Enviar a cocina')).onClick());
   assert.equal(reactProps(button(container, 'Cerrar detalle')).disabled, true);
   await act(async () => reactProps(elements(container, (node) => node.localName === 'dialog')[0]).onCancel({ preventDefault() {} }));
   assert.equal(closed, 0);
