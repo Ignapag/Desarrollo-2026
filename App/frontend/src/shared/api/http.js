@@ -13,7 +13,7 @@ export async function apiFetch(path, options = {}) {
   if (response.status === 204) return null;
   const body = await response.json().catch(() => null);
   if (!response.ok) {
-    const message = body?.mensaje || body?.detail || 'No se pudo completar la operacion';
+    const message = body?.mensaje || body?.detail || `No se pudo completar la operación (HTTP ${response.status}).`;
     throw new Error(typeof message === 'string' ? message : JSON.stringify(message));
   }
   return body;

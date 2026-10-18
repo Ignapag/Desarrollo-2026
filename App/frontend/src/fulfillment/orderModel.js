@@ -85,3 +85,10 @@ export function createFreshnessFence() {
     invalidate() { revision += 1; },
   };
 }
+
+export function confirmedOrder(result, id) {
+  const candidate = result?.pedido || result;
+  return candidate && (id == null || candidate.id === id) && Number.isInteger(candidate.version)
+    && candidate.numero != null && Array.isArray(candidate.items) && Array.isArray(candidate.historial)
+    && ORDER_STATES.some(([state]) => state === candidate.estado) ? candidate : null;
+}

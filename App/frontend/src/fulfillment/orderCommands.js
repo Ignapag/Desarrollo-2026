@@ -17,7 +17,7 @@ export function createOrderCommands(http) {
     shipment: (id, action, body) => send(`/api/delivery/envios/${id}/${action}`, body),
     startTrip: (id) => send(`/api/delivery/viajes/${id}/iniciar`),
     financial: (id, signal) => http(`/api/pagos/pedido/${id}/estado`, { signal }),
-    reconcile: (id) => send(`/api/pagos/${id}/conciliar`, {}),
+    reconcile: (id) => send(`/api/pagos/${id}/conciliar?incluir_pedido=true`, {}),
   };
 }
 
@@ -26,12 +26,13 @@ export function createPaymentAttempt(body, kind, uuid = () => crypto.randomUUID(
   return { kind, body: { ...body, clave_operacion: uuid() } };
 }
 
-export async function executePayment(http, attempt) {
+export async function executePayment(http, attempt, { operativa = false } = {}) {
   const post = (path, body) => http(path, { method: 'POST', body: JSON.stringify(body) });
-  const result = await post(`/api/pagos/${attempt.kind}`, attempt.body);
+  const query = operativa ? `?incluir_pedido=true${attempt.kind === 'transferencia' ? '&confirmar_ingreso=true' : ''}` : '';
+  const result = await post(`/api/pagos/${attempt.kind}${query}`, attempt.body);
   if (attempt.kind === 'transferencia' && result.estado !== 'CONCILIADO') {
     try {
-      return await post(`/api/pagos/${result.id}/conciliar`, {});
+      return await post(`/api/pagos/${result.id}/conciliar${operativa ? '?incluir_pedido=true' : ''}`, {});
     } catch (error) {
       throw new Error(`La transferencia quedó registrada para revisión. No registres otro cobro: reintentá esta operación o conciliá el pendiente. ${error.message}`);
     }

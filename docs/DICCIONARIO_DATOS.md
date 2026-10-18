@@ -62,6 +62,8 @@ columnas, tipos, obligatoriedad, relaciones y valores permitidos.
 
 **Mensajes operacion segura** — sin tablas nuevas
 
+**Saldo operativo transferencia** — sin tablas nuevas
+
 Total: **35 tablas**.
 
 ---
@@ -710,3 +712,7 @@ _Foco y pregunta de selección por remitente; no almacena credenciales ni histor
 ## 021_mensajes_operacion_segura — Mensajes operacion segura
 
 **Funciones:** `whatsapp_evento_estado`
+
+## 022_saldo_operativo_transferencia — Saldo operativo transferencia
+
+**Funciones:** `whatsapp_validar_saldo_transferencia`

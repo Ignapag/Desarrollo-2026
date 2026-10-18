@@ -4,7 +4,7 @@ import { useState, useCallback, useRef, useLayoutEffect } from 'react';
 import { useAuth } from '../../auth/AuthContext';
 import { apiFetch } from '../api/http';
 import { portal } from '../portal';
-import { mapOrder, createFreshnessFence, ordersPath } from '../../fulfillment/orderModel';
+import { mapOrder, createFreshnessFence, ordersPath, confirmedOrder } from '../../fulfillment/orderModel';
 import { createOrderCommands } from '../../fulfillment/orderCommands';
 
 // ==========================================
@@ -283,16 +283,18 @@ export function DataProvider({ children }) {
 
   const runOrderMutation = async (operation) => {
     const owner = user;
+    let confirmed = null;
     freshnessRef.current.beginMutation();
     try {
       const result = await operation();
-      if (userRef.current === owner && result?.estado && result?.items && result?.numero) {
-        dispatch({ type: 'UPSERT_ORDER', payload: mapOrder(result), owner });
+      confirmed = confirmedOrder(result);
+      if (userRef.current === owner && confirmed) {
+        dispatch({ type: 'UPSERT_ORDER', payload: mapOrder(confirmed), owner });
       }
       return result;
     } finally {
       freshnessRef.current.endMutation();
-      if (userRef.current === owner) {
+      if (userRef.current === owner && !confirmed) {
         // El error queda visible en el tablero; no convierte un comando confirmado en un fallo.
         void refreshOrders(undefined, true).catch(() => undefined);
       }
