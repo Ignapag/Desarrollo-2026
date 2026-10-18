@@ -1,0 +1,122 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useAuth } from '../auth/AuthContext';
+import { useData } from '../shared/store/DataContext';
+import { apiFetch } from '../shared/api/http';
+import { createOrderCommands } from './orderCommands';
+import { addressLabel, dateTime, isStaff, money, stateLabel } from './orderModel';
+import { buttonClass, DataError } from './operationUi';
+import { EditOperation, StateOperation } from './OrderOperationForms';
+import OrderDelivery from './OrderDelivery';
+import OrderPayments from './OrderPayments';
+
+const commands = createOrderCommands(apiFetch);
+
+export default function OrderDetail({ id, onClose }) {
+  const { user } = useAuth();
+  const { runOrderMutation } = useData();
+  const [order, setOrder] = useState(null);
+  const [error, setError] = useState('');
+  const [feedback, setFeedback] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [mutating, setMutating] = useState(false);
+  const [stale, setStale] = useState(false);
+  const lock = useRef(false);
+  const request = useRef(0);
+  const dialog = useRef(null);
+  const mounted = useRef(true);
+  const readController = useRef(null);
+  const mutationPending = useRef(false);
+  const busy = loading || mutating;
+  const load = useCallback(async () => {
+    readController.current?.abort();
+    const controller = new AbortController();
+    readController.current = controller;
+    const ticket = ++request.current;
+    try {
+      const result = await commands.detail(id, controller.signal);
+      if (!controller.signal.aborted && mounted.current && ticket === request.current) { setOrder(result); setStale(false); }
+    } catch (failure) {
+      if (!controller.signal.aborted) throw failure;
+    } finally {
+      if (readController.current === controller) readController.current = null;
+    }
+  }, [id]);
+  useEffect(() => {
+    let active = true;
+    mounted.current = true;
+    dialog.current.showModal();
+    Promise.resolve().then(() => { if (active) return load(); return undefined; })
+      .catch((failure) => { if (active && mounted.current) setError(failure.message); })
+      .finally(() => { if (active && mounted.current) setLoading(false); });
+    return () => { active = false; mounted.current = false; request.current += 1; readController.current?.abort(); };
+  }, [load]);
+  const close = () => {
+    if (mutationPending.current) return;
+    mounted.current = false;
+    request.current += 1;
+    readController.current?.abort();
+    dialog.current?.close();
+    onClose();
+  };
+  const reload = async () => {
+    if (lock.current) return;
+    lock.current = true;
+    setLoading(true);
+    setError('');
+    try { await load(); } catch (failure) { if (mounted.current) setError(`No se pudo actualizar el detalle. ${failure.message}`); }
+    finally { lock.current = false; if (mounted.current) setLoading(false); }
+  };
+  const run = async (operation, success) => {
+    if (lock.current) return;
+    lock.current = true;
+    mutationPending.current = true;
+    request.current += 1;
+    readController.current?.abort();
+    setMutating(true);
+    setError('');
+    setFeedback('');
+    try {
+      await runOrderMutation(operation);
+      if (!mounted.current) return;
+      mutationPending.current = false;
+      setMutating(false);
+      setLoading(true);
+      setFeedback(success);
+      try { await load(); } catch (failure) { if (mounted.current) { setStale(true); setError(`La operación se registró, pero no se pudo actualizar el detalle. Actualizá antes de otra acción. ${failure.message}`); } }
+    } catch (failure) {
+      if (mounted.current) { setStale(true); setError(`${failure.message} Actualizá el detalle y revisá la situación antes de reintentar.`); }
+    } finally {
+      lock.current = false;
+      mutationPending.current = false;
+      if (mounted.current) { setMutating(false); setLoading(false); }
+    }
+  };
+  return <dialog ref={dialog} aria-labelledby="order-detail-title" onCancel={(event) => { event.preventDefault(); close(); }} className="m-auto max-h-[90dvh] w-[calc(100%_-_2rem)] max-w-3xl rounded-2xl bg-monu-bone p-0 text-monu-text backdrop:bg-black/50">
+    <div className="p-4 sm:p-6 space-y-5 overflow-y-auto">
+      <div className="flex flex-wrap justify-between items-center gap-3"><h2 id="order-detail-title" className="text-2xl font-extrabold text-monu-dark">{order ? `Pedido #${order.numero}` : 'Detalle del pedido'}</h2><button type="button" disabled={mutating} onClick={close} className={buttonClass}>Cerrar detalle</button></div>
+      <button type="button" disabled={busy} onClick={() => { void reload(); }} className={buttonClass}>{mutating ? 'Registrando operación...' : loading ? 'Consultando detalle...' : 'Actualizar detalle'}</button>
+      <DataError message={error} />
+      {feedback && <p role="status" className="text-sm font-bold text-monu-green">{feedback}</p>}
+      {order && <>
+        <dl className="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-[max-content_1fr]">
+          <dt className="font-bold">Cliente</dt><dd>{order.cliente}</dd>
+          <dt className="font-bold">Estado y versión</dt><dd>{stateLabel(order.estado)} · Versión {order.version}</dd>
+          <dt className="font-bold">Entrega</dt><dd>{order.tipo_entrega === 'RETIRO' ? 'Retiro en local' : addressLabel(order.direccion)}{order.direccion?.referencia && ` · ${order.direccion.referencia}`}</dd>
+          <dt className="font-bold">Contacto</dt><dd>{order.telefono ? <a href={`tel:${order.telefono.replace(/[^+\d]/g, '')}`} className="underline inline-flex items-center min-h-11">{order.telefono}</a> : 'Teléfono no disponible'}</dd>
+          <dt className="font-bold">Pago acordado</dt><dd>{order.metodo_pago_acordado}</dd>
+          <dt className="font-bold">Total / neto / saldo</dt><dd>{money(order.total)} / {money(order.neto_cobrado)} / {money(order.saldo_pendiente)}</dd>
+          <dt className="font-bold">Observaciones</dt><dd className="whitespace-pre-wrap break-words">{order.observaciones || 'Sin observaciones'}</dd>
+          {[['creado_en', 'Creado'], ['confirmado_en', 'Confirmado'], ['preparacion_en', 'Preparación'], ['listo_en', 'Listo'], ['entregado_en', 'Entregado'], ['cancelado_en', 'Cancelado']].map(([key, label]) => <div className="contents" key={key}><dt className="font-bold">{label}</dt><dd>{dateTime(order[key])}</dd></div>)}
+        </dl>
+        <ul className="space-y-2">{order.items.map((item) => <li key={item.id} className="text-sm font-bold">{item.cantidad} × {item.nombre_producto}{item.aclaraciones ? ` · ${item.aclaraciones}` : ''}</li>)}</ul>
+        {isStaff(user?.backendRole) && <div key={`${order.id}:${order.version}:${order.envio?.viaje_id}:${order.envio?.estado}:${order.envio?.estado_viaje}`} className="space-y-6 border-t border-monu-green/20 pt-5">
+          <EditOperation order={order} role={user.backendRole} commands={commands} run={run} busy={busy || stale} />
+          <StateOperation order={order} role={user.backendRole} commands={commands} run={run} busy={busy || stale} />
+          <OrderDelivery order={order} role={user.backendRole} commands={commands} run={run} busy={busy || stale} />
+        </div>}
+        {isStaff(user?.backendRole) && <OrderPayments order={order} userId={user.id} commands={commands} run={run} busy={busy || stale} />}
+        <section className="space-y-3"><h3 className="font-extrabold text-monu-dark">Historial</h3><ol className="space-y-3">{order.historial.map((event) => <li key={event.id} className="border-l-2 border-monu-green/30 pl-3 text-sm space-y-1"><p className="font-bold">{stateLabel(event.estado_anterior)} → {stateLabel(event.estado_nuevo)} · Versión {event.version ?? 'no registrada'}</p><p>{dateTime(event.creado_en)} · {event.actor || 'Sistema'} · {event.origen || 'Origen no registrado'}</p><p className="break-words">{event.observacion || 'Sin motivo registrado'}</p>{event.tratamiento_stock && <p>Stock: {({ CONSERVAR: 'consumo conservado', RECONSUMIR: 'nuevo consumo', MERMA: 'merma declarada', RESERVA_DEVUELTA: 'reserva devuelta' })[event.tratamiento_stock] || event.tratamiento_stock}</p>}</li>)}</ol></section>
+      </>}
+    </div>
+  </dialog>;
+}

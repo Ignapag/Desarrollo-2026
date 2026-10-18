@@ -3,6 +3,8 @@
 import { useState, useCallback, useRef, useLayoutEffect } from 'react';
 import { useAuth } from '../../auth/AuthContext';
 import { apiFetch } from '../api/http';
+import { mapOrder, createFreshnessFence, ordersPath } from '../../fulfillment/orderModel';
+import { createOrderCommands } from '../../fulfillment/orderCommands';
 
 // ==========================================
 // El cat?logo de compra siempre viene de la API. Los datos de demostraci?n
@@ -15,6 +17,8 @@ const initialState = {
   cart: [],
   orders: [],
   ordersOwner: null,
+  ordersStatus: 'loading',
+  ordersError: null,
   inventory: [
     // Proteínas
     { id: 1, name: 'Medallón de Carne', category: 'Proteínas', stock: 0, min: 50, status: 'critico' },
@@ -79,19 +83,6 @@ function mapProduct(product) {
   };
 }
 
-function mapOrder(order) {
-  return {
-    id: order.id,
-    number: order.numero,
-    client: order.cliente,
-    address: order.tipo_entrega === 'RETIRO' ? 'Retiro en local' : 'Delivery',
-    status: order.estado.toLowerCase(),
-    total: Number(order.total),
-    items: order.items.map((item) => `${item.cantidad}x ${item.nombre_producto}${item.aclaraciones ? ` · ${item.aclaraciones}` : ''}`),
-    date: order.creado_en,
-  };
-}
-
 function mapInventory(item) {
   return {
     id: item.id,
@@ -106,9 +97,14 @@ function mapInventory(item) {
 function dataReducer(state, action) {
   switch (action.type) {
     case 'SYNC_ORDERS':
-      return { ...state, orders: action.payload, ordersOwner: action.owner };
+      return { ...state, orders: action.payload, ordersOwner: action.owner, ordersStatus: 'ready', ordersError: null };
+    case 'ORDERS_ERROR':
+      return { ...state, ordersStatus: 'error', ordersError: action.payload };
+    case 'UPSERT_ORDER':
+      return { ...state, ordersOwner: action.owner, orders: state.orders.some((o) => o.id === action.payload.id)
+        ? state.orders.map((o) => o.id === action.payload.id ? action.payload : o) : [action.payload, ...state.orders] };
     case 'RESET_PRIVATE_DATA':
-      return { ...state, orders: [], ordersOwner: null, inventory: initialState.inventory };
+      return { ...state, orders: [], ordersOwner: null, ordersStatus: 'loading', ordersError: null, inventory: initialState.inventory };
     case 'SYNC_CATALOG':
       return { ...state, catalog: action.payload, catalogStatus: 'ready', catalogError: null };
     case 'CATALOG_LOADING':
@@ -146,13 +142,6 @@ function dataReducer(state, action) {
     case 'CLEAR_CART':
       return { ...state, cart: [] };
     
-    case 'UPDATE_ORDER_STATUS':
-      return {
-        ...state,
-        orders: state.orders.map(order => 
-          order.id === action.payload.id ? { ...order, status: action.payload.status } : order
-        )
-      };
     case 'PLACE_ORDER':
       return {
         ...state,
@@ -196,52 +185,79 @@ export function DataProvider({ children }) {
   const { user } = useAuth();
   const userRef = useRef(user);
   const ordersRequestRef = useRef(null);
+  const freshnessRef = useRef(createFreshnessFence());
+  const commands = createOrderCommands(apiFetch);
 
   useLayoutEffect(() => {
+    freshnessRef.current.invalidate();
     userRef.current = user;
     return () => { userRef.current = null; };
   }, [user]);
 
-  const refreshOrders = useCallback((signal) => {
+  const refreshOrders = useCallback((signal, force = false) => {
     if (!user || userRef.current !== user) return Promise.resolve();
-    if (ordersRequestRef.current?.owner === user) return ordersRequestRef.current.request;
-    const request = apiFetch('/api/pedidos', { signal })
+    if (!force && ordersRequestRef.current?.owner === user && !ordersRequestRef.current.signal?.aborted) return ordersRequestRef.current.request;
+    const token = freshnessRef.current.read();
+    const request = apiFetch(ordersPath({ activos: true }), { signal })
       .then((orders) => {
-        if (userRef.current === user && !signal?.aborted) {
+        if (userRef.current === user && !signal?.aborted && freshnessRef.current.accepts(token)) {
           dispatch({ type: 'SYNC_ORDERS', payload: orders.map(mapOrder), owner: user });
         }
+      })
+      .catch((error) => {
+        if (userRef.current === user && !signal?.aborted && freshnessRef.current.accepts(token)) {
+          dispatch({ type: 'ORDERS_ERROR', payload: `No se pudieron actualizar los pedidos. Se conserva la última información. ${error.message}` });
+        }
+        throw error;
       })
       .finally(() => {
         if (ordersRequestRef.current?.request === request) ordersRequestRef.current = null;
       });
-    ordersRequestRef.current = { owner: user, request };
+    ordersRequestRef.current = { owner: user, signal, request };
     return request;
   }, [user]);
 
+  const runOrderMutation = async (operation) => {
+    const owner = user;
+    freshnessRef.current.beginMutation();
+    try {
+      const result = await operation();
+      if (userRef.current === owner && result?.estado && result?.items && result?.numero) {
+        dispatch({ type: 'UPSERT_ORDER', payload: mapOrder(result), owner });
+      }
+      return result;
+    } finally {
+      freshnessRef.current.endMutation();
+      if (userRef.current === owner) {
+        // El error queda visible en el tablero; no convierte un comando confirmado en un fallo.
+        void refreshOrders(undefined, true).catch(() => undefined);
+      }
+    }
+  };
+
   const refreshData = useCallback(async (signal) => {
+    // También se llama después de escrituras externas al store, como la revisión
+    // de WhatsApp: ningún GET iniciado antes de esa revisión puede publicarse.
+    freshnessRef.current.invalidate();
     setLoading(true);
     dispatch({ type: 'CATALOG_LOADING' });
     try {
-      let products;
-      try {
-        products = await apiFetch('/api/productos', { signal });
-      } catch (error) {
+      const catalog = apiFetch('/api/productos', { signal }).then((products) => {
+        if (!signal?.aborted && userRef.current === user) dispatch({ type: 'SYNC_CATALOG', payload: products.map(mapProduct) });
+      }).catch((error) => {
         if (!signal?.aborted && userRef.current === user) {
           dispatch({ type: 'CATALOG_ERROR', payload: 'No pudimos cargar el menú. Intentá nuevamente.' });
         }
         throw error;
-      }
-      if (signal?.aborted || userRef.current !== user) return;
-      dispatch({ type: 'SYNC_CATALOG', payload: products.map(mapProduct) });
-      if (user) {
-        await refreshOrders(signal);
-      }
-      if (user?.role === 'admin' && userRef.current === user && !signal?.aborted) {
-        const inventory = await apiFetch('/api/stock/ingredientes?activo=true', { signal });
-        if (userRef.current === user && !signal?.aborted) {
-          dispatch({ type: 'SYNC_INVENTORY', payload: inventory.map(mapInventory) });
-        }
-      }
+      });
+      const tasks = [catalog];
+      if (user) tasks.push(refreshOrders(signal, true));
+      if (user?.role === 'admin') tasks.push(apiFetch('/api/stock/ingredientes?activo=true', { signal }).then((inventory) => {
+        if (userRef.current === user && !signal?.aborted) dispatch({ type: 'SYNC_INVENTORY', payload: inventory.map(mapInventory) });
+      }));
+      const results = await Promise.allSettled(tasks);
+      const failure = results.find((result) => result.status === 'rejected');
+      if (failure) throw failure.reason;
     } finally {
       if (userRef.current === user && !signal?.aborted) setLoading(false);
     }
@@ -261,7 +277,7 @@ export function DataProvider({ children }) {
   }, [refreshData]);
 
   useEffect(() => {
-    if (!['EMPLEADO', 'ADMINISTRADOR', 'DUENIO'].includes(user?.backendRole)) return undefined;
+    if (!['EMPLEADO', 'ADMINISTRADOR', 'DUENIO', 'REPARTIDOR'].includes(user?.backendRole)) return undefined;
     let controller = null;
     const updateOrders = async () => {
       if (document.hidden || controller) return;
@@ -269,7 +285,7 @@ export function DataProvider({ children }) {
       try {
         await refreshOrders(controller.signal);
       } catch {
-        // Conserva el último tablero disponible; reintenta en el siguiente ciclo.
+        // refreshOrders publica el error y conserva el último tablero disponible.
       } finally {
         controller = null;
       }
@@ -316,14 +332,10 @@ export function DataProvider({ children }) {
     dispatch({ type: 'DELETE_CATALOG_ITEM', payload: id });
   };
 
-  const changeOrderStatus = async (id, status) => {
-    const updated = await apiFetch(`/api/pedidos/${id}/estado`, {
-      method: 'PATCH',
-      body: JSON.stringify({ estado: status.toUpperCase() }),
-    });
-    const order = mapOrder(updated);
-    dispatch({ type: 'UPDATE_ORDER_STATUS', payload: { id, status: order.status } });
-    return order;
+  const changeOrderStatus = async (id, status, options = {}) => {
+    const order = state.orders.find((candidate) => candidate.id === id);
+    if (!order) throw new Error('Actualizá el pedido antes de cambiar su estado.');
+    return runOrderMutation(() => commands.state(order, { estado: status.toUpperCase(), ...options }, options.motivo));
   };
 
   const placeOrder = async ({ address, zone, items }) => {
@@ -348,11 +360,6 @@ export function DataProvider({ children }) {
     if (userRef.current === user) dispatch({ type: 'PLACE_ORDER', payload: order, owner: user });
     return created;
   };
-
-  const startDigitalPayment = async (order) => apiFetch('/api/pagos/billetera/iniciar', {
-    method: 'POST',
-    body: JSON.stringify({ pedido_id: order.id, metodo_pago: 'MERCADO_PAGO' }),
-  });
 
   const createIngredient = async (payload) => {
     const created = await apiFetch('/api/stock/ingredientes', {
@@ -394,7 +401,8 @@ export function DataProvider({ children }) {
       deactivateProduct,
       changeOrderStatus,
       placeOrder,
-      startDigitalPayment,
+      refreshOrders,
+      runOrderMutation,
       createIngredient,
       replenishIngredient,
     }}>
