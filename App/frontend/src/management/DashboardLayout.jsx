@@ -1,5 +1,6 @@
 ﻿import { Outlet, NavLink, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
+import { preloadPage } from '../shared/pageLoaders';
 import { 
   LayoutDashboard, 
   ListOrdered, 
@@ -14,7 +15,7 @@ import {
   Menu as MenuIcon,
   Store
 } from 'lucide-react';
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 
 export default function DashboardLayout() {
   const { logout, user } = useAuth();
@@ -54,6 +55,8 @@ export default function DashboardLayout() {
             <NavLink
               key={item.to}
               to={item.to}
+              onPointerEnter={() => preloadPage(item.to)}
+              onFocus={() => preloadPage(item.to)}
               end={item.end}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-colors ${
@@ -125,7 +128,7 @@ export default function DashboardLayout() {
 
         {/* Main Content Area */}
         <main className="flex-1 p-4 md:p-8 bg-monu-cream/20">
-          <Outlet />
+          <Suspense fallback={<p role="status" className="text-sm py-4">Abriendo sección...</p>}><Outlet /></Suspense>
         </main>
       </div>
 
@@ -152,6 +155,8 @@ export default function DashboardLayout() {
               to={item.to}
               end={item.end}
               onClick={() => setIsMobileMenuOpen(false)}
+              onPointerEnter={() => preloadPage(item.to)}
+              onFocus={() => preloadPage(item.to)}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-colors ${
                   isActive 

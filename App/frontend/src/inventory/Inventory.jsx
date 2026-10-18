@@ -2,12 +2,18 @@
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { AlertTriangle, CheckCircle, Package, X, Plus } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { DataError } from '../fulfillment/operationUi';
 
 export default function Inventory() {
   const [searchParams] = useSearchParams();
-  const { state, createIngredient, replenishIngredient } = useData();
+  const { state, createIngredient, replenishIngredient, refreshInventory } = useData();
   const { inventory } = state;
+  useEffect(() => {
+    const controller = new AbortController();
+    Promise.resolve().then(() => { if (!controller.signal.aborted) return refreshInventory(controller.signal); return undefined; }).catch(() => undefined);
+    return () => controller.abort();
+  }, [refreshInventory]);
   
   const searchQuery = searchParams.get('q')?.toLowerCase() || '';
 
@@ -52,6 +58,8 @@ export default function Inventory() {
 
   return (
     <div className="space-y-6">
+      <DataError message={state.inventoryError} retry={() => { void refreshInventory(undefined, true).catch(() => undefined); }} />
+      {['idle', 'loading'].includes(state.inventoryStatus) && <p role="status">Consultando inventario...</p>}
       <div className="flex justify-between items-end">
         <div>
           <h1 className="text-3xl font-extrabold font-heading text-monu-dark mb-1">Inventario</h1>
@@ -81,7 +89,7 @@ export default function Inventory() {
               {filteredInventory.length === 0 ? (
                 <tr>
                   <td colSpan="5" className="p-8 text-center text-monu-text/50">
-                    No se encontraron insumos que coincidan con tu búsqueda.
+                    {state.inventoryStatus === 'error' ? 'No se pudo consultar el inventario.' : state.inventoryStatus === 'ready' ? 'No se encontraron insumos que coincidan con tu búsqueda.' : 'Consultando insumos...'}
                   </td>
                 </tr>
               ) : (

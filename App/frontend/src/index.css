@@ -32,6 +32,17 @@
     background-color: var(--color-monu-orange);
     color: white;
   }
+  :where(button, select, summary, a[href], input[type='checkbox'], input[type='radio'], [role='button']):not(:disabled):not([aria-disabled='true']) {
+    cursor: pointer;
+  }
+  :where(button, select, summary, a[href], [role='button']):focus-visible {
+    outline: 2px solid var(--color-monu-green);
+    outline-offset: 3px;
+  }
+  :where(button, select, [role='button']):disabled,
+  [aria-disabled='true'] {
+    cursor: not-allowed;
+  }
 }
 
 /* Custom scrollbar to match the design */

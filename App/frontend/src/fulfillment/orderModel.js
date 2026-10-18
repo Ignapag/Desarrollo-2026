@@ -18,6 +18,7 @@ export function addressLabel(address) {
 export function mapOrder(order) {
   return {
     ...order,
+    detail: order,
     number: order.numero,
     client: order.cliente,
     phone: order.telefono,
@@ -62,11 +63,12 @@ export function stateCommands(order, role) {
   return commands;
 }
 
-export function ordersPath({ q = '', estado = '', activos } = {}) {
+export function ordersPath({ q = '', estado = '', activos, cliente_id } = {}) {
   const query = new URLSearchParams();
   if (q.trim()) query.set('q', q.trim());
   if (estado) query.set('estado', estado);
   if (activos != null) query.set('activos', String(activos));
+  if (cliente_id != null) query.set('cliente_id', String(cliente_id));
   return `/api/pedidos${query.size ? `?${query}` : ''}`;
 }
 

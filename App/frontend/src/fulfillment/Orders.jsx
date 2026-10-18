@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useData } from '../shared/store/DataContext';
 import { apiFetch } from '../shared/api/http';
@@ -8,25 +8,34 @@ import WhatsAppInbox from './WhatsAppInbox';
 import OrderDetail from './OrderDetail';
 
 export default function Orders() {
-  const { state, refreshOrders } = useData();
+  const { state, refreshOrders, watchOrders } = useData();
   const [params, setParams] = useSearchParams();
   const query = params.get('q') || '';
-  const [scope, setScope] = useState('active');
+  const clientValue = Number(params.get('cliente_id'));
+  const clientId = Number.isSafeInteger(clientValue) && clientValue > 0 ? clientValue : undefined;
+  const [scope, setScope] = useState(clientId ? 'all' : 'active');
   const [results, setResults] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [revision, setRevision] = useState(0);
   const [selected, setSelected] = useState(null);
-  const remote = Boolean(query.trim()) || scope !== 'active';
-  const queryPath = ordersPath({ q: query, activos: scope === 'history' ? false : scope === 'active' ? true : undefined });
+  const loadedPath = useRef('');
+  const remote = Boolean(query.trim()) || scope !== 'active' || clientId != null;
+  const queryPath = ordersPath({ q: query, cliente_id: clientId, activos: scope === 'history' ? false : scope === 'active' ? true : undefined });
+  useEffect(() => { if (!remote) return watchOrders?.(); return undefined; }, [remote, watchOrders]);
+  useEffect(() => {
+    if (!remote) return undefined;
+    const timer = setInterval(() => { if (!document.hidden) setRevision((value) => value + 1); }, 8000);
+    return () => clearInterval(timer);
+  }, [remote]);
   useEffect(() => {
     if (!remote) return undefined;
     const controller = new AbortController();
     const timer = setTimeout(() => {
-      setLoading(true);
+      if (loadedPath.current !== queryPath) setLoading(true);
       setError('');
       apiFetch(queryPath, { signal: controller.signal })
-        .then((orders) => { if (!controller.signal.aborted) setResults({ path: queryPath, orders: orders.map(mapOrder) }); })
+        .then((orders) => { if (!controller.signal.aborted) { loadedPath.current = queryPath; setResults({ path: queryPath, orders: orders.map(mapOrder) }); } })
         .catch((failure) => { if (!controller.signal.aborted) setError(`No se pudo consultar el historial. ${failure.message}`); })
         .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     }, 250);
@@ -35,10 +44,11 @@ export default function Orders() {
   const orders = remote ? results?.path === queryPath ? results.orders : [] : state.orders;
   const countsKnown = remote ? results?.path === queryPath : state.ordersStatus === 'ready' || orders.length > 0;
   const columns = ORDER_STATES.filter(([id]) => scope === 'history' ? ['ENTREGADO', 'CANCELADO'].includes(id) : scope === 'active' ? !['ENTREGADO', 'CANCELADO'].includes(id) : true);
-  const refresh = () => { setRevision((value) => value + 1); void refreshOrders(undefined, true).catch(() => undefined); };
+  const refresh = () => { if (remote) setRevision((value) => value + 1); else void refreshOrders(undefined, true).catch(() => undefined); };
   return <div className="space-y-5">
     <div className="flex flex-wrap gap-3 justify-between items-start"><div><h1 className="text-3xl font-extrabold font-heading text-monu-dark">Gestión de pedidos</h1><p className="text-monu-text/80">Operación, historial y correcciones sobre el mismo pedido.</p></div><Link to="/delivery" className={buttonClass}>Gestionar reparto</Link></div>
     <WhatsAppInbox />
+    {clientId && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-monu-bone p-3 text-sm"><p>Pedidos de <strong>{params.get('cliente') || `cliente #${clientId}`}</strong></p><Link to="/dashboard/orders" className={buttonClass}>Ver todos los clientes</Link></div>}
     <div className="flex flex-wrap gap-3 items-end">
       <label className="block flex-1 min-w-48 space-y-1 text-sm font-bold">Buscar por número de pedido, cliente o teléfono<input value={query} onChange={(event) => { const next = new URLSearchParams(params); if (event.target.value) next.set('q', event.target.value); else next.delete('q'); setParams(next, { replace: true }); }} className={inputClass} /></label>
       <label className="block space-y-1 text-sm font-bold">Mostrar<select value={scope} onChange={(event) => { setResults(null); setScope(event.target.value); }} className={inputClass}><option value="active">Activos</option><option value="history">Cerrados / historial</option><option value="all">Todos los estados</option></select></label>
@@ -59,6 +69,6 @@ export default function Orders() {
         {!orders.some((order) => order.estado === id) && <p className="text-sm text-monu-text/80">{state.ordersStatus === 'error' || error ? 'Información sin actualizar.' : loading || state.ordersStatus === 'loading' ? 'Consultando...' : 'Sin pedidos en este estado.'}</p>}
       </section>)}
     </div>
-    {selected && <OrderDetail key={selected} id={selected} onClose={() => { setSelected(null); refresh(); }} />}
+    {selected && <OrderDetail key={selected} id={selected} onClose={() => setSelected(null)} />}
   </div>;
 }

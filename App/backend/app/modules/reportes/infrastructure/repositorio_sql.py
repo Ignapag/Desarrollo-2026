@@ -12,6 +12,74 @@ class RepositorioReportesSQL:
     def __init__(self, uow: UnidadDeTrabajo) -> None:
         self.uow = uow
 
+    async def clientes(self, *, q: str | None, limite: int, desplazamiento: int) -> dict:
+        # La última actividad usa el índice de pedidos por cliente. Los conteos y
+        # las zonas se agregan sólo para los clientes de la página solicitada.
+        filas = await self.uow.todos(
+            """
+            WITH candidatos AS MATERIALIZED (
+                SELECT c.id,
+                       COALESCE(NULLIF(concat_ws(' ', u.nombre, u.apellido), ''),
+                                c.nombre) AS nombre,
+                       c.telefono_whatsapp AS telefono,
+                       ultimo.creado_en AS ultimo_pedido_en
+                FROM cliente c
+                LEFT JOIN usuario u ON u.id = c.usuario_id
+                LEFT JOIN LATERAL (
+                    SELECT p.creado_en FROM pedido p WHERE p.cliente_id = c.id
+                    ORDER BY p.creado_en DESC LIMIT 1
+                ) ultimo ON true
+                WHERE (%s::text IS NULL OR
+                       concat_ws(' ', c.nombre, u.nombre, u.apellido,
+                                 c.telefono_whatsapp) ILIKE '%%' || %s || '%%')
+            ), pagina AS MATERIALIZED (
+                SELECT * FROM candidatos
+                ORDER BY ultimo_pedido_en DESC NULLS LAST, id DESC
+                LIMIT %s OFFSET %s
+            )
+            SELECT totales.total, c.id, c.nombre, c.telefono,
+                   resumen.pedidos_count, resumen.primer_pedido_en,
+                   c.ultimo_pedido_en, zona.zona_frecuente
+            FROM (SELECT count(*) AS total FROM candidatos) totales
+            LEFT JOIN pagina c ON true
+            LEFT JOIN LATERAL (
+                SELECT count(*) AS pedidos_count, min(p.creado_en) AS primer_pedido_en
+                FROM pedido p WHERE p.cliente_id = c.id
+            ) resumen ON c.id IS NOT NULL
+            LEFT JOIN LATERAL (
+                SELECT CASE WHEN p.tipo_entrega = 'RETIRO' THEN 'Retiro en local'
+                            ELSE COALESCE(ze.nombre, zd.nombre, NULLIF(btrim(d.localidad), ''))
+                       END AS zona_frecuente
+                FROM pedido p
+                LEFT JOIN direccion d ON d.id = p.direccion_id
+                LEFT JOIN zona_cobertura zd ON zd.id = d.zona_id
+                LEFT JOIN envio e ON e.pedido_id = p.id
+                LEFT JOIN zona_cobertura ze ON ze.id = e.zona_id
+                WHERE p.cliente_id = c.id
+                GROUP BY zona_frecuente
+                HAVING CASE WHEN p.tipo_entrega = 'RETIRO' THEN 'Retiro en local'
+                            ELSE COALESCE(ze.nombre, zd.nombre, NULLIF(btrim(d.localidad), ''))
+                       END IS NOT NULL
+                ORDER BY count(*) DESC, max(p.creado_en) DESC, zona_frecuente
+                LIMIT 1
+            ) zona ON c.id IS NOT NULL
+            ORDER BY c.ultimo_pedido_en DESC NULLS LAST, c.id DESC
+            """,
+            (q, q, limite, desplazamiento),
+        )
+        total = filas[0]["total"]
+        clientes = [
+            {clave: valor for clave, valor in fila.items() if clave != "total"}
+            for fila in filas
+            if fila["id"] is not None
+        ]
+        return {
+            "clientes": clientes,
+            "total": total,
+            "limite": limite,
+            "desplazamiento": desplazamiento,
+        }
+
     async def resumen_pedidos(self) -> dict:
         return await self.uow.uno(
             """

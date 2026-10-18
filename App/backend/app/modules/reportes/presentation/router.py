@@ -3,20 +3,44 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
 from app.modules.reportes.presentation.dependencias import ServicioReportesDep
 from app.modules.reportes.presentation.esquemas import (
     DashboardAdministrador,
     DashboardDuenio,
+    DirectorioClientes,
     RentabilidadEstimada,
     VentaAdministrador,
     VentaDuenio,
 )
-from app.modules.usuarios.presentation.dependencias import AdministradorODuenio, SoloDuenio
+from app.modules.usuarios.domain.entidades import ClaimsSesion, Rol
+from app.modules.usuarios.presentation.dependencias import (
+    AdministradorODuenio,
+    SoloDuenio,
+    requiere_rol,
+)
 
 router = APIRouter(prefix="/api/reportes", tags=["reportes"])
+GestionClientes = Annotated[
+    ClaimsSesion, Depends(requiere_rol(Rol.EMPLEADO, Rol.ADMINISTRADOR, Rol.DUENIO))
+]
+
+
+@router.get("/clientes", response_model=DirectorioClientes)
+async def clientes(
+    sesion: GestionClientes,
+    servicio: ServicioReportesDep,
+    q: str | None = None,
+    limite: int = Query(default=50, ge=1, le=100),
+    desplazamiento: int = Query(default=0, ge=0),
+) -> DirectorioClientes:
+    datos = await servicio.clientes(
+        rol=sesion.rol.value, q=q, limite=limite, desplazamiento=desplazamiento
+    )
+    return DirectorioClientes(**datos)
 
 
 @router.get("/dashboard", response_model=DashboardAdministrador | DashboardDuenio)

@@ -72,7 +72,7 @@ export default function DeliveryPanel() {
       {trip.estado === 'PLANIFICADO' && <StartTrip trip={trip} run={run} busy={busy} />}
       <div className="space-y-4">{trip.envios.map((shipment) => <Shipment key={`${shipment.id}:${shipment.estado}`} trip={trip} shipment={shipment} run={run} busy={busy} onDetail={isStaff(user?.backendRole) ? () => setSelected(shipment.pedido_id) : null} />)}</div>
     </section>)}
-    {selected && <OrderDetail key={selected} id={selected} onClose={() => { setSelected(null); void refresh(); }} />}
+    {selected && <OrderDetail key={selected} id={selected} onClose={({ changed }) => { setSelected(null); if (changed) void refresh(); }} />}
   </main>;
 }
 

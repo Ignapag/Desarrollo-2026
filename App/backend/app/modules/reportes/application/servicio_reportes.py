@@ -7,11 +7,13 @@ from datetime import date
 from decimal import Decimal
 from typing import Protocol
 
+from app.errores import SinPermiso
 from app.modules.reportes.domain.reglas import validar_agrupacion, validar_periodo, validar_rol
 from app.modules.stock.application.servicio_stock import ServicioStock
 
 
 class RepositorioReportes(Protocol):
+    async def clientes(self, *, q: str | None, limite: int, desplazamiento: int) -> dict: ...
     async def resumen_pedidos(self) -> dict: ...
     async def ventas(
         self,
@@ -33,6 +35,13 @@ class ServicioReportes:
     def __init__(self, repositorio: RepositorioReportes, stock: ServicioStock) -> None:
         self.repo = repositorio
         self.stock = stock
+
+    async def clientes(
+        self, *, rol: str, q: str | None = None, limite: int = 50, desplazamiento: int = 0
+    ) -> dict:
+        if rol not in {"EMPLEADO", "ADMINISTRADOR", "DUENIO"}:
+            raise SinPermiso("No tiene permiso para consultar el directorio de clientes")
+        return await self.repo.clientes(q=q, limite=limite, desplazamiento=desplazamiento)
 
     async def dashboard(self, *, rol: str, fecha_desde: date, fecha_hasta: date) -> dict:
         validar_rol(rol)

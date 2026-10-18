@@ -3,12 +3,12 @@
 import { useState, useCallback, useRef, useLayoutEffect } from 'react';
 import { useAuth } from '../../auth/AuthContext';
 import { apiFetch } from '../api/http';
+import { portal } from '../portal';
 import { mapOrder, createFreshnessFence, ordersPath } from '../../fulfillment/orderModel';
 import { createOrderCommands } from '../../fulfillment/orderCommands';
 
 // ==========================================
-// El cat?logo de compra siempre viene de la API. Los datos de demostraci?n
-// restantes solo pertenecen a paneles internos pendientes de integraci?n.
+// Los datos operativos se consultan en la API; no hay personas ni stock ficticios.
 // ==========================================
 const initialState = {
   catalog: [],
@@ -19,49 +19,9 @@ const initialState = {
   ordersOwner: null,
   ordersStatus: 'loading',
   ordersError: null,
-  inventory: [
-    // Proteínas
-    { id: 1, name: 'Medallón de Carne', category: 'Proteínas', stock: 0, min: 50, status: 'critico' },
-    { id: 2, name: 'Medallón Smash', category: 'Proteínas', stock: 0, min: 50, status: 'critico' },
-    { id: 3, name: 'Medallón NotCo', category: 'Proteínas', stock: 0, min: 20, status: 'critico' },
-    { id: 4, name: 'Bacon / Panceta', category: 'Proteínas', stock: 0, min: 30, status: 'critico' },
-    { id: 5, name: 'Bacon en cubos', category: 'Proteínas', stock: 0, min: 20, status: 'critico' },
-    { id: 6, name: 'Huevo', category: 'Proteínas', stock: 0, min: 30, status: 'critico' },
-    // Panadería
-    { id: 7, name: 'Pan de Hamburguesa', category: 'Panadería', stock: 0, min: 100, status: 'critico' },
-    // Lácteos
-    { id: 8, name: 'Queso Cheddar', category: 'Lácteos', stock: 0, min: 100, status: 'critico' },
-    { id: 9, name: 'Provoleta', category: 'Lácteos', stock: 0, min: 20, status: 'critico' },
-    // Verduras
-    { id: 10, name: 'Tomate', category: 'Verduras', stock: 0, min: 30, status: 'critico' },
-    { id: 11, name: 'Lechuga', category: 'Verduras', stock: 0, min: 30, status: 'critico' },
-    { id: 12, name: 'Cebolla cruda', category: 'Verduras', stock: 0, min: 30, status: 'critico' },
-    { id: 13, name: 'Cebolla en cubos', category: 'Verduras', stock: 0, min: 20, status: 'critico' },
-    { id: 14, name: 'Cebolla caramelizada', category: 'Verduras', stock: 0, min: 20, status: 'critico' },
-    { id: 15, name: 'Cebolla crispy', category: 'Verduras', stock: 0, min: 20, status: 'critico' },
-    { id: 16, name: 'Rúcula', category: 'Verduras', stock: 0, min: 15, status: 'critico' },
-    { id: 17, name: 'Pepinillos', category: 'Verduras', stock: 0, min: 20, status: 'critico' },
-    // Aderezos
-    { id: 18, name: 'Salsa Monu', category: 'Aderezos', stock: 0, min: 20, status: 'critico' },
-    { id: 19, name: 'Alioli', category: 'Aderezos', stock: 0, min: 15, status: 'critico' },
-    { id: 20, name: 'Barbacoa', category: 'Aderezos', stock: 0, min: 15, status: 'critico' },
-    { id: 21, name: 'Mayonesa', category: 'Aderezos', stock: 0, min: 20, status: 'critico' },
-    { id: 22, name: 'Mayonesa ahumada', category: 'Aderezos', stock: 0, min: 15, status: 'critico' },
-    { id: 23, name: 'Ketchup', category: 'Aderezos', stock: 0, min: 20, status: 'critico' },
-    { id: 24, name: 'Mostaza', category: 'Aderezos', stock: 0, min: 20, status: 'critico' },
-    { id: 25, name: 'Salsa Smash', category: 'Aderezos', stock: 0, min: 15, status: 'critico' },
-    // Congelados
-    { id: 26, name: 'Papas Fritas Congeladas', category: 'Congelados', stock: 0, min: 40, status: 'critico' },
-    { id: 27, name: 'Nuggets Congelados', category: 'Congelados', stock: 0, min: 30, status: 'critico' },
-    // Bebidas
-    { id: 28, name: 'Coca Cola 500ml', category: 'Bebidas', stock: 0, min: 48, status: 'critico' },
-    { id: 29, name: 'Sprite 500ml', category: 'Bebidas', stock: 0, min: 24, status: 'critico' },
-    { id: 30, name: 'Fanta 500ml', category: 'Bebidas', stock: 0, min: 24, status: 'critico' },
-  ],
-  customers: [
-    { id: 1, name: 'Martina Gómez', phone: '221 555-0102', zone: 'Punta Lara', ordersCount: 2, since: '02 de nov de 2024' },
-    { id: 2, name: 'Lucas Fernández', phone: '221 555-0148', zone: 'El Dique', ordersCount: 2, since: '14 de ene de 2025' },
-  ]
+  inventory: [],
+  inventoryStatus: 'idle',
+  inventoryError: null,
 };
 
 function mapProduct(product) {
@@ -104,7 +64,7 @@ function dataReducer(state, action) {
       return { ...state, ordersOwner: action.owner, orders: state.orders.some((o) => o.id === action.payload.id)
         ? state.orders.map((o) => o.id === action.payload.id ? action.payload : o) : [action.payload, ...state.orders] };
     case 'RESET_PRIVATE_DATA':
-      return { ...state, orders: [], ordersOwner: null, ordersStatus: 'loading', ordersError: null, inventory: initialState.inventory };
+      return { ...state, orders: [], ordersOwner: null, ordersStatus: 'loading', ordersError: null, inventory: [], inventoryStatus: 'idle', inventoryError: null };
     case 'SYNC_CATALOG':
       return { ...state, catalog: action.payload, catalogStatus: 'ready', catalogError: null };
     case 'CATALOG_LOADING':
@@ -112,7 +72,11 @@ function dataReducer(state, action) {
     case 'CATALOG_ERROR':
       return { ...state, catalogStatus: 'error', catalogError: action.payload };
     case 'SYNC_INVENTORY':
-      return { ...state, inventory: action.payload };
+      return { ...state, inventory: action.payload, inventoryStatus: 'ready', inventoryError: null };
+    case 'INVENTORY_LOADING':
+      return { ...state, inventoryStatus: 'loading', inventoryError: null };
+    case 'INVENTORY_ERROR':
+      return { ...state, inventoryStatus: 'error', inventoryError: action.payload };
     case 'ADD_TO_CART': {
       const existingIndex = state.cart.findIndex(item => item.id === action.payload.id);
       if (existingIndex >= 0) {
@@ -187,10 +151,28 @@ export function DataProvider({ children }) {
   const ordersRequestRef = useRef(null);
   const freshnessRef = useRef(createFreshnessFence());
   const commands = createOrderCommands(apiFetch);
+  const catalogRequest = useRef(null);
+  const inventoryRequest = useRef(null);
+  const catalogLoadedAt = useRef(0);
+  const inventoryLoadedAt = useRef(0);
+  const catalogFence = useRef(createFreshnessFence());
+  const inventoryFence = useRef(createFreshnessFence());
+  const customerCache = useRef(new Map());
+  const orderSubscribers = useRef(0);
+  const lastOrdersRead = useRef(0);
 
   useLayoutEffect(() => {
     freshnessRef.current.invalidate();
+    // Las escrituras pendientes de otra sesión conservan su propia barrera.
+    catalogFence.current = createFreshnessFence();
+    inventoryFence.current = createFreshnessFence();
     userRef.current = user;
+    catalogRequest.current = null;
+    inventoryRequest.current = null;
+    catalogLoadedAt.current = 0;
+    inventoryLoadedAt.current = 0;
+    lastOrdersRead.current = 0;
+    customerCache.current.clear();
     return () => { userRef.current = null; };
   }, [user]);
 
@@ -202,6 +184,7 @@ export function DataProvider({ children }) {
       .then((orders) => {
         if (userRef.current === user && !signal?.aborted && freshnessRef.current.accepts(token)) {
           dispatch({ type: 'SYNC_ORDERS', payload: orders.map(mapOrder), owner: user });
+          lastOrdersRead.current = Date.now();
         }
       })
       .catch((error) => {
@@ -216,6 +199,87 @@ export function DataProvider({ children }) {
     ordersRequestRef.current = { owner: user, signal, request };
     return request;
   }, [user]);
+
+  const refreshCatalog = useCallback((signal, force = false) => {
+    if (!force && catalogRequest.current?.owner === user && !catalogRequest.current.signal?.aborted) return catalogRequest.current.promise;
+    if (!force && Date.now() - catalogLoadedAt.current < 30000) return Promise.resolve();
+    if (!catalogLoadedAt.current) dispatch({ type: 'CATALOG_LOADING' });
+    const entry = { owner: user, signal };
+    const token = catalogFence.current.read();
+    entry.promise = apiFetch('/api/productos', { signal }).then((products) => {
+      if (!signal?.aborted && userRef.current === user && catalogRequest.current === entry && catalogFence.current.accepts(token)) {
+        catalogLoadedAt.current = Date.now();
+        dispatch({ type: 'SYNC_CATALOG', payload: products.map(mapProduct) });
+      }
+    }).catch((error) => {
+      if (!signal?.aborted && userRef.current === user && catalogRequest.current === entry && catalogFence.current.accepts(token)) {
+        catalogLoadedAt.current = 0;
+        dispatch({ type: 'CATALOG_ERROR', payload: 'No pudimos cargar el menú. Intentá nuevamente.' });
+      }
+      throw error;
+    }).finally(() => { if (catalogRequest.current === entry) catalogRequest.current = null; });
+    catalogRequest.current = entry;
+    return entry.promise;
+  }, [user]);
+
+  const refreshInventory = useCallback((signal, force = false) => {
+    if (user?.role !== 'admin' || userRef.current !== user) return Promise.resolve();
+    if (!force && inventoryRequest.current?.owner === user && !inventoryRequest.current.signal?.aborted) return inventoryRequest.current.promise;
+    if (!force && Date.now() - inventoryLoadedAt.current < 30000) return Promise.resolve();
+    if (!inventoryLoadedAt.current) dispatch({ type: 'INVENTORY_LOADING' });
+    const entry = { owner: user, signal };
+    const token = inventoryFence.current.read();
+    entry.promise = apiFetch('/api/stock/ingredientes?activo=true', { signal }).then((inventory) => {
+      if (!signal?.aborted && userRef.current === user && inventoryRequest.current === entry && inventoryFence.current.accepts(token)) {
+        inventoryLoadedAt.current = Date.now();
+        dispatch({ type: 'SYNC_INVENTORY', payload: inventory.map(mapInventory) });
+      }
+    }).catch((error) => {
+      if (!signal?.aborted && userRef.current === user && inventoryRequest.current === entry && inventoryFence.current.accepts(token)) {
+        inventoryLoadedAt.current = 0;
+        dispatch({ type: 'INVENTORY_ERROR', payload: error.message });
+      }
+      throw error;
+    }).finally(() => { if (inventoryRequest.current === entry) inventoryRequest.current = null; });
+    inventoryRequest.current = entry;
+    return entry.promise;
+  }, [user]);
+
+  const cachedCustomers = useCallback((path) => {
+    const entry = customerCache.current.get(path);
+    return entry?.owner === user && Date.now() - entry.time < 30000 ? entry.value : null;
+  }, [user]);
+
+  const getCustomers = useCallback((path, signal, force = false) => {
+    if (!['EMPLEADO', 'ADMINISTRADOR', 'DUENIO'].includes(user?.backendRole) || userRef.current !== user) return Promise.reject(new Error('No tenés acceso a clientes.'));
+    const previous = customerCache.current.get(path);
+    if (!force && previous?.owner === user) {
+      if (previous.promise && !previous.signal?.aborted) return previous.promise;
+      if (previous.value && Date.now() - previous.time < 30000) return Promise.resolve(previous.value);
+    }
+    const entry = { owner: user, signal, time: 0 };
+    entry.promise = apiFetch(path, { signal }).then((value) => {
+      if (!signal?.aborted && userRef.current === user && customerCache.current.get(path) === entry) {
+        entry.value = value;
+        entry.time = Date.now();
+        entry.promise = null;
+        // La caché es de navegación de esta sesión, no un directorio ilimitado.
+        if (customerCache.current.size > 20) customerCache.current.delete(customerCache.current.keys().next().value);
+      }
+      return value;
+    }).catch((error) => {
+      if (customerCache.current.get(path) === entry) customerCache.current.delete(path);
+      throw error;
+    });
+    customerCache.current.set(path, entry);
+    return entry.promise;
+  }, [user]);
+
+  const watchOrders = useCallback(() => {
+    orderSubscribers.current += 1;
+    if (lastOrdersRead.current && Date.now() - lastOrdersRead.current > 3000) void refreshOrders().catch(() => undefined);
+    return () => { orderSubscribers.current -= 1; };
+  }, [refreshOrders]);
 
   const runOrderMutation = async (operation) => {
     const owner = user;
@@ -240,47 +304,42 @@ export function DataProvider({ children }) {
     // de WhatsApp: ningún GET iniciado antes de esa revisión puede publicarse.
     freshnessRef.current.invalidate();
     setLoading(true);
-    dispatch({ type: 'CATALOG_LOADING' });
+    catalogLoadedAt.current = 0;
+    inventoryLoadedAt.current = 0;
+    customerCache.current.clear();
     try {
-      const catalog = apiFetch('/api/productos', { signal }).then((products) => {
-        if (!signal?.aborted && userRef.current === user) dispatch({ type: 'SYNC_CATALOG', payload: products.map(mapProduct) });
-      }).catch((error) => {
-        if (!signal?.aborted && userRef.current === user) {
-          dispatch({ type: 'CATALOG_ERROR', payload: 'No pudimos cargar el menú. Intentá nuevamente.' });
-        }
-        throw error;
-      });
-      const tasks = [catalog];
+      const tasks = [];
+      if ((!user && portal.clientes) || user?.role === 'cliente') tasks.push(refreshCatalog(signal, true));
       if (user) tasks.push(refreshOrders(signal, true));
-      if (user?.role === 'admin') tasks.push(apiFetch('/api/stock/ingredientes?activo=true', { signal }).then((inventory) => {
-        if (userRef.current === user && !signal?.aborted) dispatch({ type: 'SYNC_INVENTORY', payload: inventory.map(mapInventory) });
-      }));
       const results = await Promise.allSettled(tasks);
       const failure = results.find((result) => result.status === 'rejected');
       if (failure) throw failure.reason;
     } finally {
       if (userRef.current === user && !signal?.aborted) setLoading(false);
     }
-  }, [user, refreshOrders]);
+  }, [user, refreshOrders, refreshCatalog]);
 
   useEffect(() => {
     const controller = new AbortController();
-    // El cleanup de StrictMode puede cancelar la carga antes de iniciar la consulta.
+    // Sólo datos iniciales necesarios; las pantallas piden sus recursos al abrirse.
     Promise.resolve().then(() => {
-      if (!controller.signal.aborted) return refreshData(controller.signal);
-      return undefined;
+      if (controller.signal.aborted) return undefined;
+      const tasks = [];
+      if ((!user && portal.clientes) || user?.role === 'cliente') tasks.push(refreshCatalog(controller.signal));
+      if (user) tasks.push(refreshOrders(controller.signal));
+      return Promise.allSettled(tasks);
     }).catch(() => undefined);
     return () => {
       controller.abort();
       dispatch({ type: 'RESET_PRIVATE_DATA' });
     };
-  }, [refreshData]);
+  }, [user, refreshCatalog, refreshOrders]);
 
   useEffect(() => {
     if (!['EMPLEADO', 'ADMINISTRADOR', 'DUENIO', 'REPARTIDOR'].includes(user?.backendRole)) return undefined;
     let controller = null;
     const updateOrders = async () => {
-      if (document.hidden || controller) return;
+      if (document.hidden || controller || orderSubscribers.current === 0) return;
       controller = new AbortController();
       try {
         await refreshOrders(controller.signal);
@@ -303,7 +362,25 @@ export function DataProvider({ children }) {
     };
   }, [user?.id, user?.backendRole, refreshOrders]);
 
-  const createProduct = async (payload) => {
+  const runResourceMutation = async (kind, operation) => {
+    const fence = kind === 'catalog' ? catalogFence.current : inventoryFence.current;
+    const request = kind === 'catalog' ? catalogRequest : inventoryRequest;
+    const refresh = kind === 'catalog' ? refreshCatalog : refreshInventory;
+    fence.beginMutation();
+    request.current = null;
+    try {
+      return await operation();
+    } finally {
+      fence.endMutation();
+      if (userRef.current === user) {
+        request.current = null;
+        // Reconciliar también un fallo incierto sin volver a publicar un GET anterior.
+        void refresh(undefined, true).catch(() => undefined);
+      }
+    }
+  };
+
+  const createProduct = async (payload) => runResourceMutation('catalog', async () => {
     const created = await apiFetch('/api/productos', {
       method: 'POST',
       body: JSON.stringify({
@@ -320,17 +397,17 @@ export function DataProvider({ children }) {
       }),
     });
     const product = mapProduct(created);
-    dispatch({ type: 'ADD_CATALOG_ITEM', payload: product });
+    if (userRef.current === user) dispatch({ type: 'ADD_CATALOG_ITEM', payload: product });
     return product;
-  };
+  });
 
-  const deactivateProduct = async (id) => {
+  const deactivateProduct = async (id) => runResourceMutation('catalog', async () => {
     await apiFetch(`/api/productos/${id}/estado`, {
       method: 'PATCH',
       body: JSON.stringify({ activo: false }),
     });
-    dispatch({ type: 'DELETE_CATALOG_ITEM', payload: id });
-  };
+    if (userRef.current === user) dispatch({ type: 'DELETE_CATALOG_ITEM', payload: id });
+  });
 
   const changeOrderStatus = async (id, status, options = {}) => {
     const order = state.orders.find((candidate) => candidate.id === id);
@@ -361,7 +438,7 @@ export function DataProvider({ children }) {
     return created;
   };
 
-  const createIngredient = async (payload) => {
+  const createIngredient = async (payload) => runResourceMutation('inventory', async () => {
     const created = await apiFetch('/api/stock/ingredientes', {
       method: 'POST',
       body: JSON.stringify({
@@ -372,11 +449,11 @@ export function DataProvider({ children }) {
       }),
     });
     const item = mapInventory(created);
-    dispatch({ type: 'ADD_INVENTORY_ITEM', payload: item });
+    if (userRef.current === user) dispatch({ type: 'ADD_INVENTORY_ITEM', payload: item });
     return item;
-  };
+  });
 
-  const replenishIngredient = async (id, quantity = 1) => {
+  const replenishIngredient = async (id, quantity = 1) => runResourceMutation('inventory', async () => {
     // Actualizacion optimista: Render y Supabase estan en regiones distintas,
     // pero el operador debe ver el cambio apenas toca el boton.
     dispatch({ type: 'UPDATE_INVENTORY_STOCK', payload: { id, delta: quantity } });
@@ -386,10 +463,10 @@ export function DataProvider({ children }) {
         body: JSON.stringify({ cantidad: quantity, origen: 'PANEL_WEB' }),
       });
     } catch (error) {
-      dispatch({ type: 'UPDATE_INVENTORY_STOCK', payload: { id, delta: -quantity } });
+      if (userRef.current === user) dispatch({ type: 'UPDATE_INVENTORY_STOCK', payload: { id, delta: -quantity } });
       throw error;
     }
-  };
+  });
 
   return (
     <DataContext.Provider value={{
@@ -402,6 +479,11 @@ export function DataProvider({ children }) {
       changeOrderStatus,
       placeOrder,
       refreshOrders,
+      watchOrders,
+      refreshCatalog,
+      refreshInventory,
+      cachedCustomers,
+      getCustomers,
       runOrderMutation,
       createIngredient,
       replenishIngredient,

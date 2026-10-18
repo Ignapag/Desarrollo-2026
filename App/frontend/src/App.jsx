@@ -2,24 +2,25 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
 import { useAuth } from './auth/AuthContext';
 import { portal } from './shared/portal';
+import { pageLoaders } from './shared/pageLoaders';
 
 // Layouts
 import ClientLayout from './ordering/ClientLayout';
 import Menu from './ordering/Menu';
 
-const DashboardLayout = lazy(() => import('./management/DashboardLayout'));
-const Login = lazy(() => import('./auth/Login'));
-const ControlPanel = lazy(() => import('./management/ControlPanel'));
-const Customers = lazy(() => import('./management/Customers'));
-const Analytics = lazy(() => import('./management/Analytics'));
-const AccessControl = lazy(() => import('./management/AccessControl'));
+const DashboardLayout = lazy(pageLoaders.layout);
+const Login = lazy(pageLoaders['/login']);
+const ControlPanel = lazy(pageLoaders['/dashboard']);
+const Customers = lazy(pageLoaders['/dashboard/customers']);
+const Analytics = lazy(pageLoaders['/dashboard/analytics']);
+const AccessControl = lazy(pageLoaders['/dashboard/access']);
 
-const Orders = lazy(() => import('./fulfillment/Orders'));
-const DeliveryPanel = lazy(() => import('./fulfillment/DeliveryPanel'));
+const Orders = lazy(pageLoaders['/dashboard/orders']);
+const DeliveryPanel = lazy(pageLoaders['/delivery']);
 
-const Kitchen = lazy(() => import('./kitchen/Kitchen'));
-const Catalog = lazy(() => import('./management/Catalog'));
-const Inventory = lazy(() => import('./inventory/Inventory'));
+const Kitchen = lazy(pageLoaders['/dashboard/kitchen']);
+const Catalog = lazy(pageLoaders['/dashboard/catalog']);
+const Inventory = lazy(pageLoaders['/dashboard/inventory']);
 
 function ProtectedRoute({ children, allowedRoles }) {
   const { user, loading } = useAuth();

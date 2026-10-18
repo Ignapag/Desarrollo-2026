@@ -13,11 +13,12 @@ const commands = createOrderCommands(apiFetch);
 
 export default function OrderDetail({ id, onClose }) {
   const { user } = useAuth();
-  const { runOrderMutation } = useData();
-  const [order, setOrder] = useState(null);
+  const { state, runOrderMutation } = useData();
+  const cached = state.orders.find((candidate) => candidate.id === id)?.detail;
+  const [order, setOrder] = useState(cached || null);
   const [error, setError] = useState('');
   const [feedback, setFeedback] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!cached);
   const [mutating, setMutating] = useState(false);
   const [stale, setStale] = useState(false);
   const lock = useRef(false);
@@ -26,6 +27,7 @@ export default function OrderDetail({ id, onClose }) {
   const mounted = useRef(true);
   const readController = useRef(null);
   const mutationPending = useRef(false);
+  const changed = useRef(false);
   const busy = loading || mutating;
   const load = useCallback(async () => {
     readController.current?.abort();
@@ -46,7 +48,7 @@ export default function OrderDetail({ id, onClose }) {
     mounted.current = true;
     dialog.current.showModal();
     Promise.resolve().then(() => { if (active) return load(); return undefined; })
-      .catch((failure) => { if (active && mounted.current) setError(failure.message); })
+      .catch((failure) => { if (active && mounted.current) { setStale(true); setError(failure.message); } })
       .finally(() => { if (active && mounted.current) setLoading(false); });
     return () => { active = false; mounted.current = false; request.current += 1; readController.current?.abort(); };
   }, [load]);
@@ -56,7 +58,7 @@ export default function OrderDetail({ id, onClose }) {
     request.current += 1;
     readController.current?.abort();
     dialog.current?.close();
-    onClose();
+    onClose({ changed: changed.current });
   };
   const reload = async () => {
     if (lock.current) return;
@@ -77,6 +79,7 @@ export default function OrderDetail({ id, onClose }) {
     setFeedback('');
     try {
       await runOrderMutation(operation);
+      changed.current = true;
       if (!mounted.current) return;
       mutationPending.current = false;
       setMutating(false);

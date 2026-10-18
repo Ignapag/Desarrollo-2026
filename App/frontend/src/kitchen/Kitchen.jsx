@@ -6,7 +6,8 @@ import { buttonClass, DataError } from '../fulfillment/operationUi';
 import OrderDetail from '../fulfillment/OrderDetail';
 
 export default function Kitchen() {
-  const { state, changeOrderStatus, refreshOrders } = useData();
+  const { state, changeOrderStatus, refreshOrders, watchOrders } = useData();
+  useEffect(() => watchOrders?.(), [watchOrders]);
   const [now, setNow] = useState(() => Date.now());
   const [selected, setSelected] = useState(null);
   const [error, setError] = useState('');
