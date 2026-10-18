@@ -34,6 +34,9 @@ jobs:
       - name: Pruebas de portales y catalogo
         run: npm run test:portales
 
+      - name: Pruebas del panel operativo
+        run: npm run test:panel
+
       - name: Compilar frontend
         run: npm run build
 

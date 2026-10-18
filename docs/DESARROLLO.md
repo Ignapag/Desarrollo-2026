@@ -133,6 +133,7 @@ Desde `App/frontend`:
 npm run lint
 npm run build
 npm run test:portales
+npm run test:panel
 ```
 
 El lint ejecuta oxlint; build genera `dist/` con Vite. No hay script `npm test`
