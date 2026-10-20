@@ -7,6 +7,7 @@ from decimal import Decimal
 from typing import Protocol
 
 from app.errores import DatosInvalidos, NoEncontrado, ReglaDeNegocio
+from app.modules.pedidos.application.edicion_items import RepositorioEdicionItems, preparar_items
 from app.modules.pedidos.domain.entidades import EstadoPedido, puede_transicionar
 
 
@@ -18,7 +19,7 @@ class ItemNuevoPedido:
     variante: str | None = None
 
 
-class RepositorioPedidos(Protocol):
+class RepositorioPedidos(RepositorioEdicionItems, Protocol):
     async def cliente_para_usuario(self, usuario_id: int) -> int | None: ...
     async def cliente_valido(self, cliente_id: int) -> bool: ...
     async def direccion_valida(self, cliente_id: int, direccion_id: int) -> bool: ...
@@ -72,6 +73,10 @@ class RepositorioPedidos(Protocol):
 
 
 class ProcesadorStock(Protocol):
+    async def ajustar_composicion(
+        self, pedido_id: int, anteriores: list[dict], nuevos: list[dict],
+        version: int, usuario_id: int | None, *, aplicar: bool,
+    ) -> None: ...
     async def procesar(self, pedido_id: int, items: list[dict]) -> None: ...
     async def devolver_reserva(self, pedido_id: int, usuario_id: int | None) -> None: ...
     async def reconsumir(
@@ -83,6 +88,65 @@ class ServicioPedidos:
     def __init__(self, repo: RepositorioPedidos, stock: ProcesadorStock) -> None:
         self.repo = repo
         self.stock = stock
+
+    async def cotizar_items(self, pedido_id: int, items: list[dict]) -> dict:
+        pedido, anteriores, nuevos, subtotal, total = await self._preparar_edicion_items(
+            pedido_id, items
+        )
+        await self.stock.ajustar_composicion(
+            pedido_id, anteriores, nuevos, pedido["version"], None, aplicar=False
+        )
+        return {"items": nuevos, "subtotal": subtotal, "total": total, "version": pedido["version"]}
+
+    async def editar_items(
+        self, pedido_id: int, *, items: list[dict], version_esperada: int,
+        usuario_id: int | None = None, origen: str = "WHATSAPP",
+        total_esperado: Decimal | None = None,
+    ) -> dict:
+        if (isinstance(version_esperada, bool) or not isinstance(version_esperada, int)
+                or version_esperada < 0):
+            raise DatosInvalidos("La version esperada es obligatoria")
+        if not isinstance(origen, str) or not origen.strip() or len(origen) > 50:
+            raise DatosInvalidos("El origen no es valido")
+        if total_esperado is not None and (
+            not isinstance(total_esperado, Decimal)
+            or not total_esperado.is_finite() or total_esperado < 0
+        ):
+            raise DatosInvalidos("El total esperado no es valido")
+        pedido, anteriores, nuevos, subtotal, total = await self._preparar_edicion_items(
+            pedido_id, items, version_esperada=version_esperada
+        )
+        if total_esperado is not None and total != total_esperado:
+            raise ReglaDeNegocio("El total cambio; revise y confirme nuevamente la propuesta")
+        await self.stock.ajustar_composicion(
+            pedido_id, anteriores, nuevos, pedido["version"], usuario_id, aplicar=True
+        )
+        return await self.repo.guardar_items(
+            pedido_id, nuevos, subtotal, total, usuario_id=usuario_id,
+            origen=origen.strip(), anteriores=anteriores,
+        )
+
+    async def _preparar_edicion_items(
+        self, pedido_id: int, items: list[dict], *, version_esperada: int | None = None,
+    ) -> tuple[dict, list[dict], list[dict], Decimal, Decimal]:
+        pedido = await self.repo.obtener(pedido_id, bloquear=True)
+        if pedido is None:
+            raise NoEncontrado("El pedido no existe")
+        self._comprobar_version(pedido, version_esperada)
+        if (pedido["estado"] not in {"PENDIENTE", "CONFIRMADO"}
+                or pedido.get("preparacion_en") or pedido.get("asignado")):
+            raise ReglaDeNegocio("La modificacion requiere revision del personal")
+        anteriores = await self.repo.items_edicion(pedido_id)
+        nuevos = await preparar_items(self.repo, anteriores, items)
+        subtotal = sum((item["subtotal"] for item in nuevos), Decimal("0"))
+        total = subtotal + pedido["costo_envio"] - pedido["descuento_total"]
+        if total < 0:
+            raise ReglaDeNegocio("El nuevo total no puede ser negativo")
+        if total < await self.repo.neto_cobrado(pedido_id):
+            raise ReglaDeNegocio(
+                "El nuevo total es menor al neto cobrado; gestione el reintegro primero"
+            )
+        return pedido, anteriores, nuevos, subtotal, total
 
     async def cliente_para_usuario(self, usuario_id: int) -> int:
         cliente_id = await self.repo.cliente_para_usuario(usuario_id)

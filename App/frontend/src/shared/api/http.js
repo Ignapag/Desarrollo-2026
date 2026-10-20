@@ -14,7 +14,9 @@ export async function apiFetch(path, options = {}) {
   const body = await response.json().catch(() => null);
   if (!response.ok) {
     const message = body?.mensaje || body?.detail || `No se pudo completar la operación (HTTP ${response.status}).`;
-    throw new Error(typeof message === 'string' ? message : JSON.stringify(message));
+    const error = new Error(typeof message === 'string' ? message : JSON.stringify(message));
+    error.status = response.status;
+    throw error;
   }
   return body;
 }

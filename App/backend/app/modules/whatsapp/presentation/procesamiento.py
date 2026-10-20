@@ -1,5 +1,8 @@
 """Worker invocable por CLI: etapas con transacciones independientes y acotadas."""
 
+import asyncio
+import logging
+
 from app.core.config import settings
 from app.core.db import UnidadDeTrabajo, conexion
 from app.errores import ErrorDominio, ReglaDeNegocio
@@ -16,6 +19,7 @@ from app.modules.whatsapp.presentation.dependencias import (
 CONSULTA = {"accion": "consulta", "argumentos": {}}
 # Una reinterpretación si el mismo pedido cambió durante la llamada al proveedor.
 INTENTOS_INTERPRETACION = 2
+CONVERSACIONES_SIMULTANEAS = 3
 
 
 async def _interpretar(preparado):
@@ -23,8 +27,16 @@ async def _interpretar(preparado):
         # Se deriva el mensaje completo; nunca se interpreta un prefijo.
         return {"accion": "humano", "argumentos": {}, "motivo": "MENSAJE_LARGO"}
     modo_demo = settings.chat_demo_gemini_modo if preparado.get("canal_demo") else None
-    proveedor = interpretador(modo_demo) if modo_demo else interpretador()
-    return await proveedor.interpretar(preparado["texto"], preparado["contexto"])
+    try:
+        proveedor = interpretador(modo_demo) if modo_demo else interpretador()
+        return await proveedor.interpretar(preparado["texto"], preparado["contexto"])
+    except Exception as error:
+        # Frontera externa: no dejar el inbox pendiente por una respuesta inesperada.
+        # Cancelación del worker sigue propagándose (BaseException).
+        logging.getLogger("monuburger.whatsapp.proveedor").warning(
+            "whatsapp_interpretacion_no_controlada clase=%s", type(error).__name__,
+        )
+        return {"accion": "humano", "argumentos": {}, "motivo": "PROVEEDOR"}
 
 
 async def procesar_entrada(identificador):
@@ -58,6 +70,14 @@ async def procesar_entrada(identificador):
         except ErrorDominio:
             await _finalizar_fallido(identificador)
             return
+        except Exception as error:
+            # La conexión del intento ya salió con rollback. Si la base responde,
+            # cerrar el inbox con una salida controlada en una transacción nueva.
+            logging.getLogger("monuburger.whatsapp.procesamiento").error(
+                "whatsapp_operacion_no_controlada clase=%s", type(error).__name__,
+            )
+            await _finalizar_fallido(identificador)
+            return
 
 
 async def _finalizar_fallido(identificador):
@@ -66,11 +86,17 @@ async def _finalizar_fallido(identificador):
         servicio = construir_servicio(UnidadDeTrabajo(conn))
         entrada = await servicio.repo.entrada(identificador, bloquear=True)
         if entrada and entrada["estado"] != "PROCESADO":
+            b, _ = await servicio._conversacion(entrada, bloquear=True)
+            if b:
+                await servicio._derivar(b, entrada, {"accion": "humano", "motivo": "PROVEEDOR"})
+            else:
+                await servicio.repo.derivar_general(identificador, "PROVEEDOR")
             await servicio.repo.finalizar(
                 entrada,
-                None,
+                b,
                 "💬 No pude aplicar el cambio. Tu pedido sigue sin cambios. "
-                "Pedí hablar con un empleado y te ayudamos por acá.",
+                "Tu solicitud quedó para revisión. Escribí *ayuda* para continuar "
+                "con opciones guiadas o *empleado* para atención personal.",
             )
 
 
@@ -108,13 +134,35 @@ async def enviar_uno(*, solo_demo=False):
     return True
 
 
+async def _procesar_conversacion(entradas, cupos):
+    async with cupos:
+        for entrada in entradas:
+            try:
+                await procesar_entrada(entrada["id"])
+            except Exception as error:
+                # Un fallo de conexión/preparación no debe bloquear otros clientes.
+                # El siguiente mensaje de ESTE cliente espera al próximo ciclo,
+                # para no adelantarlo al que sigue pendiente en el inbox.
+                logging.getLogger("monuburger.whatsapp.procesamiento").warning(
+                    "whatsapp_conversacion_pendiente clase=%s", type(error).__name__,
+                )
+                break
+
+
 async def procesar_lote(limite=20, *, solo_demo=False):
     async with conexion() as conn:
         pendientes = await ColaWhatsAppSQL(UnidadDeTrabajo(conn)).pendientes(
             limite, solo_demo=solo_demo,
         )
+    conversaciones = {}
     for entrada in pendientes:
-        await procesar_entrada(entrada["id"])
+        conversaciones.setdefault(entrada["telefono"], []).append(entrada)
+    # Cada teléfono conserva el orden del inbox, incluso durante la llamada a IA.
+    # Los cupos limitan tanto proveedores como transacciones, nunca sus alcances.
+    cupos = asyncio.Semaphore(CONVERSACIONES_SIMULTANEAS)
+    await asyncio.gather(*(
+        _procesar_conversacion(entradas, cupos) for entradas in conversaciones.values()
+    ))
     for _ in range(limite):
         if not await enviar_uno(solo_demo=solo_demo):
             break

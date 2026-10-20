@@ -245,6 +245,7 @@ async def test_worker_continua_tras_un_fallo_transitorio(monkeypatch, caplog):
         intentos += 1
         if intentos == 1:
             raise RuntimeError("secreto-que-no-debe-aparecer")
+        return {"entradas": 0}
 
     async def pausa(_):
         if intentos == 2:

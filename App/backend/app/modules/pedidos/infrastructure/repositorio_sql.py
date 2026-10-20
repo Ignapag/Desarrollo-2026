@@ -76,7 +76,7 @@ class RepositorioPedidosSQL:
     async def productos(self, ids: list[int]) -> list[dict]:
         return await self.uow.todos(
             """
-            SELECT p.id, p.nombre, p.precio_base,
+            SELECT p.id, p.nombre, p.precio_base, p.activo,
                    COALESCE((SELECT jsonb_agg(v || jsonb_build_object(
                        'disponible', variante_producto_disponible(p.id, v->>'nombre')) ORDER BY n)
                        FROM jsonb_array_elements(p.variantes) WITH ORDINALITY x(v,n)),
@@ -166,6 +166,63 @@ class RepositorioPedidosSQL:
             VALUES (%s, 'PENDIENTE', 'Pedido creado')
             """,
             (pedido_id,),
+        )
+        return await self.detalle(pedido_id)
+
+    async def items_edicion(self, pedido_id: int) -> list[dict]:
+        return await self._items(pedido_id)
+
+    async def receta_edicion(self, producto_id: int, variante: str | None) -> list[dict]:
+        filas = await self.uow.todos(
+            "SELECT ingrediente_id,cantidad_requerida,es_base FROM receta_producto(%s,%s) "
+            "ORDER BY ingrediente_id", (producto_id, variante),
+        )
+        return [{**fila, "cantidad_requerida": str(fila["cantidad_requerida"])} for fila in filas]
+
+    async def nombres_ingredientes(self, ids: list[int]) -> dict[int, str]:
+        filas = await self.uow.todos("SELECT id,nombre FROM ingrediente WHERE id=ANY(%s)", (ids,))
+        return {fila["id"]: fila["nombre"] for fila in filas}
+
+    async def guardar_items(
+        self, pedido_id: int, items: list[dict], subtotal: Decimal, total: Decimal,
+        *, usuario_id: int | None, origen: str, anteriores: list[dict],
+    ) -> dict:
+        if items == anteriores:
+            return await self.detalle(pedido_id)
+        conservados = [item["id"] for item in items if item.get("id") is not None]
+        await self.uow.ejecutar(
+            "DELETE FROM pedido_item WHERE pedido_id=%s AND NOT (id=ANY(%s::bigint[]))",
+            (pedido_id, conservados),
+        )
+        for item in items:
+            if item.get("id") is not None:
+                await self.uow.ejecutar(
+                    "UPDATE pedido_item SET cantidad=%s,aclaraciones=%s,subtotal=%s "
+                    "WHERE id=%s AND pedido_id=%s",
+                    (item["cantidad"], item["aclaraciones"], item["subtotal"],
+                     item["id"], pedido_id),
+                )
+            else:
+                item["id"] = await self.uow.valor(
+                    "INSERT INTO pedido_item(pedido_id,producto_id,nombre_producto,cantidad,"
+                    "precio_unitario,costo_opciones,subtotal,aclaraciones,"
+                    "variante,receta_snapshot) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb) RETURNING id",
+                    (pedido_id, item["producto_id"], item["nombre_producto"], item["cantidad"],
+                     item["precio_unitario"], item["costo_opciones"], item["subtotal"],
+                     item["aclaraciones"], item.get("variante"),
+                     json.dumps(item["receta_snapshot"])),
+                )
+        await self.uow.ejecutar(
+            "UPDATE pedido SET subtotal=%s,total=%s,version=version+1 WHERE id=%s",
+            (subtotal, total, pedido_id),
+        )
+        cambios = {"items": {"anterior": anteriores, "nuevo": items}}
+        await self.uow.ejecutar(
+            "INSERT INTO pedido_estado_historial(pedido_id,estado_anterior,estado_nuevo,usuario_id,"
+            "observacion,origen,version,cambios) SELECT id,estado,estado,%s,'Edicion de productos',"
+            "%s,version,%s::jsonb FROM pedido WHERE id=%s",
+            (usuario_id, origen, json.dumps(cambios, default=str), pedido_id),
         )
         return await self.detalle(pedido_id)
 

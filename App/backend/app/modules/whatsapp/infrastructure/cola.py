@@ -10,10 +10,10 @@ class ColaWhatsAppSQL:
 
     async def pendientes(self, limite=20, *, solo_demo=False):
         return await self.uow.todos(
-            "SELECT id,texto FROM whatsapp_entrada WHERE estado='PENDIENTE' "
+            "SELECT id,texto,telefono FROM whatsapp_entrada WHERE estado='PENDIENTE' "
             "AND (NOT %s OR EXISTS(SELECT 1 FROM chat_demo_sesion d "
             "WHERE d.telefono=whatsapp_entrada.telefono)) "
-            "ORDER BY creado_en LIMIT %s",
+            "ORDER BY creado_en,orden_recibido LIMIT %s",
             (solo_demo, limite),
         )
 

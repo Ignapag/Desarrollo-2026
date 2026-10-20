@@ -122,6 +122,13 @@ def test_estado_no_expone_codigo_tecnico_ni_identificadores(estado):
     assert "37" not in texto and "id-interno" not in texto and estado not in texto
 
 
+@pytest.mark.parametrize("estado", ["PENDIENTE", "CONFIRMADO", "EN_PREPARACION"])
+def test_estado_habitual_es_breve_y_no_repite_publicidad(estado):
+    texto = estado_pedido({**_pedido(), "estado": estado})
+    assert len(texto) <= 60
+    assert "Monu Burger" not in texto
+
+
 def test_efectivo_no_pide_comprobante_y_transferencia_requiere_revision():
     retiro = instrucciones_pago("EFECTIVO", "", "RETIRO")
     entrega = instrucciones_pago("EFECTIVO", "", "DELIVERY")

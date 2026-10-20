@@ -205,13 +205,9 @@ async def test_total_nuevo_requiere_confirmacion_y_revalida_preparacion(uow):
     await s.pedidos.cambiar_estado(pid, EstadoPedido.EN_PREPARACION, usuario_id=None)
     await s.recibir("confirma", "5492215550000", "confirmar")
     respuesta = await s.procesar("confirma", {"accion": "confirmar", "argumentos": {}})
-    assert "cambió" in respuesta
-    # Se necesita una propuesta nueva con el estado vigente antes de pedir revisión.
-    await s.recibir("cantidad-vigente", "5492215550000", "cantidad 2")
-    await s.procesar("cantidad-vigente", {"accion": "cantidad", "argumentos": {"cantidad": 2}})
-    await s.recibir("confirma-vigente", "5492215550000", "confirmar")
-    respuesta = await s.procesar("confirma-vigente", {"accion": "confirmar", "argumentos": {}})
+    # Cocina comenzó después de cotizar: la confirmación deriva, sin aplicar nada.
     assert "aprobación de un empleado" in respuesta
+    assert await uow.valor("SELECT count(*) FROM whatsapp_atencion WHERE estado='PENDIENTE'") == 1
     assert await uow.valor("SELECT cantidad FROM pedido_item WHERE pedido_id=%s", (pid,)) == 1
 
 
@@ -342,9 +338,8 @@ async def test_reintento_despues_de_preparar_no_repite_stock(uow):
 
 
 @pytest.mark.asyncio
-async def test_aumento_pagado_requiere_empleado_y_no_acredita_diferencia(uow):
+async def test_aumento_pagado_requiere_confirmacion_y_no_acredita_diferencia(uow):
     s, pid = await crear_pedido_bot(uow, "TRANSFERENCIA")
-    empleado = await uow.valor("SELECT id FROM usuario WHERE rol='ADMINISTRADOR' LIMIT 1")
     total = await uow.valor("SELECT total FROM pedido WHERE id=%s", (pid,))
     await uow.ejecutar(
         "INSERT INTO pago (pedido_id,metodo_pago,monto,estado) "
@@ -356,35 +351,23 @@ async def test_aumento_pagado_requiere_empleado_y_no_acredita_diferencia(uow):
     )
     await s.recibir("aumento", "5492215550000", "cantidad 2")
     respuesta = await s.procesar("aumento", {"accion": "cantidad", "argumentos": {"cantidad": 2}})
-    assert "aprobación de un empleado" in respuesta
-    cambio = await uow.valor("SELECT id FROM whatsapp_cambio WHERE pedido_id=%s", (pid,))
-    await s.revisar_cambio(
-        cambio,
-        True,
-        empleado,
-        "Coordino cobro adicional",
-        total_verificado=total * 2,
-        resolucion_financiera="COBRO_PENDIENTE",
-    )
+    assert "nuevo total" in respuesta and "confirmar" in respuesta
+    assert await uow.valor("SELECT total FROM pedido WHERE id=%s", (pid,)) == total
+    await s.recibir("confirmar-aumento", "5492215550000", "confirmar")
+    respuesta = await s.procesar("confirmar-aumento", {"accion": "confirmar", "argumentos": {}})
+    assert "Cambio guardado" in respuesta
     assert await uow.valor("SELECT total FROM pedido WHERE id=%s", (pid,)) == total * 2
     assert await uow.valor("SELECT sum(monto) FROM pago WHERE pedido_id=%s", (pid,)) == total
     assert (
         await uow.valor("SELECT estado_pago FROM whatsapp_borrador WHERE pedido_id=%s", (pid,))
         == "PENDIENTE"
     )
-    await s.revisar_cambio(
-        cambio,
-        True,
-        empleado,
-        "reintento",
-        total_verificado=total * 2,
-        resolucion_financiera="COBRO_PENDIENTE",
-    )
+    assert await s.procesar("confirmar-aumento", {}) == respuesta
     assert await uow.valor("SELECT cantidad FROM pedido_item WHERE pedido_id=%s", (pid,)) == 2
 
 
 @pytest.mark.asyncio
-async def test_cantidad_en_preparacion_confirma_importe_y_empleado_ajusta_stock(uow):
+async def test_cantidad_en_preparacion_deriva_y_empleado_ajusta_stock(uow):
     from app.modules.pedidos.domain.entidades import EstadoPedido
 
     s, pid = await crear_pedido_bot(uow)
@@ -397,11 +380,8 @@ async def test_cantidad_en_preparacion_confirma_importe_y_empleado_ajusta_stock(
     respuesta = await s.procesar(
         "cantidad-prep", {"accion": "cantidad", "argumentos": {"cantidad": 2}}
     )
-    assert "nuevo total" in respuesta
-    assert await uow.valor("SELECT count(*) FROM whatsapp_cambio WHERE pedido_id=%s", (pid,)) == 0
-    await s.recibir("confirmar-prep", "5492215550000", "confirmar")
-    respuesta = await s.procesar("confirmar-prep", {"accion": "confirmar", "argumentos": {}})
     assert "aprobación de un empleado" in respuesta
+    assert await uow.valor("SELECT count(*) FROM whatsapp_cambio WHERE pedido_id=%s", (pid,)) == 1
     cid = await uow.valor("SELECT id FROM whatsapp_cambio WHERE pedido_id=%s", (pid,))
     empleado = await uow.valor("SELECT id FROM usuario WHERE rol='ADMINISTRADOR' LIMIT 1")
     for _ in range(2):

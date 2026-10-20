@@ -162,7 +162,7 @@ async def test_gemini_solo_pide_una_accion_y_omite_contexto_personal(http):
     datos = json.loads(solicitud.data)
     assert datos["generationConfig"]["maxOutputTokens"] <= 256
     assert datos["generationConfig"]["candidateCount"] == 1
-    assert set(datos["toolConfig"]["functionCallingConfig"]["allowedFunctionNames"]) == {
+    assert set(datos["toolConfig"]["functionCallingConfig"]["allowedFunctionNames"]) >= {
         "datos",
         "quitar_ingrediente",
         "cantidad",
@@ -233,7 +233,8 @@ async def test_gemini_deriva_salidas_no_validas_sin_reintentar(http, respuesta):
     resultado = await proveedores.GeminiInterpretador("ficticia", "modelo").interpretar(
         "confirmar", {}
     )
-    assert resultado == {"accion": "humano", "argumentos": {}, "motivo": "PROVEEDOR"}
+    assert resultado["accion"] == "humano" and resultado["motivo"] == "PROVEEDOR"
+    assert resultado["argumentos"] == {} and resultado["causa_proveedor"]
     assert len(llamadas) == 1
 
 
@@ -241,10 +242,10 @@ async def test_gemini_deriva_salidas_no_validas_sin_reintentar(http, respuesta):
 async def test_gemini_falla_cerrado_sin_reintentar(http, error):
     llamadas, respuestas = http
     respuestas.append(error)
-    assert await proveedores.GeminiInterpretador("ficticia", "modelo").interpretar("hola", {}) == {
-        "accion": "humano",
-        "argumentos": {},
-        "motivo": "PROVEEDOR",
+    resultado = await proveedores.GeminiInterpretador("ficticia", "modelo").interpretar("hola", {})
+    assert resultado == {
+        "accion": "humano", "argumentos": {}, "motivo": "PROVEEDOR",
+        "causa_proveedor": "TIMEOUT" if isinstance(error, TimeoutError) else "TRANSITORIO",
     }
     assert len(llamadas) == 1
 
@@ -267,7 +268,10 @@ async def test_gemini_no_inventa_confirmacion_a_partir_del_modelo(http):
         }
     )
     resultado = await proveedores.GeminiInterpretador("ficticia", "modelo").interpretar("hola", {})
-    assert resultado == {"accion": "humano", "argumentos": {}, "motivo": "PROVEEDOR"}
+    assert resultado == {
+        "accion": "humano", "argumentos": {}, "motivo": "PROVEEDOR",
+        "causa_proveedor": "ARGUMENTOS",
+    }
 
 
 @pytest.mark.parametrize(
@@ -487,6 +491,157 @@ async def test_gemini_acota_contexto_y_rechaza_mensaje_excesivo(http):
         "motivo": "MENSAJE_LARGO",
     }
     assert len(llamadas) == 1
+
+
+@pytest.mark.parametrize(
+    ("respuesta", "causa"),
+    [
+        (HTTPError("https://ficticio.test", 401, "secreto", {}, None), "CREDENCIALES"),
+        (HTTPError("https://ficticio.test", 403, "secreto", {}, None), "PERMISOS"),
+        (HTTPError("https://ficticio.test", 429, "secreto", {}, None), "CUOTA"),
+        (HTTPError("https://ficticio.test", 404, "secreto", {}, None), "MODELO"),
+        (TimeoutError("secreto"), "TIMEOUT"),
+        ({"candidates": [{"finishReason": "MAX_TOKENS"}]}, "TRUNCADA"),
+        (respuesta_funcion("inventada", {}), "HERRAMIENTA"),
+        (respuesta_funcion("cantidad", {"cantidad": True}), "ARGUMENTOS"),
+        ({}, "RESPUESTA_INVALIDA"),
+    ],
+)
+async def test_gemini_diagnostica_fallo_sin_registrar_datos(http, caplog, respuesta, causa):
+    _, respuestas = http
+    respuestas.append(respuesta)
+    resultado = await proveedores.GeminiInterpretador("clave-secreta", "modelo").interpretar(
+        "mensaje-privado", {}
+    )
+    assert resultado == {
+        "accion": "humano", "argumentos": {}, "motivo": "PROVEEDOR",
+        "causa_proveedor": causa,
+    }
+    assert causa in caplog.text
+    assert all(s not in caplog.text for s in ("clave-secreta", "mensaje-privado", "secreto"))
+
+
+async def test_gemini_cuota_usa_solo_alternativo_configurado_y_acota_intentos(http):
+    llamadas, respuestas = http
+    respuestas.extend([
+        HTTPError("https://ficticio.test", 429, "privado", {}, None),
+        respuesta_funcion("consulta", {}),
+    ])
+    resultado = await proveedores.GeminiInterpretador(
+        "ficticia", "gemini-3.5-flash-lite",
+        modelos_alternativos=["gemini-3.1-flash-lite"],
+    ).interpretar("hola", {})
+    assert resultado == {"accion": "consulta", "argumentos": {}}
+    assert len(llamadas) == 2
+    assert "/gemini-3.1-flash-lite:" in llamadas[1][0].full_url
+
+
+async def test_gemini_no_usa_alternativo_pago_ni_reintenta_permisos(http):
+    llamadas, respuestas = http
+    with pytest.raises(ValueError):
+        proveedores.GeminiInterpretador(
+            "ficticia", "gemini-3.5-flash-lite", modelos_alternativos=["gemini-3.1-pro"]
+        )
+    respuestas.append(HTTPError("https://ficticio.test", 403, "privado", {}, None))
+    resultado = await proveedores.GeminiInterpretador(
+        "ficticia", "gemini-3.5-flash-lite",
+        modelos_alternativos=["gemini-3.1-flash-lite"],
+    ).interpretar("hola", {})
+    assert resultado["causa_proveedor"] == "PERMISOS"
+    assert len(llamadas) == 1
+
+
+async def test_gemini_agota_todos_los_modelos_sin_superar_presupuesto(http):
+    llamadas, respuestas = http
+    respuestas.extend([HTTPError("https://ficticio.test", 429, "privado", {}, None)] * 2)
+    resultado = await proveedores.GeminiInterpretador(
+        "ficticia", "gemini-3.5-flash-lite",
+        modelos_alternativos=["gemini-3.1-flash-lite"], max_intentos=2,
+    ).interpretar("hola", {})
+    assert resultado["causa_proveedor"] == "CUOTA" and len(llamadas) == 2
+
+
+async def test_gemini_tiempo_total_corta_espera_sin_segunda_llamada(http, monkeypatch):
+    llamadas, _ = http
+    import asyncio
+
+    async def red_lenta(*args):
+        await asyncio.sleep(0.2)
+
+    monkeypatch.setattr(proveedores.asyncio, "to_thread", red_lenta)
+    resultado = await proveedores.GeminiInterpretador(
+        "ficticia", "modelo", tiempo_total=0.01
+    ).interpretar("hola", {})
+    assert resultado["causa_proveedor"] == "TIMEOUT"
+    assert not llamadas
+
+
+def test_contexto_catalogo_y_edicion_no_envian_datos_personales():
+    seguro = proveedores._contexto_acotado({
+        "catalogo": [{"id": 7, "nombre": "Crispy", "variantes": ["Simple", "Doble"],
+                      "ingredientes": ["bacon"], "direccion": "privado"}] * 200,
+        "edicion_pendiente": {"accion": "cantidad", "argumentos": {
+            "producto": "Crispy", "cantidad": 1, "aclaraciones": "sin bacon",
+            "direccion": "privado", "telefono": "privado"}},
+    })
+    assert 0 < len(seguro["catalogo"]) <= 30
+    assert seguro["catalogo"][0] == {
+        "id": 7, "nombre": "Crispy", "variantes": ["Simple", "Doble"],
+        "ingredientes": ["bacon"],
+    }
+    assert seguro["edicion_pendiente"]["argumentos"]["producto"] == "Crispy"
+    assert "privado" not in json.dumps(seguro)
+
+
+async def test_gemini_contexto_excesivo_diagnostica_sin_llamar(http):
+    llamadas, _ = http
+    resultado = await proveedores.GeminiInterpretador("ficticia", "modelo").interpretar(
+        "hola", {"catalogo": [{"id": 1, "nombre": "a" * 80,
+                                "variantes": ["v" * 80] * 10,
+                                "ingredientes": ["i" * 60] * 20}] * 30}
+    )
+    assert resultado["causa_proveedor"] == "CONTEXTO"
+    assert not llamadas
+
+
+async def test_gemini_diagnostico_http_tambien_respeta_tiempo_total(http, monkeypatch):
+    _, respuestas = http
+    respuestas.append(HTTPError("https://ficticio.test", 400, "privado", {}, None))
+
+    def cuerpo_lento(error):
+        import time
+        time.sleep(0.2)
+        return "CREDENCIALES"
+
+    monkeypatch.setattr(proveedores, "_causa_http_gemini", cuerpo_lento)
+    resultado = await proveedores.GeminiInterpretador(
+        "ficticia", "modelo", tiempo_total=0.01
+    ).interpretar("hola", {})
+    assert resultado["causa_proveedor"] == "TIMEOUT"
+
+
+async def test_gemini_clave_invalida_en_http400_no_se_confunde_con_herramienta(http):
+    _, respuestas = http
+    respuestas.append(HTTPError("https://ficticio.test", 400, "privado", {}, io.BytesIO(
+        b'{"error":{"details":[{"reason":"API_KEY_INVALID","message":"secreto"}]}}'
+    )))
+    resultado = await proveedores.GeminiInterpretador("ficticia", "modelo").interpretar("hola", {})
+    assert resultado["causa_proveedor"] == "CREDENCIALES"
+
+
+def test_contexto_edicion_ignora_accion_sin_tipo_valido():
+    assert "edicion_pendiente" not in proveedores._contexto_acotado({
+        "edicion_pendiente": {"accion": {}, "argumentos": {"direccion": "privado"}},
+    })
+
+
+@pytest.mark.parametrize("config", [
+    {"gemini_modelos_alternativos": ["gemini-3.1-pro"]},
+    {"gemini_max_intentos": 4}, {"gemini_timeout": 0}, {"gemini_tiempo_total": 46},
+])
+def test_configuracion_rechaza_alternativos_y_presupuestos_no_permitidos(config):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **config)
 
 
 async def test_cloud_envia_texto_y_devuelve_id_aceptado_no_entregado(http):

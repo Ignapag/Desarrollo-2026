@@ -92,6 +92,105 @@ class ServicioStock:
     def __init__(self, repositorio: RepositorioStock) -> None:
         self.repo = repositorio
 
+    async def ajustar_composicion(
+        self, pedido_id: int, anteriores: Sequence[ItemConsumoStock],
+        nuevos: Sequence[ItemConsumoStock], version: int, usuario_id: int | None,
+        *, aplicar: bool = True,
+    ) -> None:
+        """Valida toda la demanda y aplica solo su diferencial en el UoW del pedido."""
+        if not await self.repo.bloquear_pedido(pedido_id):
+            raise NoEncontrado("El pedido no existe")
+        if await self.repo.reservas_antes_preparacion(pedido_id) is None:
+            raise ReglaDeNegocio("Solo se puede editar la composicion antes de cocina")
+        if await self.repo.pedido_tiene_opciones(pedido_id):
+            raise ReglaDeNegocio(
+                "La edicion con opciones estructuradas requiere revision del personal"
+            )
+        motivo = f"EDICION_ITEMS:v{version}"
+        if aplicar and await self.repo.ajuste_existente(pedido_id, motivo):
+            raise ReglaDeNegocio("La version ya tiene un ajuste de composicion")
+        consumido = await self.repo.consumo_existente(pedido_id)
+        grupos = (anteriores, nuevos)
+        sin_snapshot = {
+            item.producto_id for grupo in grupos for item in grupo
+            if item.receta_snapshot is None
+        }
+        recetas = await self.repo.recetas(sorted(sin_snapshot)) if sin_snapshot else []
+        normalizados = []
+        ingrediente_ids = set()
+        for grupo in grupos:
+            filas = []
+            for item in grupo:
+                receta = item.receta_snapshot
+                if receta is None:
+                    receta = tuple(
+                        (fila["ingrediente_id"], fila["cantidad_requerida"])
+                        for fila in recetas if fila["producto_id"] == item.producto_id
+                    )
+                if not receta or any(
+                    isinstance(i, bool) or not isinstance(i, int) or i <= 0
+                    or not isinstance(c, Decimal) or not c.is_finite() or c <= 0
+                    for i, c in receta
+                ):
+                    raise ReglaDeNegocio("La receta del pedido no es valida")
+                ingrediente_ids.update(i for i, _ in receta)
+                filas.append((item, receta))
+            normalizados.append(filas)
+        saldos = {
+            fila["id"]: fila
+            for fila in await self.repo.bloquear_ingredientes(sorted(ingrediente_ids))
+        }
+        if set(saldos) != ingrediente_ids:
+            raise ReglaDeNegocio("La receta contiene ingredientes inexistentes")
+        demandas = []
+        for grupo in normalizados:
+            demanda = {}
+            for item, receta in grupo:
+                for ingrediente_id, cantidad in receta:
+                    if saldos[ingrediente_id]["nombre"].casefold() in item.ingredientes_omitidos:
+                        continue
+                    demanda[ingrediente_id] = (
+                        demanda.get(ingrediente_id, Decimal("0")) + cantidad * item.cantidad
+                    )
+            demandas.append(demanda)
+        antes, despues = demandas
+        for ingrediente_id in sorted(ingrediente_ids):
+            demanda_adicional = (
+                despues.get(ingrediente_id, Decimal("0"))
+                - antes.get(ingrediente_id, Decimal("0"))
+            )
+            if demanda_adicional > 0 and not saldos[ingrediente_id]["activo"]:
+                raise ReglaDeNegocio(
+                    "La modificacion requiere un ingrediente inactivo",
+                    {"ingrediente_id": ingrediente_id},
+                )
+        deltas = {
+            i: despues.get(i, Decimal("0")) - (antes.get(i, Decimal("0")) if consumido else 0)
+            for i in ingrediente_ids
+        }
+        for ingrediente_id, delta in sorted(deltas.items()):
+            if delta > saldos[ingrediente_id]["cantidad_actual"]:
+                raise StockInsuficiente(
+                    "Stock insuficiente para modificar el pedido",
+                    {"ingrediente_id": ingrediente_id},
+                )
+            neto = (
+                await self.repo.consumo_neto_ingrediente(pedido_id, ingrediente_id)
+                if delta < 0 else Decimal("0")
+            )
+            if delta < 0 and neto < -delta:
+                raise ReglaDeNegocio("La devolucion supera el consumo neto registrado")
+        if not aplicar or not consumido:
+            return
+        for ingrediente_id, delta in sorted(deltas.items()):
+            if delta > 0:
+                if await self.repo.consumir(
+                    ingrediente_id, delta, pedido_id, motivo=motivo, usuario_id=usuario_id
+                ) is None:
+                    raise StockInsuficiente("El stock cambio durante el ajuste")
+            elif delta < 0:
+                await self.repo.devolver(ingrediente_id, -delta, pedido_id, usuario_id, motivo)
+
     async def procesar_consumo(
         self,
         pedido_id: int,

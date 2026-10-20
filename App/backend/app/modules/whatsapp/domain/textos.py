@@ -101,9 +101,9 @@ def instrucciones_pago(metodo: str, transferencia: str, tipo_entrega: str) -> st
 def estado_pedido(pedido: dict) -> str:
     estado = pedido.get("estado", pedido.get("estado_pedido"))
     textos = {
-        "PENDIENTE": "📝 Recibimos tu pedido y está pendiente de confirmación.",
-        "CONFIRMADO": "✅ Tu pedido está confirmado. ¡Gracias por elegir Monu Burger!",
-        "EN_PREPARACION": "👨‍🍳 Estamos preparando tu pedido con todo el sabor de Monu Burger.",
+        "PENDIENTE": "📝 Tu pedido está pendiente de confirmación.",
+        "CONFIRMADO": "✅ Tu pedido está confirmado.",
+        "EN_PREPARACION": "👨‍🍳 Estamos preparando tu pedido.",
         "LISTO": (
             "🛍️ ¡Tu pedido está listo! Ya podés retirarlo por el local."
             if pedido["tipo_entrega"] == "RETIRO"

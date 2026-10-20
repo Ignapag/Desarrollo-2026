@@ -19,7 +19,7 @@ async def confirmar(s, identificador="confirmacion"):
     return await s.procesar(identificador, {"accion": "confirmar", "argumentos": {}})
 
 
-@pytest.mark.parametrize("estado", ["PENDIENTE", "CONFIRMADO", "EN_PREPARACION", "LISTO"])
+@pytest.mark.parametrize("estado", ["PENDIENTE", "CONFIRMADO"])
 async def test_metodo_cambia_mismo_pedido_sin_inferir_estado(uow, estado):
     s, pid = await crear_pedido_bot(uow)
     await uow.ejecutar("UPDATE pedido SET estado=%s WHERE id=%s", (estado, pid))
@@ -36,6 +36,27 @@ async def test_metodo_cambia_mismo_pedido_sin_inferir_estado(uow, estado):
     b = await uow.uno("SELECT * FROM whatsapp_borrador WHERE pedido_id=%s", (pid,))
     assert b["metodo_pago"] == "TRANSFERENCIA"
     assert not b["contexto_chat"].get("datos")
+
+
+@pytest.mark.parametrize("estado", ["EN_PREPARACION", "LISTO"])
+async def test_metodo_desde_cocina_deriva_solicitud_persistida_sin_cambiar_pedido(uow, estado):
+    s, pid = await crear_pedido_bot(uow)
+    await uow.ejecutar("UPDATE pedido SET estado=%s WHERE id=%s", (estado, pid))
+    anterior = await s.repo.pedido(pid)
+    texto = "Quiero cambiar el método de pago a transferencia"
+    respuesta = await actuar(s, "metodo-cocina", {"metodo_pago": "transferencia"}, texto)
+    actual = await s.repo.pedido(pid)
+    assert "empleado" in respuesta and "Cambio guardado" not in respuesta
+    assert actual == anterior
+    assert await uow.valor("SELECT count(*) FROM pago WHERE pedido_id=%s", (pid,)) == 0
+    b = await uow.uno("SELECT * FROM whatsapp_borrador WHERE pedido_id=%s", (pid,))
+    assert b["metodo_pago"] == "EFECTIVO"
+    atencion = await uow.uno(
+        "SELECT a.estado,e.texto FROM whatsapp_atencion a "
+        "JOIN whatsapp_entrada e ON e.id=a.entrada_id WHERE a.referencia_hash=%s",
+        (b["referencia_hash"],),
+    )
+    assert atencion == {"estado": "PENDIENTE", "texto": texto}
 
 
 async def test_delivery_recalcula_y_confirma_importe_sin_crear_otro_pedido(uow):
@@ -123,6 +144,10 @@ async def test_edicion_de_item_incrementa_version_y_deja_historia_canonica(uow):
     anterior = (await s.repo.pedido(pid))["version"]
     await s.recibir("cantidad", TELEFONO, "cantidad 2")
     await s.procesar("cantidad", {"accion": "cantidad", "argumentos": {"cantidad": 2}})
+    propuesta = await uow.valor(
+        "SELECT propuesta FROM whatsapp_borrador WHERE pedido_id=%s", (pid,),
+    )
+    assert propuesta["tipo"] == "COMPOSICION"
     await confirmar(s)
     actual = await s.repo.pedido(pid)
     assert actual["version"] == anterior + 1
@@ -250,9 +275,12 @@ async def test_pedido_que_paso_por_cocina_requiere_personal_aunque_se_reabra(uow
     await s.recibir("receta-reabierta", TELEFONO, "corregir producto")
     args = {"ingrediente": "tomate"} if accion == "quitar_ingrediente" else {"cantidad": 2}
     respuesta = await s.procesar("receta-reabierta", {"accion": accion, "argumentos": args})
-    if accion == "cantidad":
-        assert "nuevo total" in respuesta
-        respuesta = await confirmar(s)
     assert "aprobación de un empleado" in respuesta
+    assert "Respondé *confirmar*" not in respuesta
+    assert await uow.valor(
+        "SELECT count(*) FROM whatsapp_atencion a JOIN whatsapp_borrador b "
+        "ON b.referencia_hash=a.referencia_hash WHERE b.pedido_id=%s AND a.estado='PENDIENTE'",
+        (pid,),
+    ) == 1
     item = (await s.repo.pedido(pid))["items"][0]
     assert item["cantidad"] == 1 and item["aclaraciones"] is None

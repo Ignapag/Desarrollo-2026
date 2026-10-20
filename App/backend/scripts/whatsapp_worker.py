@@ -15,15 +15,19 @@ pausar = asyncio.sleep
 async def procesar_continuamente(*, solo_demo=False):
     """Usa el pool del llamador; un fallo transitorio conserva inbox y outbox."""
     while True:
+        pausa = 2
         try:
             if solo_demo:
-                await procesar_lote(solo_demo=True)
+                resultado = await procesar_lote(solo_demo=True)
             else:
-                await procesar_lote()
+                resultado = await procesar_lote()
+            # Drenar mensajes activos pronto; sin trabajo consultar como máximo
+            # una vez por segundo. Los errores mantienen el backoff del worker.
+            pausa = 0.1 if resultado["entradas"] else 1
         except Exception as exc:
             # No imprimir texto de mensajes, tokens ni detalles del proveedor/DSN.
             log.warning("Worker WhatsApp reintentará el ciclo (%s)", type(exc).__name__)
-        await pausar(2)
+        await pausar(pausa)
 
 
 async def ejecutar(una_vez=False, *, solo_demo=False):

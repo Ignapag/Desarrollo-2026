@@ -1,8 +1,8 @@
 # WhatsApp: alcance funcional acordado
 
-Fecha: 17 de octubre de 2026.
-Estado: definición funcional para preparar el diseño y el plan de desarrollo.
-Este documento registra decisiones de producto; no afirma que estén implementadas.
+Acuerdos iniciales: 17 de octubre de 2026. Revisión de alcance: 20 de octubre de 2026.
+Este documento registra decisiones de producto. La ampliación de edición y recuperación
+del 20/10 está implementada localmente y aún no fue publicada en esta sesión.
 El estado implementado, los contratos y sus límites se describen en la
 [guía de desarrollo de WhatsApp](WHATSAPP_DESARROLLO.md).
 
@@ -13,7 +13,7 @@ recibe la solicitud, reúne los datos necesarios, registra el pedido y acompaña
 su evolución. La IA interpreta mensajes y modificaciones en lenguaje natural;
 el backend valida y ejecuta las operaciones del negocio.
 
-Es un proyecto académico. La integración se desarrollará con WhatsApp Cloud API
+Es un proyecto académico. La integración usa WhatsApp Cloud API
 directamente desde el backend Python, en entorno de prueba, conservando un modo
 simulado para desarrollo y demostraciones. **n8n queda descartado del diseño.**
 No se requiere publicar el sistema en producción ni habilitar el número comercial
@@ -30,8 +30,8 @@ integración es la registrada aquí.
 1. Arma productos, cantidades y personalizaciones en la web.
 2. Elige enviar por WhatsApp. El chat se abre con el mensaje preparado; el
    cliente debe enviarlo dentro de WhatsApp para que el bot lo reciba.
-3. El bot vincula la solicitud con el pedido preparado en la web. La forma de
-   conservar e identificar ese borrador se definirá en el diseño técnico.
+3. El bot vincula la solicitud con el borrador persistido preparado en la web;
+   identificación y aislamiento se describen en la guía de desarrollo.
 4. Si faltan datos, los solicita: dirección y referencias para delivery, modalidad
    de entrega, método de pago u opciones obligatorias de un producto.
 5. El backend valida disponibilidad, opciones permitidas y precio. El bot comunica
@@ -41,8 +41,8 @@ integración es la registrada aquí.
    entregado. El cliente puede plantear preguntas y solicitudes de modificación.
 
 La mera apertura de WhatsApp no cuenta como recepción ni confirmación del pedido.
-La persistencia de datos parciales y el momento exacto de crear el pedido operativo
-deben quedar explícitos en el diseño técnico.
+La persistencia de datos parciales y el momento de crear el pedido operativo se
+describen en la guía de desarrollo.
 
 ## Modificaciones por conversación
 
@@ -61,21 +61,32 @@ la información que recibe cocina indiquen **doble sin tomate**.
 | Situación | Resolución |
 | --- | --- |
 | Pedido todavía fuera de preparación, sin diferencia de precio | Cambio automático permitido si el backend lo valida y el producto es inequívoco. |
-| Cambio de productos o ingredientes con el pedido ya en preparación | La solicitud requiere aprobación de un empleado. |
-| Pedido ya pagado y modificación que cambia el total | Siempre interviene un empleado para resolver diferencia o devolución. |
+| Cualquier modificación desde preparación o listo, incluidos entrega y pago | La solicitud completa queda pendiente de un empleado; se conserva el pedido vigente. |
+| Cambio de total antes de cocina, con o sin pagos existentes | Mostrar nuevo resumen y total; exigir confirmación explícita y revalidar antes de aplicar. Si el nuevo total queda debajo del neto cobrado, intervienen personal y caja. |
 | Pedido ya pagado, modificación sin diferencia de precio y todavía fuera de preparación | Puede modificarse automáticamente si el backend lo valida. |
 | Pedido o producto ambiguo | El bot solicita aclaración; mantiene el pedido vigente hasta resolverla. |
 
-La entrada en preparación debe comprobarse al aplicar la modificación, para evitar
-aceptar un cambio mientras cocina ya comenzó a trabajar con la versión anterior.
-La confirmación de un nuevo total en pedidos aún no pagados se detallará en el diseño.
+Antes de cocina, en pendiente o confirmado, se permite agregar y quitar productos,
+reemplazarlos, cambiar cantidad o variante y agregar, cambiar o retirar personalizaciones
+admitidas por la receta. También se pueden modificar dirección, referencias,
+retiro/delivery y método acordado, consultar resumen/total y solicitar cancelación.
+«Agregar una Crispy sin bacon» agrega una línea al mismo pedido; no altera otra
+hamburguesa. Si faltan producto, variante, cantidad o destino del cambio, se conserva
+la intención y se pide aclaración. No se inventan extras, ingredientes ni precios.
+Quitar el último producto exige confirmar la cancelación; nunca deja un pedido vacío.
 
-Los datos de entrega tienen una regla diferente de los ingredientes que cocina
-ya puede estar usando. Dirección, retiro/delivery y método acordado pueden
-cambiar en pendiente, confirmado, preparación o listo **si no hay repartidor
-asignado**. El backend valida cobertura, saldo y versión; un importe distinto
-requiere confirmación. Si el nuevo total es menor al dinero acreditado, primero
-interviene el personal para registrar el reintegro real.
+La entrada en preparación se comprueba también al confirmar y aplicar. La marca
+`preparacion_en` conserva la protección aunque una corrección haya vuelto la etiqueta
+a pendiente o confirmado. Desde cocina o listo, toda modificación se deriva de inmediato,
+sin pedir primero confirmación de un cambio que el cliente ya no puede aplicar solo.
+El personal recibe la solicitud persistida en la bandeja existente.
+
+Los cambios de importe se cotizan en servidor y conservan el pedido vigente hasta
+`confirmar`. El backend revalida versión, estado, cobertura, reparto, stock, precio y
+dinero acreditado. Un aumento deja saldo pendiente; un cambio no acredita pagos ni
+registra reintegros. Si el nuevo total es menor al neto cobrado, caja debe registrar
+la devolución real antes de retomar el cambio. Las solicitudes compuestas que el
+bot no puede representar de forma segura se derivan completas, sin ejecutar una parte.
 
 Después de asignar un repartidor se coordina la modificación con el personal.
 La IA no cambia estados físicos de cocina o reparto a partir del texto de un
@@ -121,52 +132,39 @@ abiertas queda por definir.
 
 ## Proveedor de IA y criterio de costo
 
-El proveedor acordado es **Google Gemini**, priorizando un costo muy bajo para
-la demostración académica. Modelo inicial propuesto para evaluar:
-`gemini-3.1-flash-lite`, configurable para poder cambiarlo sin modificar reglas
-de pedidos o pagos. Google lo documenta como estable, con llamadas a funciones
-y salidas estructuradas. Su adecuación al español del negocio y a las solicitudes
-de modificación debe comprobarse con casos representativos; aún no se hicieron
-pruebas reales contra Gemini.
+El proveedor es **Google Gemini**. La propuesta inicial del 17/10 fue evaluar
+`gemini-3.1-flash-lite`; la configuración actual usa `gemini-3.5-flash-lite` como
+valor predeterminado y admite el primero como alternativo opcional. La documentación
+oficial verificada el 20/10 publica llamadas a funciones y tokens estándar gratuitos
+para ambos, sujetos a cuota y disponibilidad del proyecto. No se activó facturación
+ni se contrató otro servicio. Que exista nivel gratuito no garantiza costo cero si
+la clave pertenece a un proyecto que ya tiene facturación habilitada.
 
-Esa fue la propuesta inicial. La implementación usa ahora
-`gemini-3.5-flash-lite` como valor predeterminado; configuración y costos vigentes
-de referencia en la [guía de desarrollo](WHATSAPP_DESARROLLO.md#gemini-modelo-y-consumo).
-
-Google anuncia el retiro de este endpoint para el 7 de mayo de 2027 y recomienda
-`gemini-3.5-flash-lite` como reemplazo. El modelo debe elegirse por configuración
-y revisar su disponibilidad al implementar; esta elección inicial prioriza el
-costo de las pruebas académicas actuales. Ver [calendario oficial](https://ai.google.dev/gemini-api/docs/deprecations).
-
-Precios de referencia consultados el 17 de octubre de 2026, modalidad estándar:
-USD 0,25 por millón de tokens de entrada de texto y USD 1,50 por millón de tokens
-de salida, incluidos tokens de razonamiento. Existe nivel gratuito sujeto a las
-cuotas y disponibilidad del proyecto de Google; no se presupone uso ilimitado.
-Por ejemplo, 1.000 llamadas con 2.000 tokens de entrada y 300 de salida facturada
-cada una cuestan aproximadamente USD 0,95 en la modalidad paga. Es una estimación
-de llamadas de IA, no de pedidos: una conversación puede necesitar varias llamadas.
-No incluye cargos de WhatsApp ni infraestructura.
-
-Para reducir consumo, el diseño enviará contexto acotado del pedido y las opciones
-pertinentes, limitará salida y llamadas por turno y usará mensajes fijos para
-avisos deterministas. La recepción de un comprobante lo deriva a revisión humana;
-no requiere que el modelo determine su autenticidad. Las operaciones que solicite
-Gemini siempre deben validarse en backend antes de ejecutarse.
+Cada interpretación tiene un presupuesto configurable de dos intentos y veinte
+segundos por defecto, compartido entre modelos. Una reinterpretación por concurrencia
+puede llevar una entrada a cuatro llamadas y cuarenta segundos de espera de IA.
+Los comandos guiados, avisos y comprobantes no consumen Gemini. El catálogo enviado
+está acotado; precios, permisos y ejecución siguen siendo autoridad del backend.
 
 Las pruebas con el nivel gratuito usarán datos ficticios: Google indica que ese
 nivel puede usar el contenido para mejorar sus productos. Credenciales solo en
 backend; no registrar claves ni enviarlas al frontend. Si una cuota o el proveedor
-fallan, el pedido debe conservarse y ofrecer una continuación guiada o humana;
-el comportamiento concreto se definirá en el diseño técnico.
+fallan, se conserva el contexto, se registra una atención técnica recuperable y se
+ofrece continuar por comandos reales (`ayuda`, `agregar`, elecciones de catálogo,
+variantes, cantidades, datos y `resumen`) o por un empleado. No se presenta esa
+gramática determinista como una llamada real a Gemini. Diagnósticos, herramientas,
+pruebas ficticias reales y límites en la
+[guía de desarrollo](WHATSAPP_DESARROLLO.md#gemini-modelo-y-consumo).
 
 Fuentes oficiales: [modelo](https://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-lite),
 [precios](https://ai.google.dev/gemini-api/docs/pricing),
 [límites](https://ai.google.dev/gemini-api/docs/rate-limits) y
 [llamadas a funciones](https://ai.google.dev/gemini-api/docs/function-calling).
 
-## Siguiente etapa de planificación
+## Trazabilidad del diseño inicial
 
-El diseño técnico deberá resolver, antes de escribir la implementación:
+La definición del 17/10 identificó estas áreas, cuyos contratos actuales se describen
+en la guía de desarrollo; la lista no es evidencia de una nueva prueba ni publicación:
 
 - Identificación del borrador, conversación, cliente y pedido; tratamiento de abandono.
 - Estados separados de conversación, pedido, pago y notificación.

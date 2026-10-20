@@ -1,6 +1,7 @@
 """Inbox, borradores, revisión y outbox en la unidad de trabajo del caso de uso."""
 
 from datetime import UTC, datetime
+from decimal import Decimal
 
 from psycopg.types.json import Jsonb
 
@@ -260,29 +261,27 @@ class RepositorioBotSQL:
     async def pedido(self, pedido_id):
         # La foto de asignación/fondos se obtiene con un snapshot posterior al bloqueo.
         await self.uow.uno("SELECT id FROM pedido WHERE id=%s FOR UPDATE", (pedido_id,))
-        pedido = await self.uow.uno("SELECT * FROM pedido WHERE id=%s", (pedido_id,))
-        envio = await self.uow.uno(
-            "SELECT id,estado FROM envio WHERE pedido_id=%s "
-            "AND estado IN ('ASIGNADO','EN_CAMINO','FALLIDO') ORDER BY id DESC LIMIT 1",
+        pedido = await self.uow.uno(
+            """SELECT p.*,e.id envio_id,e.estado estado_envio,
+                EXISTS(SELECT 1 FROM movimiento_stock m
+                    WHERE m.pedido_id=p.id AND m.tipo='CONSUMO') stock_consumido
+            FROM pedido p LEFT JOIN LATERAL (
+                SELECT id,estado FROM envio WHERE pedido_id=p.id
+                AND estado IN ('ASIGNADO','EN_CAMINO','FALLIDO') ORDER BY id DESC LIMIT 1
+            ) e ON true WHERE p.id=%s""",
             (pedido_id,),
         )
-        pedido.update(asignado=bool(envio), envio_id=envio["id"] if envio else None,
-                      estado_envio=envio["estado"] if envio else None)
+        pedido["asignado"] = pedido["envio_id"] is not None
         pedido["items"] = await self.uow.todos(
             "SELECT * FROM pedido_item WHERE pedido_id=%s ORDER BY id", (pedido_id,)
-        )
-        pedido["pagado"] = await self.uow.valor(
-            """SELECT COALESCE(sum(CASE WHEN tipo='COBRO' THEN monto ELSE -monto END),0)
-            FROM pago WHERE pedido_id=%s AND estado='CONCILIADO'""",
-            (pedido_id,),
-        )
-        pedido["stock_consumido"] = await self.uow.valor(
-            "SELECT EXISTS (SELECT 1 FROM movimiento_stock WHERE pedido_id=%s AND tipo='CONSUMO')",
-            (pedido_id,),
         )
         pedido["fondos"] = await self.uow.todos(
             "SELECT id,tipo,metodo_pago,monto,estado FROM pago WHERE pedido_id=%s ORDER BY id",
             (pedido_id,),
+        )
+        pedido["pagado"] = sum(
+            (p["monto"] if p["tipo"] == "COBRO" else -p["monto"]
+             for p in pedido["fondos"] if p["estado"] == "CONCILIADO"), Decimal("0"),
         )
         return pedido
 
@@ -321,6 +320,12 @@ class RepositorioBotSQL:
             (producto_id,),
         )
 
+    async def direccion_pedido(self, pedido):
+        return await self.uow.uno(
+            "SELECT calle,numero,localidad,referencia FROM direccion WHERE id=%s AND cliente_id=%s",
+            (pedido.get("direccion_id"), pedido["cliente_id"]),
+        )
+
     async def ingredientes_snapshot(self, receta_snapshot):
         return await self.uow.todos(
             """SELECT i.nombre, r.es_base FROM jsonb_to_recordset(%s::jsonb)
@@ -328,6 +333,33 @@ class RepositorioBotSQL:
             JOIN ingrediente i ON i.id=r.ingrediente_id ORDER BY i.nombre, i.id""",
             (Jsonb(receta_snapshot),),
         )
+
+    async def ingredientes_items(self, items):
+        """Una lectura para todas las recetas; conserva snapshots y el orden por ítem."""
+        if not items:
+            return []
+        filas = await self.uow.todos(
+            """WITH items AS (
+                SELECT * FROM jsonb_to_recordset(%s::jsonb)
+                    AS x(indice int,producto_id bigint,receta_snapshot jsonb)
+            ), recetas AS (
+                SELECT it.indice,r.ingrediente_id,r.es_base FROM items it
+                CROSS JOIN LATERAL jsonb_to_recordset(COALESCE(it.receta_snapshot,'[]'::jsonb))
+                    AS r(ingrediente_id bigint,es_base boolean)
+                UNION ALL
+                SELECT it.indice,pi.ingrediente_id,pi.es_base FROM items it
+                JOIN producto_ingrediente pi ON pi.producto_id=it.producto_id
+                WHERE it.receta_snapshot IS NULL
+            ) SELECT r.indice,i.nombre,r.es_base FROM recetas r
+            JOIN ingrediente i ON i.id=r.ingrediente_id ORDER BY r.indice,i.nombre,i.id""",
+            (Jsonb([{"indice": n, "producto_id": item["producto_id"],
+                     "receta_snapshot": item.get("receta_snapshot")}
+                    for n, item in enumerate(items)]),),
+        )
+        resultado = [[] for _ in items]
+        for fila in filas:
+            resultado[fila["indice"]].append({"nombre": fila["nombre"], "es_base": fila["es_base"]})
+        return resultado
 
     async def historial(self, b, accion, anterior, posterior, estado, empleado_id=None):
         return await self.uow.uno(
@@ -445,6 +477,14 @@ class RepositorioBotSQL:
             """UPDATE whatsapp_cambio SET estado=%s,revisado_por=%s,revisado_en=now(),
             accion=accion || jsonb_build_object('revision_motivo',%s::text) WHERE id=%s""",
             (estado, empleado_id, motivo, cambio_id),
+        )
+        # La revisión de cocina resuelve también la atención de esa misma solicitud,
+        # sin cerrar consultas posteriores ni otras derivaciones del pedido.
+        await self.uow.ejecutar(
+            "UPDATE whatsapp_atencion a SET estado='RESUELTA',resolucion=%s,"
+            "resuelta_por=%s,resuelta_en=now() FROM whatsapp_cambio c "
+            "WHERE c.id=%s AND a.entrada_id=c.accion->>'entrada_id' AND a.estado='PENDIENTE'",
+            (motivo, empleado_id, cambio_id),
         )
 
     async def derivar(self, referencia_hash, entrada_id, motivo):

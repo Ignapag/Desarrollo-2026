@@ -6,6 +6,8 @@ PREGUNTAS = {
     "localidad": "📍 ¿En qué localidad es: Ensenada o Punta Lara?",
     "producto": "🍔 ¿Cuál de los productos de tu pedido querés modificar?",
     "variante": "🍔 ¿Qué variante preferís para esa hamburguesa?",
+    "cantidad": "🍔 ¿Cuántas unidades querés? Respondé cantidad N (1 a 50).",
+    "personalizacion": "🍔 Indicá Sin ingrediente o receta original.",
     "entrega": "🛍️ ¿Lo retirás en el local o preferís delivery? 🛵",
     "pago": "💵 ¿Preferís efectivo o transferencia? 🏦",
     "consulta": "💬 Contame un poco más qué necesitás con tu pedido y te ayudo.",
@@ -62,7 +64,7 @@ def resumir_turno(accion, b, ingredientes_permitidos):
         asistente = "La solicitud quedó para atención del personal, sin modificar el pedido."
     elif pregunta:
         asistente = PREGUNTAS[pregunta]
-    elif (b.get("propuesta") or {}).get("tipo") == "TOTAL":
+    elif (b.get("propuesta") or {}).get("tipo") in {"TOTAL", "COMPOSICION", "CANCELACION"}:
         asistente = "Pidió confirmar expresamente el nuevo total antes de aplicar el cambio."
     else:
         asistente = "Respondió sobre el pedido y validó la operación según sus reglas."

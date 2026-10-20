@@ -152,10 +152,34 @@ tratamientos quedan registrados junto con el actor y el origen del cambio.
 
 ## WhatsApp y autoridad
 
-La IA interpreta la solicitud del cliente y consume los mismos comandos de
-operación que el panel. Puede proponer cambios de dirección, modalidad y método
-cuando el pedido y su asignación lo permiten. No acredita comprobantes ni decide
-que un pedido se cocinó, salió o se entregó por un mensaje del cliente.
+Actualización local del 20/10/2026, aún sin publicar en esta sesión. La IA interpreta
+intenciones; Pedidos conserva la autoridad para cotizar y ejecutar. El bot puede
+agregar, quitar y reemplazar productos, cambiar cantidades/variantes y personalizaciones
+admitidas, editar dirección/referencias/entrega/pago, consultar el total y solicitar
+cancelación. Si faltan datos conserva la intención y pide aclaración. Quitar el último
+producto propone cancelar con aceptación explícita; no deja un pedido operativo vacío.
+
+La edición automática requiere `PENDIENTE` o `CONFIRMADO`, sin preparación iniciada
+ni reparto activo. Desde `EN_PREPARACION` o `LISTO`, toda solicitud de modificación,
+incluidos dirección y pago, se registra en la bandeja para un empleado y conserva el
+pedido vigente. `preparacion_en` mantiene esa guarda aunque el personal retroceda la
+etiqueta. El bot no pide confirmar primero una modificación que ya exige intervención.
+
+`ServicioPedidos.cotizar_items` prepara la composición y los importes sin guardarlos;
+`editar_items` revalida y aplica en la misma unidad de trabajo del pedido, historial
+y ajuste de stock. Las líneas conservadas mantienen IDs y snapshots de receta/precio;
+altas y reemplazos toman opciones y precios vigentes del catálogo. Se conserva el ID
+y número del pedido. El stock ajusta la diferencia neta entre composiciones, permite
+devolver lo consumido antes de cocina y rechaza aumentos sin insumos disponibles.
+
+Si cambia el importe, el chat muestra el nuevo resumen y total y conserva una propuesta
+persistida hasta recibir `confirmar`, incluso con pagos existentes. Al aceptar se
+revalidan versión, preparación, reparto, catálogo, stock e importes. Un aumento deja
+saldo pendiente: no reutiliza una aprobación de transferencia para acreditarlo. Si el
+nuevo total resulta menor al neto cobrado, se deriva al personal y caja debe registrar
+la devolución real antes de retomar la modificación. El bot no acredita comprobantes,
+inventa reintegros ni altera estados físicos por el texto de un cliente. Las operaciones
+compuestas que no puede representar de forma segura se derivan completas.
 
 El proveedor se consulta sin mantener una transacción abierta. Antes de aplicar
 una respuesta se vuelven a verificar la compra seleccionada, su versión, los

@@ -70,21 +70,33 @@ async def test_direccion_en_partes_conserva_datos_locales_sin_exportarlos(uow, w
     assert direccion == {"calle": "Calle Privada", "numero": "123", "localidad": "Ensenada"}
 
 
-async def test_caida_del_proveedor_no_deriva_ni_borra_el_contexto(uow, worker):
+async def test_caida_del_proveedor_crea_atencion_recuperable_y_conserva_contexto(uow, worker):
     s = construir_servicio(uow)
     _, pid = await nuevo_pedido(uow, worker, s, "caida")
-    respuesta = await actuar(s, "caida-tecnica", "Quiero cambiar la dirección", {
+    await actuar(s, "caida-calle", "Mi dirección es Calle Ficticia", {
+        "accion": "datos", "argumentos": {"direccion": "Calle Ficticia"},
+    })
+    anterior = await uow.valor(
+        "SELECT contexto_chat FROM whatsapp_borrador WHERE pedido_id=%s", (pid,),
+    )
+    respuesta = await actuar(s, "caida-tecnica", "Quiero completar la dirección", {
         "accion": "humano", "argumentos": {}, "motivo": "PROVEEDOR",
     })
     assert "disponible" in respuesta and "entender" not in respuesta
-    assert await uow.valor("SELECT count(*) FROM whatsapp_atencion") == 0
-    assert await uow.valor(
-        "SELECT estado FROM whatsapp_borrador WHERE pedido_id=%s", (pid,)
-    ) == "CREADO"
-    respuesta = await actuar(s, "caida-retomar", "Quiero cambiar la dirección", {
-        "accion": "preguntar", "argumentos": {"campo": "direccion"},
+    atencion = await uow.uno("SELECT * FROM whatsapp_atencion WHERE entrada_id='caida-tecnica'")
+    assert atencion["estado"] == "PENDIENTE" and atencion["motivo"] == "PROVEEDOR"
+    actual = await uow.valor(
+        "SELECT contexto_chat FROM whatsapp_borrador WHERE pedido_id=%s", (pid,),
+    )
+    assert actual["datos"] == anterior["datos"]
+    assert actual["pregunta"] == anterior["pregunta"]
+    assert await uow.valor("SELECT direccion_id FROM pedido WHERE id=%s", (pid,)) is None
+    respuesta = await actuar(s, "caida-retomar", "123", {
+        "accion": "datos", "argumentos": {"numero": "123"},
     })
-    assert "calle" in respuesta
+    assert "localidad" in respuesta
+    recuperada = await uow.uno("SELECT * FROM whatsapp_atencion WHERE id=%s", (atencion["id"],))
+    assert recuperada["estado"] == "RESUELTA" and recuperada["resuelta_por"] is None
 
 
 async def test_modalidad_y_pago_se_conservan_mientras_completa_direccion(uow, worker):

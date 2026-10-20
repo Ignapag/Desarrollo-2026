@@ -4,10 +4,53 @@ Esta guía incluye el canal web de demostración del 20 de octubre de 2026.
 El alcance de producto sigue en [WHATSAPP_ALCANCE.md](WHATSAPP_ALCANCE.md).
 El backend interpreta mensajes, valida y persiste operaciones; Gemini propone
 acciones y WhatsApp transporta mensajes. La apertura del chat no crea un pedido.
-Una consulta ficticia contra Gemini 3.5 Flash-Lite respondió con la herramienta
-esperada para pedir dirección en 0,74 s durante esta corrección. Esa comprobación
+Una consulta ficticia registrada anteriormente contra Gemini 3.5 Flash-Lite respondió
+con la herramienta esperada para pedir dirección en 0,74 s. Esa comprobación histórica
 no valida cuotas permanentes ni el recorrido completo desplegado con Meta;
 las simulaciones tampoco acreditan envío real de WhatsApp.
+
+## Actualización local del 20/10/2026: edición, recuperación y rendimiento
+
+Al cerrar la verificación local previa a la publicación, la ampliación descrita
+aquí estaba implementada en el workspace y aún no se había publicado. No se comprobó
+en navegador: no hubo una sesión de navegador disponible.
+Las comprobaciones de publicación registradas más abajo pertenecen a la versión anterior;
+no acreditan que este cambio ya esté desplegado. La suite final se informa en la entrega,
+sin reutilizar conteos históricos como evidencia nueva.
+
+El chat y WhatsApp comparten las operaciones de edición de productos y datos del pedido,
+propuestas persistidas, confirmaciones y derivaciones. El backend admite agregar una
+Crispy sin bacon al mismo pedido y conservar la intención mientras pregunta variante
+o cantidad. Desde preparación o listo, cualquier modificación pasa al personal,
+incluidos datos de entrega y pago. El fallo técnico deja una atención recuperable y
+permite continuar mediante la gramática guiada sin IA; ver
+[interpretación y límites](#interpretación-derivación-y-límites).
+
+Dos llamadas aisladas nuevas a Gemini real usaron datos enteramente ficticios:
+antes de ampliar las herramientas, la frase «quiero agregar una Crispy sin bacon»
+respondió en 0,90 s con `quitar_ingrediente`; luego de ampliarlas respondió en 2,57 s
+con `agregar_producto`, producto Crispy, cantidad 1 y aclaración «Sin bacon». El catálogo
+ficticio tenía Simple y Doble: la segunda llamada no inventó variante ni seleccionó
+un ítem anterior. Esto verifica interpretación, no persistencia de una compra real,
+stock, pagos, disponibilidad permanente ni el recorrido publicado.
+
+En una comprobación integral adicional con PostgreSQL descartable local, Gemini
+recibió contexto del catálogo seed de 4.145 bytes e interpretó la misma frase como
+`agregar_producto`; el bot conservó el pedido y preguntó variante. Un segundo turno
+real «Doble», con contexto de 4.398 bytes, produjo `completar_edicion` y una propuesta
+con resumen y total. `confirmar` se procesó sin IA y dejó dos ítems en el mismo pedido,
+con la personalización canónica «Sin Panceta». Fueron dos llamadas reales y datos
+ficticios; la transacción se revirtió al terminar. No hubo cambios en la base compartida.
+
+Esa comprobación cubrió agregar el producto y aclarar su variante. Todavía falta
+verificar el mensaje compuesto «agregar una Crispy sin bacon y enviarla a otra
+dirección»: las pruebas anteriores no demuestran que se preserve toda esa intención.
+Es un caso pendiente de verificación de la ampliación.
+
+El intento de consultar la configuración pública no obtuvo respuesta accesible;
+no verifica el despliegue. Estas comprobaciones locales no acreditan la publicación
+posterior ni el recorrido nuevo en navegador; el resultado del despliegue se informa
+por separado en la entrega.
 
 ## Preparar una base descartable
 
@@ -113,7 +156,14 @@ interfaz, mantener el contenedor y abrir tres terminales:
 | Frontend | `App/frontend` | `npm run dev` |
 | Worker | `App/backend`, con las mismas variables de API | `.\.venv\Scripts\python.exe -m scripts.whatsapp_worker` |
 
-El worker continuo consulta cada dos segundos. Para una demostración por pasos,
+El worker continuo espera 100 ms entre lotes con entradas, un segundo cuando no
+hay entradas y dos segundos si falla el ciclo. Procesa hasta tres teléfonos a
+la vez; los mensajes de cada teléfono conservan el orden y se procesan uno por
+uno. Un fallo de una conversación no impide procesar las demás ni adelanta el
+siguiente mensaje de la conversación fallida. El envío de la outbox sigue siendo
+secuencial después de procesar las entradas; no se paralelizan envíos a Meta.
+Las conexiones se liberan antes de llamar al proveedor, sin aumentar los intentos
+permitidos por mensaje. Para una demostración por pasos,
 reemplazarlo por `.\.venv\Scripts\python.exe -m scripts.whatsapp_worker --una-vez`
 después de cada recepción. El webhook y `/simular` guardan inbox; no interpretan
 ni envían respuestas dentro de la petición HTTP. No hay un scheduler automático
@@ -124,8 +174,20 @@ dentro de FastAPI: API y frontend sin worker no completan el procesamiento.
 Es una alternativa dentro del mismo menú cliente, accesible sin cuenta desde el
 botón **Abrir chat de demostración** y **Continuar en el chat** del carrito.
 Usa PostgreSQL y las operaciones reales del bot; simula exclusivamente el
-transporte WhatsApp. El aviso de la interfaz identifica la demo y distingue el
-intérprete real del simulado. No necesita cuenta empresarial ni conexión con Meta.
+transporte WhatsApp. La cabecera compacta conserva la identificación **Demo**.
+El botón de información muestra la aclaración del canal, el intérprete real o
+simulado, los pedidos y las opciones guiadas; esos detalles y la lista de pedidos
+no ocupan espacio permanente en la conversación. La opción de adjuntar despliega
+los requisitos del comprobante cuando se necesita. Los mensajes conservan su hora
+y solo muestran estados de envío local o fallos que requieren atención, sin
+repetir autores ni avisos de procesamiento en cada burbuja. No necesita cuenta
+empresarial ni conexión con Meta.
+
+Al iniciar un envío aparece su mensaje local con **Enviando…**, sin afirmar que
+está guardado. Se reconcilia con el acuse y el historial persistido para evitar
+duplicados. Mientras se espera al bot, la interfaz indica **Esperando respuesta…**
+y permite escribir el próximo texto conservándolo; el siguiente envío espera al
+resultado del anterior. Un error mantiene el texto y las opciones de recuperación.
 
 Preparar primero la **base descartable** de esta guía. Aplicar también
 `027_chat_demo.sql` mediante el runner existente. API y worker necesitan las mismas
@@ -202,16 +264,25 @@ ni IA ejecutada en la petición HTTP. También se puede ejecutar el worker con
 - Cada POST de negocio lleva un UUID. `chat_demo_operacion` guarda su huella y
   la entrada: repetir UUID y contenido recupera el resultado; cambiar contenido
   produce `409`. Las solicitudes de una sesión se serializan y no se admite un
-  segundo mensaje mientras quede uno pendiente. El navegador conserva en
-  `sessionStorage` sólo UUID/huella de intentos fallidos para reintentar; la
+  segundo mensaje mientras quede uno pendiente. Las solicitudes del chat tienen un
+  timeout de quince segundos; un corte o respuesta perdida no se presenta como guardado.
+  El navegador conserva en `sessionStorage` el UUID y huella del intento y el texto
+  pendiente para reintentar después de recargar. Un acuse solo es válido si devuelve
+  ID y estado `PENDIENTE` o `PROCESADO`; consultar la conversación también reconcilia
+  un envío cuya respuesta se perdió. El reintento usa el mismo UUID y contenido.
+  Para archivos conserva identidad y metadatos del intento, nunca sus bytes: tras
+  recargar hay que elegir nuevamente el mismo archivo si aún no hay acuse. La
   conversación, el carrito enviado y los pedidos se recuperan del servidor.
 - Se permiten hasta 80 entradas por sesión y 300 globales en 24 horas móviles,
   con presupuesto serializado en PostgreSQL; los reintentos idempotentes no
   consumen otra entrada. Hay hasta 100 sesiones nuevas por 24 horas. Se conserva
   el límite de texto de 2000 caracteres, contexto de 10.000 bytes, cuatro turnos
   semánticos y salida de 256 tokens del adaptador Gemini. Cada entrada tiene como
-  máximo dos interpretaciones por cambios concurrentes y dos intentos HTTP por
-  interpretación. Los avisos, adjuntos y comandos deterministas no consumen IA.
+  máximo dos interpretaciones por cambios concurrentes; cada una permite por defecto
+  dos intentos HTTP en veinte segundos, hasta cuatro llamadas/cuarenta segundos de
+  espera de IA por entrada. Los límites son configurables y la demora de API/base
+  no está incluida en ese presupuesto del proveedor. Los avisos, adjuntos y comandos
+  deterministas no consumen IA.
 - El historial devuelve los últimos 200 mensajes y 20 borradores de la sesión;
   los anteriores siguen guardados, sin paginación en esta interfaz de demo.
   El carrito todavía no enviado sigue siendo estado local de React; al
@@ -224,8 +295,12 @@ ni IA ejecutada en la petición HTTP. También se puede ejecutar el worker con
   personal autorizado en la bandeja existente. Recibirlos nunca acredita dinero
   ni envía su contenido a Gemini.
 - Las respuestas del personal, revisiones y cambios efectivos de estado usan la
-  misma outbox. La web consulta cada dos segundos mientras el chat está abierto y
-  visible; la bandeja interna mantiene su actualización manual existente.
+  misma outbox. Con el chat abierto y visible, la web consulta cada 600 ms mientras
+  hay una respuesta pendiente, y cada seis segundos en reposo o tras un error de
+  lectura. Las consultas son secuenciales, sin solicitudes superpuestas, y se
+  pausan cuando la pestaña está oculta. Después de un POST consulta directamente
+  la conversación, sin volver a abrir la sesión. La bandeja interna mantiene su
+  actualización manual existente.
 
 ### API del adaptador web
 
@@ -259,8 +334,9 @@ una conexión. El canal interno `/api/whatsapp/simular` conserva su guarda de pe
    dinero ni se habilitó preparar por transferencia.
 5. El empleado verifica ficticiamente el ingreso en la base de demostración,
    aprueba el total vigente desde la bandeja y envía a preparación. Volver al
-   chat y mostrar el aviso persistido. Después de preparar, pedir `cantidad: 2`
-   y responder `confirmar`: permanece el pedido vigente hasta revisión del personal.
+   chat y mostrar el aviso persistido. Después de preparar, pedir `cantidad 2`:
+   se deriva directamente al personal, sin pedir confirmación al cliente y sin
+   cambiar el pedido vigente.
 6. Para mostrar el caso sin proveedor, configurar `GEMINI_MODO=real` sin clave
    en una terminal de prueba y reiniciar API/worker con ese entorno. Un texto
    que necesite IA recibe indisponibilidad y conserva el pedido; **Pedir atención
@@ -553,12 +629,12 @@ dato en el backend y pregunta solo lo que falta. El modelo recibe los campos pre
 sin esos valores privados, y propone datos del turno actual para combinarlos localmente.
 Una respuesta a esa pregunta no se confunde con una selección de otro pedido.
 
-El cambio de dirección o de otros datos de un pedido ya registrado todavía requiere
-atención del personal. Al reunir los datos, crea la derivación: la bandeja incluye un
-resumen completo marcado **sin aplicar**, aunque la calle haya quedado fuera de los
-últimos cinco mensajes. El bot no afirma haber actualizado la dirección. Los datos
-faltantes de un borrador, incluida modalidad y pago aportados en turnos anteriores,
-se conservan antes de crear el pedido.
+Los datos de un pedido registrado pueden editarse antes de cocina según las reglas
+descritas más abajo. Si el cambio requiere personal, se crea la derivación persistida:
+la bandeja conserva el mensaje y un resumen de los datos solicitados **sin aplicar**,
+aunque hayan quedado fuera de los últimos cinco turnos. El bot no afirma haber
+actualizado datos que no guardó. Los datos faltantes de un borrador, incluida modalidad
+y pago aportados en turnos anteriores, se conservan antes de crear el pedido.
 
 Las respuestas usan importes argentinos (`$ 12.000`), resúmenes con separaciones
 y emojis, y estados en lenguaje natural. Los avisos de retiro indican cuándo
@@ -569,9 +645,9 @@ no confirma el pago. Las salidas conservan sus claves de idempotencia.
 ### Interpretación, derivación y límites
 
 1. El worker lee la entrada y su contexto en una transacción breve y la cierra.
-   El saludo preparado por la web, los adjuntos y los comandos guiados
-   (`producto N` o `producto N; variante: X`), y una respuesta exacta de variante
-   pendiente (por ejemplo `Doble`), no consumen Gemini. Tampoco los
+   El saludo preparado por la web, los adjuntos y los comandos guiados de la tabla
+   siguiente, y una respuesta exacta de variante pendiente de un borrador (por ejemplo
+   `Doble`), no consumen Gemini. Tampoco los
    mensajes de un teléfono sin conversación identificable: reciben una respuesta
    fija que indica cómo enviar el resumen desde el WhatsApp declarado o cómo
    seleccionar una compra por su número habitual.
@@ -591,18 +667,42 @@ no confirma el pago. Las salidas conservan sus claves de idempotencia.
    conversación en `HUMANO`, descarta una propuesta de importe sin confirmar,
    conserva los datos y no crea el pedido. Hay como máximo una atención
    pendiente por conversación.
-5. Mientras haya una atención humana pendiente, el bot registra los mensajes siguientes
+5. Mientras haya una atención humana pendiente que no sea un incidente técnico recuperable,
+   el bot registra los mensajes siguientes
    (visibles en la bandeja) y responde que un empleado está atendiendo, sin crear
    ni modificar el pedido. Solo sigue aceptando comprobantes, que quedan para
    revisión humana, y no consume Gemini en esos turnos. Al resolver la atención,
    el bot retoma la conversación.
-6. Un fallo del proveedor ya no se presenta como falta de comprensión ni crea
-   automáticamente una atención humana: informa indisponibilidad, conserva el contexto
-   y permite intentar nuevamente o pedir un empleado. Las atenciones técnicas
-   `PROVEEDOR` creadas por versiones anteriores solo se cierran automáticamente al
-   retomar el bot si no tuvieron intervención del personal. Se conserva el motivo,
+6. Un fallo del proveedor informa indisponibilidad y registra una atención `PROVEEDOR`
+   pendiente y recuperable, conservando el mensaje y el contexto. La continuación guiada
+   o una interpretación válida pueden resolver automáticamente ese incidente técnico
+   si no tuvo intervención del personal; no bloquea el chat indefinidamente. Se conserva el motivo,
    una resolución técnica y fecha, con `resuelta_por` nulo. Las solicitudes humanas
    y las atenciones con respuestas del personal nunca se cierran por este mecanismo.
+
+La gramática guiada ejecuta operaciones reales y ofrece aclaraciones sin llamar a IA;
+no se presenta como interpretación de Gemini. Los índices visibles comienzan en uno.
+
+| Mensaje | Continuación |
+| --- | --- |
+| `ayuda`, `menu`, `opciones` | Muestra acciones y sintaxis disponibles. |
+| `agregar` | Muestra catálogo y conserva la intención de agregar otro ítem al mismo pedido. |
+| `catálogo N` | Elige una opción del catálogo mostrado para la edición pendiente. |
+| `producto N` | Aclara qué ítem modificar cuando el bot lo preguntó. |
+| `variante Doble` / `variante Doble producto N` | Completa la variante pendiente o pide cambiar la del ítem indicado. |
+| `cantidad N` / `cantidad N producto M` | Completa cantidad pendiente o cambia cantidad; requiere entre 1 y 50. |
+| `quitar producto N` / `reemplazar producto N` | Quita una línea o inicia su reemplazo. Quitar la última propone cancelar. |
+| `personalizar producto N`, luego `Sin ingrediente` o `receta original` | Ajusta los retiros admitidos o restaura receta, sin extras. |
+| `retiro`, `delivery`, `efectivo`, `transferencia` | Aporta modalidad o método acordado. |
+| `direccion: Calle; numero: 123; localidad: Ensenada; referencias: timbre` | Aporta datos operativos; se conserva lo parcial y se pregunta lo faltante. |
+| `resumen`, `total`, `estado` | Consulta información vigente del pedido. |
+| `confirmar` | Acepta explícitamente una propuesta persistida y vuelve a validar sus condiciones. |
+| `cancelar pedido` | Solicita cancelación según estado y pagos; no deja un pedido operativo vacío. |
+| `empleado` | Registra atención humana persistida. |
+
+Las solicitudes compuestas que no se pueden representar con seguridad se derivan enteras;
+no se ejecuta una parte ni se anuncia éxito del conjunto. También se rechazan argumentos
+ajenos a la acción, extras, descuentos e ingredientes inexistentes.
 
 La revisión de comprobantes **registra una decisión humana**, no una validación
 bancaria. `total_verificado` obliga a aprobar el importe observado; si cambia
@@ -612,16 +712,24 @@ La recepción de un archivo y la clasificación de Gemini nunca aprueban pagos.
 La entrada a preparación comprueba además el neto conciliado contra el total
 vigente; una devolución posterior no puede reutilizar la aprobación histórica.
 
-Los cambios antes de preparación y sin diferencia de precio se aplican después
-de validar la receta, el estado y los permisos. La disponibilidad de venta del
-producto solo se exige para **aumentar** unidades: retirar un ingrediente o
-reducir la cantidad devuelve insumos ya consumidos y se permite aunque la
-confirmación haya agotado el último stock. Si cambia el importe de un
-pedido sin cobros conciliados, se conserva una propuesta hasta la confirmación
-explícita del cliente, incluso si el cambio luego necesita aprobación de cocina.
-Desde preparación, o si cambia el total de un pedido con cobros conciliados,
-se deriva al empleado. La bandeja exige aceptar expresamente el nuevo importe
-y coordinar cocina y caja; esa aceptación **no registra un cobro**.
+En `PENDIENTE` y `CONFIRMADO`, sin preparación iniciada ni reparto activo, se permiten
+altas, bajas, reemplazos, cantidades, variantes y personalizaciones de receta. Faltantes
+y ambigüedades conservan una `edicion` pendiente en `contexto_chat`; una respuesta corta
+completa esa intención, sin exigir repetirla. No se elige arbitrariamente otra hamburguesa.
+
+`ServicioPedidos.cotizar_items` normaliza y cotiza sin guardar; `editar_items` revalida
+y ejecuta la composición usando la misma unidad de trabajo de stock e historial.
+El pedido conserva ID y número. Las líneas existentes conservan sus IDs, precio y
+snapshot de receta; altas y reemplazos obtienen opciones y precios del catálogo vigente.
+La disponibilidad se valida para altas y aumentos; retirar ingredientes o reducir
+cantidades puede devolver insumos ya consumidos antes de cocina, aunque se haya
+agotado el último stock. Los ajustes usan la diferencia neta entre composiciones.
+
+Si cambia el importe, se persiste una propuesta `COMPOSICION` con el nuevo resumen y
+total, versión y fotografía operativa. Exige `confirmar` del turno actual antes de
+guardar, con o sin pagos existentes. Al aceptar se revalidan estado, versión, stock,
+reparto, precios y fondos: una carrera con cocina deriva al personal y conserva el
+pedido vigente. Quitar el último ítem propone `CANCELACION`; nunca guarda un pedido vacío.
 
 Un aumento deja el saldo adicional pendiente. Para transferencia se exige otro
 comprobante y revisión del saldo: la aprobación anterior no lo acredita. Si ya
@@ -633,13 +741,11 @@ UUID; un reintento conserva la misma clave y contenido. Transferencias y caja
 siguen las [reglas de operación](OPERACION_PEDIDOS.md), sin Mercado Pago activo.
 Repetir la aprobación del mismo cambio no vuelve a modificar stock ni importes.
 
-Los datos de operación usan una regla separada de la receta: dirección,
-retiro/delivery y método se aplican mediante `ServicioPedidos.editar_operacion`
-en pendiente, confirmado, preparación o listo sin asignación activa. Se conserva
-el pedido y el estado físico. La cobertura y la tarifa se cotizan antes de
-proponer un importe; cualquier diferencia requiere responder `confirmar` y se
-revalida antes de guardar. Un cambio de tarifa, versión, asignación o dinero
-invalida la propuesta anterior.
+Los datos de operación (dirección, referencias, retiro/delivery y método) se aplican
+mediante `ServicioPedidos.editar_operacion`, con cobertura y tarifa cotizadas en servidor.
+En el bot comparten la guarda de cocina: solo se editan automáticamente en pendiente o
+confirmado, sin `preparacion_en` ni asignación activa. Una diferencia requiere propuesta
+y `confirmar`; cambios de tarifa, versión, reparto o dinero invalidan la propuesta.
 
 Con reparto activo o un reintegro necesario se abre una atención con la acción
 que debe coordinar el personal. Resolver una atención conserva el foco del
@@ -653,8 +759,10 @@ una reducción devuelve insumos; una vez iniciada la preparación conserva el
 consumo, porque la aprobación no demuestra que se puedan recuperar. Retirar
 un ingrediente ya descontado antes de cocina registra una devolución idempotente.
 La marca `preparacion_en` mantiene esta protección aunque una corrección manual
-haya devuelto la etiqueta a pendiente o confirmado; receta y cantidades siguen
-requiriendo intervención humana.
+haya devuelto la etiqueta a pendiente o confirmado. Desde preparación o listo,
+**toda modificación**, incluidos entrega y pago, se deriva de inmediato al personal;
+no se pide antes confirmar un nuevo importe al cliente. Se persiste la solicitud
+completa en la bandeja y el pedido sigue vigente hasta la intervención.
 Cocina lee `pedido_item` vigente y muestra sus aclaraciones; `whatsapp_cambio`
 conserva el historial y la versión. Los tableros del personal refrescan pedidos
 cada ocho segundos, con pausa en pestañas ocultas; la bandeja se actualiza
@@ -696,6 +804,38 @@ humana: no hay soporte de plantillas ni botón de reenvío manual seguro todaví
 Antes de resolver un `INCIERTO`, verificar el resultado con Meta; nunca asumir
 que no se envió ni actualizarlo a éxito sin evidencia.
 
+### Rendimiento y mediciones locales
+
+La lectura operativa de un pedido pasa de siete a cuatro consultas SQL: conserva
+el bloqueo previo, reúne la información de reparto y consumo, y calcula el neto
+con importes `Decimal` de los pagos leídos. Las recetas de los ítems se consultan
+en conjunto, con una lectura en lugar de una por ítem, conservando snapshots,
+recetas vacías y el respaldo de los registros anteriores.
+
+Los comandos que no necesitan IA evitan construir catálogo, memoria y recetas
+para Gemini. Siguen leyendo y revalidando el foco, la versión, la composición,
+el dinero y la asignación de reparto antes de aplicar cambios. No se agrega una
+caché de conversaciones ni se reutiliza una autorización o un pedido desactualizado.
+
+Las siguientes mediciones son locales, con PostgreSQL descartable o dependencias
+artificiales según la fila; no corresponden al despliegue ni prometen la latencia
+del proveedor. Los conteos SQL incluyen únicamente `preparar` y `procesar`, sin
+`recibir` ni una llamada real al proveedor; cada experimento SQL se revirtió:
+
+| Caso controlado | Antes | Después | Alcance de la evidencia |
+| --- | --- | --- | --- |
+| Turno `resumen` del mismo pedido con dos ítems | 48 consultas SQL (16 + 32) | 31 consultas SQL (9 + 22) | Menos lecturas; sin llamada a IA. |
+| Turno `como viene mi pedido`, que necesita contexto de IA, sobre el mismo pedido | 48 consultas SQL (16 + 32) | 37 consultas SQL (12 + 25) | Menos lecturas; el tiempo local no mostró una mejora concluyente. |
+| Lote de seis teléfonos, interpretación artificial de 200 ms por mensaje | 1,237 s con un cupo | 0,404 s con tres cupos | Worker real, SQL sustituido y sin llamadas reales a Gemini o Meta. |
+
+Para repetir la última comparación, el helper `preparar_worker` de
+[test_whatsapp_worker_rapido.py](../App/backend/tests/test_whatsapp_worker_rapido.py)
+prepara seis entradas con teléfonos distintos y un proveedor que ejecuta
+`await asyncio.sleep(0.2)`. Se mide `procesar_lote()` con `perf_counter`, primero
+con `CONVERSACIONES_SIMULTANEAS=1` y luego con `3`. El resultado mide la espera
+acumulada del lote, no una aceleración individual de Gemini. Las cuotas, la red
+y la disponibilidad del hosting siguen condicionando el recorrido real.
+
 ## Configurar recursos reales de prueba
 
 Este paso es independiente de la demo y requiere recursos de las cuentas de
@@ -716,6 +856,10 @@ repositorio, `VITE_*`, capturas o logs. Variables del backend:
 | `GEMINI_MODO` | `simulado` por defecto; `real` para interpretar con Gemini. |
 | `GEMINI_API_KEY` | `<CLAVE_DE_GOOGLE_AI_STUDIO>`. |
 | `GEMINI_MODELO` | `gemini-3.5-flash-lite` por defecto; un valor explícito prevalece. |
+| `GEMINI_MODELOS_ALTERNATIVOS` | Lista JSON vacía por defecto; ejemplo `["gemini-3.1-flash-lite"]`. Solo admite 3.5/3.1 Flash-Lite verificados con nivel gratuito. |
+| `GEMINI_MAX_INTENTOS` | `2` por interpretación, entre 1 y 3; presupuesto compartido entre modelos. |
+| `GEMINI_TIMEOUT` | `15` segundos de timeout HTTP por intento; mayor que 0 y hasta 30. |
+| `GEMINI_TIEMPO_TOTAL` | `20` segundos por interpretación, mayor que 0 y hasta 45; incluye intentos y pausas. |
 
 Para Meta: crear/configurar la aplicación y WhatsApp Business Platform, obtener
 el número de prueba y su phone-number-ID, y autorizar/verificar al destinatario
@@ -775,8 +919,8 @@ anterior con sus valores reales, no los placeholders. Mantener `DATABASE_URL`,
 Usar `DEBUG=false`, `WHATSAPP_MODO=real` y `GEMINI_MODO=real` para la prueba
 con ambos proveedores. El token temporal de Meta debe seguir vigente.
 
-El worker integrado se activa únicamente con `WHATSAPP_MODO=real`. En modo
-simulado la API no procesa automáticamente ninguna salida: no convierte
+El worker integrado se activa con `WHATSAPP_MODO=real` o con el chat demo habilitado.
+Con transporte simulado procesa únicamente el canal demo: no convierte
 mensajes reales pendientes en éxitos simulados. `--sin-worker` permite usar
 el worker CLI separado si se dispone de un servicio independiente; no iniciar
 ambos por rutina. Un error transitorio del ciclo se informa por su clase, sin
@@ -853,15 +997,20 @@ guardados en el panel coinciden pero el proceso sigue recibiendo `131005`.
 
 El modelo predeterminado es `gemini-3.5-flash-lite`, estable y compatible con
 llamadas a funciones y salidas estructuradas. La documentación oficial consultada
-el 17 de octubre de 2026 publica nivel gratuito sujeto a cuota y, en modalidad
-estándar paga, USD 0,30 por millón de tokens de entrada y USD 2,50 por millón de
-salida, incluidos tokens de razonamiento. El nivel gratuito puede usar contenido
+el 20 de octubre de 2026 publica tokens estándar de entrada y salida gratuitos
+sujetos a cuota; también confirma `gemini-3.1-flash-lite` como modelo estable con
+funciones y nivel gratuito. El nivel gratuito puede usar contenido
 para mejorar productos: las pruebas académicas usan datos ficticios.
 
 Un `GEMINI_MODELO` explícito conserva la elección del entorno. El cambio del
 valor predeterminado no reemplaza variables ya guardadas en Render ni garantiza
-disponibilidad o cuota. No hay selección automática de otro modelo ni aumento
-de gasto mediante un fallback.
+disponibilidad o cuota. `GEMINI_MODELOS_ALTERNATIVOS=[]` mantiene desactivado el
+fallback. Configurar `["gemini-3.1-flash-lite"]` permite probarlo ante un fallo recuperable;
+la lista acepta únicamente los dos Flash-Lite verificados. No activa facturación,
+contrata servicios ni aumenta cuotas. **El adaptador no administra ni verifica el nivel
+de facturación del proyecto**: usar un modelo con nivel gratuito disponible no garantiza
+costo cero si la clave pertenece a un proyecto ya facturado. No se cambió ese nivel en
+esta sesión.
 
 Si el modelo configurado devuelve HTTP 503 o `TimeoutError`, revisar disponibilidad
 antes de atribuirlo a falta de contexto. Se puede configurar
@@ -869,32 +1018,55 @@ antes de atribuirlo a falta de contexto. Se puede configurar
 admite las herramientas del bot. Verificar la respuesta real y las cuotas del
 proyecto: que otro modelo responda no garantiza disponibilidad permanente.
 
-El adaptador hace una llamada `generateContent` por turno y permite **un solo
-reintento** tras 250 ms para HTTP 500, 502, 503 o 504. No reintenta cuotas, credenciales,
-timeouts ni salidas inválidas. Ambas llamadas ocurren fuera de la transacción, sin
-historial remoto, con hasta 256 tokens de salida. Proyecta un
-contexto pequeño de catálogo y pedido, sin teléfono, dirección ni nombre del
-cliente. El texto del propio turno sí puede contener datos que haya escrito la
-persona; no usar información personal en la prueba. Referencias y adjuntos se
-procesan de forma determinista sin consumir Gemini.
+Cada `interpretar` tiene por defecto **dos intentos y veinte segundos totales**,
+compartidos entre modelos; cada llamada HTTP tiene timeout de hasta quince segundos,
+reducido al tiempo restante. Para HTTP 500/502/503/504 usa una pausa inicial de 250 ms
+y puede repetir el mismo modelo o pasar al alternativo configurado. Cuota HTTP 429,
+modelo HTTP 404 y timeout solo pasan a otro modelo si fue configurado; no repiten el
+mismo modelo agotado. Credenciales, permisos y salidas inválidas no se reintentan.
+Al vencer el plazo global se devuelve un fallo controlado sin iniciar otra llamada;
+cancelar la espera no garantiza cancelar el socket de urllib que ya corre en un thread.
 
-Solo admite una llamada a `datos`, `preguntar`, `quitar_ingrediente`, `cantidad`, `confirmar`,
-`consulta` o `humano`, con argumentos validados. Nunca ejecuta funciones del
-modelo directamente ni usa su texto para confirmar pagos, precios o estados.
-Si falla la cuota, conexión o estructura de salida, devuelve `humano` con
-`motivo: "PROVEEDOR"`: el bot informa indisponibilidad y conserva el pedido y la
-memoria, sin bloquear la conversación con una atención nueva. Los logs de
-`whatsapp_interpretacion_error` solo incluyen HTTP o clase de excepción, nunca
-clave, URL con credencial, cuerpo del proveedor ni texto del cliente.
+El worker puede reinterpretar una vez ante un cambio concurrente: máximo cuatro
+llamadas y cuarenta segundos de espera de IA por entrada con los valores por defecto.
+Con los máximos configurables son seis llamadas y noventa segundos. Es un presupuesto
+del proveedor, no una garantía de latencia de API o base. Las llamadas ocurren fuera de
+la transacción y sin historial remoto, con una candidata y hasta 256 tokens de salida.
+La entrada de contexto y mensaje no supera 10.000 bytes. Se proyectan hasta treinta
+productos (ID/nombre, diez nombres de variantes disponibles y veinte ingredientes),
+diez ítems, la intención de edición pendiente y cuatro turnos semánticos. El contexto
+no incluye teléfono, dirección ni nombre del cliente; los datos operativos se conservan
+localmente. El propio mensaje actual sí puede contener datos escritos por la persona:
+las pruebas reales usan únicamente información ficticia. Avisos y comandos guiados,
+referencias y comprobantes no consumen Gemini; tampoco se usa grounding ni búsqueda.
+
+Solo admite una llamada a función por respuesta: `datos`, `preguntar`, `quitar_ingrediente`,
+`cantidad`, `agregar_producto`, `quitar_producto`, `reemplazar_producto`, `cambiar_variante`,
+`personalizar`, `completar_edicion`, `cancelar`, `confirmar`, `consulta` o `humano`.
+Los argumentos se validan por acción; conservar faltantes permite preguntar sin
+inventar opciones. El modelo nunca ejecuta funciones ni confirma pagos, precios o estados.
+
+Un fallo devuelve `humano`, `motivo: "PROVEEDOR"` y `causa_proveedor` de un conjunto cerrado:
+`CREDENCIALES`, `PERMISOS`, `CUOTA`, `MODELO`, `TIMEOUT`, `TRANSITORIO`, `TRUNCADA`,
+`HERRAMIENTA`, `ARGUMENTOS`, `CONTEXTO`, `RESPUESTA_INVALIDA` o `SOLICITUD_INVALIDA`.
+`CONTEXTO` indica que la entrada acotada todavía excede el presupuesto; no demuestra
+por sí sola que falte información. Un pedido incompleto se aclara en el backend;
+una operación no implementada no se soluciona cambiando de modelo. Los logs de
+`whatsapp_interpretacion_error` incluyen únicamente causa segura, HTTP, clase e intento,
+nunca clave, URL con credencial, cuerpo del proveedor ni texto del cliente. El bot
+registra una atención `PROVEEDOR` recuperable y conserva contexto y pedido para
+continuar por la gramática guiada o con personal.
 Un texto de más de 2000 caracteres devuelve
 `motivo: "MENSAJE_LARGO"` sin llamar al proveedor; el bot pide reformularlo.
-No utiliza grounding, búsquedas ni lectura de comprobantes.
+El contenido de comprobantes no se envía al interpretador.
 
 Fuentes oficiales: [modelo](https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite),
+[modelo alternativo](https://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-lite),
 [precios](https://ai.google.dev/gemini-api/docs/pricing),
 [límites por proyecto](https://ai.google.dev/gemini-api/docs/rate-limits),
-[retiros](https://ai.google.dev/gemini-api/docs/deprecations) y
-[contrato generateContent/function calling](https://ai.google.dev/gemini-api/docs/generate-content/function-calling).
+[retiros](https://ai.google.dev/gemini-api/docs/deprecations),
+[contrato de funciones](https://ai.google.dev/gemini-api/docs/function-calling) y
+[diagnóstico y reintentos](https://ai.google.dev/gemini-api/docs/troubleshooting).
 
 ## Verificación local
 
@@ -903,6 +1075,8 @@ Con `DATABASE_URL` configurada hacia la base descartable, desde `App/backend`:
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests/test_whatsapp_proveedores.py tests/test_whatsapp_cola.py tests/test_whatsapp_bd.py tests/test_whatsapp_regresiones.py tests/test_whatsapp_http.py tests/test_whatsapp_concurrencia.py tests/test_pedidos_whatsapp.py tests/test_stock_devoluciones.py tests/test_stock_cambios_cantidad.py tests/test_arquitectura.py -q -rs
 .\.venv\Scripts\python.exe -m pytest tests/test_compra_publica.py tests/test_clientes_identidad.py tests/test_pagos_privacidad.py -q -rs
+.\.venv\Scripts\python.exe -m pytest tests/test_edicion_items_bd.py tests/test_bot_edicion_completa.py tests/test_bot_herramientas_edicion.py tests/test_whatsapp_operacion_segura.py tests/test_whatsapp_memoria.py -q -rs
+.\.venv\Scripts\python.exe -m pytest tests/test_whatsapp_worker_rapido.py tests/test_whatsapp_contexto_rapido.py tests/test_despliegue.py tests/test_arquitectura.py -q -rs
 .\.venv\Scripts\python.exe -m scripts.whatsapp_demo
 ```
 

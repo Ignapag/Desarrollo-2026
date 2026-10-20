@@ -22,6 +22,25 @@ class AdaptadorConsumoStock:
     def __init__(self, servicio: ServicioStock) -> None:
         self.servicio = servicio
 
+    async def ajustar_composicion(
+        self, pedido_id: int, anteriores: list[dict], nuevos: list[dict],
+        version: int, usuario_id: int | None, *, aplicar: bool,
+    ) -> None:
+        def convertir(items):
+            return [
+                ItemConsumoStock(
+                    item["producto_id"], item["cantidad"],
+                    ingredientes_omitidos=ingredientes_omitidos(item.get("aclaraciones")),
+                    receta_snapshot=cantidades_de_snapshot(item.get("receta_snapshot")),
+                )
+                for item in items
+            ]
+
+        await self.servicio.ajustar_composicion(
+            pedido_id, convertir(anteriores), convertir(nuevos), version,
+            usuario_id, aplicar=aplicar,
+        )
+
     async def devolver_reserva(self, pedido_id: int, usuario_id: int | None) -> None:
         await self.servicio.devolver_reserva_pedido(pedido_id, usuario_id)
 

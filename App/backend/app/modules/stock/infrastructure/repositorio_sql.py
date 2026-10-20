@@ -150,7 +150,7 @@ class RepositorioStockSQL:
         filas = []
         for ingrediente_id in ingrediente_ids:
             fila = await self.uow.uno(
-                "SELECT id, nombre, cantidad_actual, umbral_minimo "
+                "SELECT id, nombre, cantidad_actual, umbral_minimo, activo "
                 "FROM ingrediente WHERE id = %s FOR UPDATE",
                 (ingrediente_id,),
             )

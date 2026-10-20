@@ -7,6 +7,7 @@ from fastapi import Depends
 from app.core.config import settings
 from app.core.dependencias import UoW
 from app.modules.pedidos.presentation.dependencias import obtener_servicio_pedidos
+from app.modules.productos.presentation.dependencias import obtener_servicio_productos
 from app.modules.stock.presentation.dependencias import obtener_servicio_stock
 from app.modules.whatsapp.application.servicio_bot import ServicioBot
 from app.modules.whatsapp.infrastructure.proveedores import (
@@ -25,6 +26,7 @@ def construir_servicio(uow: UoW) -> ServicioBot:
         settings.whatsapp_numero_negocio,
         settings.whatsapp_transferencia_datos,
         stock=obtener_servicio_stock(uow),
+        productos=obtener_servicio_productos(uow),
     )
 
 
@@ -33,7 +35,13 @@ ServicioBotDep = Annotated[ServicioBot, Depends(construir_servicio)]
 
 def interpretador(modo=None):
     if (modo or settings.gemini_modo) == "real":
-        return GeminiInterpretador(settings.gemini_api_key, settings.gemini_modelo)
+        return GeminiInterpretador(
+            settings.gemini_api_key, settings.gemini_modelo,
+            timeout=settings.gemini_timeout,
+            modelos_alternativos=settings.gemini_modelos_alternativos,
+            max_intentos=settings.gemini_max_intentos,
+            tiempo_total=settings.gemini_tiempo_total,
+        )
     return SimuladoInterpretador()
 
 

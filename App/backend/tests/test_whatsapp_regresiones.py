@@ -315,15 +315,17 @@ def gemini_caido(worker, monkeypatch):
     return worker
 
 
-async def test_fallo_de_gemini_en_borrador_incompleto_no_bloquea_el_chat(uow, gemini_caido):
+async def test_fallo_de_gemini_en_borrador_incompleto_crea_atencion_recuperable(uow, gemini_caido):
     s = construir_servicio(uow)
     b = await borrador(uow, s, completo=False)
     await enviar(uow, gemini_caido, s, "inicio", b["mensaje"])
-    respuesta = await enviar(uow, gemini_caido, s, "retiro", "retiro")
+    respuesta = await enviar(uow, gemini_caido, s, "retiro-natural", "Prefiero pasar a buscarlo")
     assert "empleado" in respuesta
     fila = await estado_borrador(uow, b)
     assert fila["pedido_id"] is None and fila["tipo_entrega"] is None
-    assert await atencion(uow, b) is None
+    pendiente = await atencion(uow, b)
+    assert pendiente["estado"] == "PENDIENTE" and pendiente["motivo"] == "PROVEEDOR"
+    assert pendiente["entrada_id"] == "retiro-natural"
     assert "disponible" in respuesta
 
 
@@ -335,8 +337,38 @@ async def test_fallo_de_gemini_en_borrador_completo_no_crea_pedido(uow, gemini_c
     )
     assert "empleado" in respuesta
     assert await pedido_de(uow, b) is None
-    assert await atencion(uow, b) is None
+    pendiente = await atencion(uow, b)
+    assert pendiente["estado"] == "PENDIENTE" and pendiente["motivo"] == "PROVEEDOR"
+    assert pendiente["entrada_id"] == "inicio-con-texto"
     assert "disponible" in respuesta
+
+
+async def test_cantidad_y_confirmar_guiados_no_llaman_ia_aunque_este_caida(
+    uow, gemini_caido, monkeypatch,
+):
+    s = construir_servicio(uow)
+    ref, pid = await nuevo_pedido(uow, gemini_caido, s, "guiado")
+    llamadas = []
+
+    def proveedor_caido():
+        llamadas.append(True)
+        raise OSError("Proveedor externo no disponible")
+
+    monkeypatch.setattr(procesamiento, "interpretador", proveedor_caido)
+    respuesta = await enviar(uow, gemini_caido, s, "guiado-cantidad", "cantidad 2")
+    assert "nuevo total" in respuesta and "confirmar" in respuesta
+    assert await cantidad(uow, pid) == 1
+    propuesta = await uow.valor(
+        "SELECT propuesta FROM whatsapp_borrador WHERE referencia_hash=%s",
+        (hash_referencia(ref[3:]),),
+    )
+    assert propuesta["tipo"] == "COMPOSICION"
+    respuesta = await enviar(uow, gemini_caido, s, "guiado-confirmar", "confirmar")
+    assert "Cambio guardado" in respuesta
+    assert await cantidad(uow, pid) == 2
+    assert llamadas == []
+    assert await atencion(uow, {"referencia": ref}) is None
+    assert await uow.valor("SELECT count(*) FROM pago WHERE pedido_id=%s", (pid,)) == 0
 
 
 async def test_derivacion_en_pedido_registra_atencion(uow, worker):
