@@ -116,6 +116,7 @@ def test_arranque_demo_publica_carga_autorizacion_y_procesa_solo_su_canal(monkey
     monkeypatch.setattr(settings, "chat_demo_bd_compartida_autorizada", False, raising=False)
     monkeypatch.setattr(settings, "gemini_modo", "simulado")
     monkeypatch.setattr(settings, "chat_demo_gemini_modo", None)
+    monkeypatch.setattr(settings, "origenes_permitidos", [])
 
     class Base:
         def __enter__(self):
@@ -129,7 +130,15 @@ def test_arranque_demo_publica_carga_autorizacion_y_procesa_solo_su_canal(monkey
             return self
 
         def fetchone(self):
-            return (json.dumps({"habilitado": True, "gemini_modo": modo}),)
+            return (
+                json.dumps(
+                    {
+                        "habilitado": True,
+                        "gemini_modo": modo,
+                        "origenes": ["https://monu-burger-clientes.pages.dev"],
+                    }
+                ),
+            )
 
     monkeypatch.setattr(serve.psycopg, "connect", lambda *a, **kw: Base())
     monkeypatch.setattr(serve.uvicorn, "run", lambda *a, **kw: None)
@@ -139,6 +148,28 @@ def test_arranque_demo_publica_carga_autorizacion_y_procesa_solo_su_canal(monkey
     assert settings.chat_demo_bd_compartida_autorizada
     assert settings.chat_demo_gemini_modo == modo
     assert settings.gemini_modo == "simulado"
+    assert settings.origenes_permitidos == ["https://monu-burger-clientes.pages.dev"]
+    from starlette.requests import Request
+
+    from app.errores import SinPermiso
+    from app.modules.whatsapp.presentation.router_demo import validar_canal
+
+    def solicitud(origen):
+        return Request(
+            {
+                "type": "http",
+                "method": "POST",
+                "scheme": "https",
+                "server": ("api.example", 443),
+                "path": "/api/chat-demo/sesion",
+                "headers": [(b"origin", origen.encode()), (b"x-chat-demo", b"1")],
+                "query_string": b"",
+            }
+        )
+
+    assert validar_canal(solicitud("https://monu-burger-clientes.pages.dev")) is None
+    with pytest.raises(SinPermiso):
+        validar_canal(solicitud("https://ajeno.example"))
     opciones = serve.app.router.lifespan_context.keywords
     assert opciones["con_worker"]
     assert opciones["solo_demo"]
@@ -154,6 +185,10 @@ def test_arranque_demo_publica_carga_autorizacion_y_procesa_solo_su_canal(monkey
         "no-json",
         '{"habilitado":true,"gemini_modo":[]}',
         '{"habilitado":true,"gemini_modo":{}}',
+        '{"habilitado":true,"origenes":"*"}',
+        '{"habilitado":true,"origenes":["https://*.example"]}',
+        '{"habilitado":true,"origenes":["https://x.example/path"]}',
+        '{"habilitado":true,"origenes":["https://usuario:clave@x.example"]}',
     ],
 )
 def test_sin_parametro_explicito_no_habilita_demo_publica(monkeypatch, valor):

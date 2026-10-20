@@ -285,7 +285,7 @@ La activación se guarda en la tabla existente `parametro`, sin claves de provee
 
 | Clave | Valor JSON de activación |
 | --- | --- |
-| `chat_demo_publico` | `{"habilitado":true,"gemini_modo":"real"}` |
+| `chat_demo_publico` | `{"habilitado":true,"gemini_modo":"real","origenes":["https://monu-burger-clientes.pages.dev","https://monu-burger.pages.dev"]}` |
 
 `python -m scripts.serve --migrar` consulta ese parámetro al arrancar. Únicamente
 un objeto válido con `habilitado` booleano verdadero permite el canal público,
@@ -301,6 +301,12 @@ configurarse ambas variables explícitamente, conservando el modo Gemini del
 entorno. Son dos condiciones necesarias para permitir producción/base remota;
 sin autorización compartida se conserva la guarda local. El parámetro persistido
 válido prevalece al iniciar mediante `scripts.serve`.
+
+`origenes` agrega exclusivamente dominios HTTPS completos a la lista permitida,
+sin comodines, rutas ni credenciales. Es necesario incluir el dominio de Pages
+desde el que navega el cliente: el proxy conserva su cabecera `Origin`. El dominio
+de Render por sí solo no autoriza el POST del carrito. Se mantiene el rechazo de
+orígenes ajenos y la protección `X-Chat-Demo`.
 
 El worker se ejecuta con el ciclo de esa misma API. Si `WHATSAPP_MODO=simulado`,
 el worker integrado filtra inbox, reclamos y recuperación de salidas abandonadas
