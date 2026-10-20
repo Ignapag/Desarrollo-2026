@@ -215,6 +215,15 @@ Vite reenvía `/api` a `http://127.0.0.1:8000` en desarrollo.
    pedido. La 014 registra derivaciones humanas en `whatsapp_atencion`, que el
    personal responde por la misma outbox y resuelve desde la bandeja.
    Este recorrido no usa el enviador simulado del módulo de notificaciones anterior.
+   El adaptador web académico en `whatsapp/presentation/router_demo.py` reutiliza
+   ese núcleo con una sesión anónima HttpOnly, identidad técnica propia y modo
+   explícito restringido a PostgreSQL local. La migración 027 persiste sesión,
+   huellas idempotentes y archivos privados; el cliente declarado no se transforma
+   en WhatsApp verificado. El worker enruta sus salidas por la sesión persistida
+   y las deja `SIMULADO`, incluso si vence o cambia la configuración del transporte.
+   Carrito y botón de chat viven en `ordering/ClientLayout.jsx`; el servidor es
+   la fuente del historial y de los pedidos al recargar. Contratos, límites y
+   comandos en [chat web de demostración](WHATSAPP_DESARROLLO.md#chat-web-de-demostración).
 
 ## Datos y configuración
 

@@ -171,6 +171,10 @@ def worker_aislado(monkeypatch):
         def __init__(self, conn):
             self.conn = conn
 
+        async def valor(self, sql, parametros=None):
+            assert observado.abiertas == 1
+            return False
+
         async def ejecutar(self, sql, parametros=None):
             assert observado.abiertas == 1
             return 1

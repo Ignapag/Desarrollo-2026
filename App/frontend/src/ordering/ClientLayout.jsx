@@ -1,17 +1,29 @@
 ﻿import { Outlet, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { useData } from '../shared/store/DataContext';
-import { ShoppingCart, Search, LogOut } from 'lucide-react';
+import { ShoppingCart, Search, LogOut, MessageCircle } from 'lucide-react';
 import CartDrawer from './CartDrawer';
-import { useState } from 'react';
+import ChatDrawer from './ChatDrawer';
+import { getChatConfig } from './chatDemo';
+import { useEffect, useState } from 'react';
 import { portal } from '../shared/portal';
 
 export default function ClientLayout() {
   const { logout, user } = useAuth();
   const { state } = useData();
   const [isCartOpen, setIsCartOpen] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [chatConfig, setChatConfig] = useState({ status: 'loading' });
+  const [configRevision, setConfigRevision] = useState(0);
   const [searchParams, setSearchParams] = useSearchParams();
   const searchQuery = searchParams.get('q') || '';
+
+  useEffect(() => {
+    let active = true;
+    getChatConfig().then((data) => { if (active) setChatConfig({ ...data, status: 'ready' }); })
+      .catch((failure) => { if (active) setChatConfig({ status: 'error', error: failure.message || 'No se pudo comprobar la disponibilidad del chat.' }); });
+    return () => { active = false; };
+  }, [configRevision]);
 
   const handleSearch = (e) => {
     if (e.target.value) {
@@ -64,6 +76,8 @@ export default function ClientLayout() {
               )}
             </button>
 
+            {chatConfig.habilitado && <button type="button" onClick={() => setIsChatOpen(true)} aria-haspopup="dialog" aria-label="Abrir chat de demostración" className="relative min-w-11 min-h-11 p-2 hover:bg-white/10 rounded-full transition-colors flex-shrink-0 focus-visible:ring-2 focus-visible:ring-monu-green"><MessageCircle aria-hidden="true" className="size-6" /></button>}
+
             {portal.personal && (user ? (
               <div className="flex items-center gap-3 pl-3 border-l border-white/20 ml-1">
                 <span className="hidden sm:inline text-sm font-bold opacity-80">{user.name}</span>
@@ -86,7 +100,8 @@ export default function ClientLayout() {
         <Outlet />
       </main>
 
-      <CartDrawer isOpen={isCartOpen} onClose={() => setIsCartOpen(false)} />
+      <CartDrawer isOpen={isCartOpen} onClose={() => setIsCartOpen(false)} chatConfig={chatConfig} onRetryChatConfig={() => { setChatConfig({ status: 'loading' }); setConfigRevision((value) => value + 1); }} onOpenChat={() => { setIsCartOpen(false); setIsChatOpen(true); }} />
+      <ChatDrawer isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} />
     </div>
   );
 }

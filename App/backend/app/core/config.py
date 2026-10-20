@@ -68,6 +68,8 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     gemini_modelo: str = "gemini-3.5-flash-lite"
     gemini_modo: Literal["simulado", "real"] = "simulado"
+    # Canal web académico: sólo con base local explícita y WhatsApp simulado.
+    chat_demo_habilitado: bool = False
 
     @field_validator("debug", mode="before")
     @classmethod

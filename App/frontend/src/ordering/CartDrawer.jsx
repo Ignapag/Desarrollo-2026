@@ -2,13 +2,14 @@
 import { useData } from '../shared/store/DataContext';
 import { Trash2, X, MessageCircle, ShoppingCart, ArrowRight, Check, LoaderCircle } from 'lucide-react';
 import { buildWhatsAppDraftPayload, createWhatsAppDraft } from './whatsapp';
+import { openChatSession, sendChatDraft } from './chatDemo';
 
 const inputClass = 'w-full min-h-11 bg-white border border-monu-green/20 rounded-xl px-3 py-2.5 text-base font-medium text-monu-dark placeholder:text-monu-text/50 focus:outline-none focus:ring-2 focus:ring-monu-green disabled:opacity-60';
 const actionClass = 'min-h-11 rounded-xl font-extrabold px-4 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-monu-green disabled:opacity-50 disabled:cursor-not-allowed';
 const labelClass = 'block space-y-1.5 text-sm font-bold text-monu-dark';
 const iconButtonClass = 'flex min-w-11 min-h-11 items-center justify-center rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-monu-green disabled:opacity-50';
 
-export default function CartDrawer({ isOpen, onClose }) {
+export default function CartDrawer({ isOpen, onClose, chatConfig = { status: 'ready', habilitado: false }, onRetryChatConfig, onOpenChat }) {
   const { state, dispatch } = useData();
   const { cart } = state;
   const [address, setAddress] = useState('');
@@ -28,9 +29,12 @@ export default function CartDrawer({ isOpen, onClose }) {
   const draftRef = useRef(null);
   const preparingRef = useRef(false);
   const readyRef = useRef(null);
+  const demo = Boolean(chatConfig.habilitado);
   const needsAddress = delivery === 'DELIVERY';
   const busy = isPreparing;
   const payload = buildWhatsAppDraftPayload({ cart, delivery, payment, address, number, zone, contact });
+  const demoPayload = { ...payload, tipo_entrega: delivery || null, metodo_pago: payment || null, contacto: null,
+    direccion_nueva: needsAddress && address.trim() && number.trim() && zone ? payload.direccion_nueva : null };
   const payloadKey = JSON.stringify(payload);
   const currentDraft = draft?.key === payloadKey && draft.data.referencia !== expiredReference ? draft.data : null;
   const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
@@ -107,6 +111,7 @@ export default function CartDrawer({ isOpen, onClose }) {
   const handleSubmit = (event) => {
     event.preventDefault();
     if (busy) return;
+    if (demo) { void prepareChat(); return; }
     for (const field of ['nombre', 'apellido', 'telefono']) {
       const input = event.currentTarget.elements.namedItem(field);
       const valid = field === 'telefono' ? /^[0-9]{11,15}$/.test(payload.contacto.telefono) : Boolean(contact[field].trim());
@@ -114,6 +119,24 @@ export default function CartDrawer({ isOpen, onClose }) {
       if (!valid) { input.reportValidity(); return; }
     }
     void prepareWhatsApp();
+  };
+
+  const prepareChat = async () => {
+    if (preparingRef.current || !cart.length) return;
+    preparingRef.current = true;
+    setIsPreparing(true);
+    setError('');
+    try {
+      await openChatSession();
+      await sendChatDraft(demoPayload);
+      dispatch({ type: 'CLEAR_CART' });
+      onOpenChat?.();
+    } catch (failure) {
+      setError(failure.message || 'No se pudo continuar. Reintentá para recuperar el mismo envío.');
+    } finally {
+      preparingRef.current = false;
+      setIsPreparing(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -171,9 +194,11 @@ export default function CartDrawer({ isOpen, onClose }) {
                     ))}
                   </ul>
                 </section>
-                <section aria-labelledby="checkout-contact" className="space-y-5 p-5 sm:p-7 md:border-l md:border-monu-green/10">
+                <section aria-labelledby={demo ? undefined : 'checkout-contact'} aria-label={demo ? 'Entrega y pago del pedido' : undefined} className="space-y-5 p-5 sm:p-7 md:border-l md:border-monu-green/10">
                   {error && <p ref={errorRef} tabIndex={-1} role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p>}
-                  <fieldset disabled={busy} className="space-y-4">
+                  {chatConfig.status === 'error' && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800"><p>{chatConfig.error}</p><button type="button" onClick={onRetryChatConfig} className={actionClass + ' mt-2 underline'}>Reintentar disponibilidad del chat</button></div>}
+                  {demo && <p className="rounded-xl border border-monu-green/15 bg-monu-green/5 p-3 text-sm leading-relaxed">Continuá en el chat de demostración. Podés completar entrega, dirección y pago conversando. Los mensajes no se envían por WhatsApp.</p>}
+                  {!demo && <fieldset disabled={busy} className="space-y-4">
                     <legend id="checkout-contact" className="mb-4 font-heading text-lg font-extrabold text-monu-dark">Tus datos</legend>
                     <div className="grid grid-cols-2 gap-3">
                       <label htmlFor="checkout-first-name" className={labelClass}><span>Nombre</span>
@@ -187,35 +212,35 @@ export default function CartDrawer({ isOpen, onClose }) {
                       <input id="checkout-phone" name="telefono" type="tel" inputMode="tel" required maxLength={25} pattern="[+0-9\(\) .\-]+" autoComplete="tel-national" aria-describedby="checkout-phone-help" placeholder="11 1234 5678" value={contact.telefono} onChange={updateContact} className={inputClass} />
                     </label>
                     <p id="checkout-phone-help" className="!mt-1.5 text-xs text-monu-text/70">Código de área y número, sin 0 ni 15. Usá el WhatsApp desde el que vas a enviar el pedido.</p>
-                  </fieldset>
+                  </fieldset>}
                   <fieldset disabled={busy} className="space-y-4 border-t border-monu-green/10 pt-5">
                     <legend className="sr-only">Entrega y pago</legend>
                     <div className="grid grid-cols-1 gap-3 min-[400px]:grid-cols-2 md:grid-cols-1 lg:grid-cols-2">
                       <label htmlFor="checkout-delivery" className={labelClass}><span>Entrega</span>
-                        <select id="checkout-delivery" value={delivery} onChange={(event) => setDelivery(event.target.value)} className={inputClass}><option value="RETIRO">Retiro en el local</option><option value="DELIVERY">Delivery</option></select>
+                        <select id="checkout-delivery" value={delivery} onChange={(event) => setDelivery(event.target.value)} className={inputClass}>{demo && <option value="">Definir en el chat</option>}<option value="RETIRO">Retiro en el local</option><option value="DELIVERY">Delivery</option></select>
                       </label>
                       <label htmlFor="checkout-payment" className={labelClass}><span>Forma de pago</span>
-                        <select id="checkout-payment" value={payment} onChange={(event) => setPayment(event.target.value)} className={inputClass}><option value="EFECTIVO">Efectivo</option><option value="TRANSFERENCIA">Transferencia</option></select>
+                        <select id="checkout-payment" value={payment} onChange={(event) => setPayment(event.target.value)} className={inputClass}>{demo && <option value="">Definir en el chat</option>}<option value="EFECTIVO">Efectivo</option><option value="TRANSFERENCIA">Transferencia</option></select>
                       </label>
                     </div>
                     {needsAddress && (
                       <div className="space-y-3">
                         <label htmlFor="checkout-zone" className={labelClass}><span>Localidad</span>
-                          <select id="checkout-zone" required autoComplete="address-level2" value={zone} onChange={(event) => setZone(event.target.value)} className={inputClass}><option value="">Seleccioná tu localidad</option><option value="Ensenada">Ensenada</option><option value="Punta Lara">Punta Lara</option></select>
+                          <select id="checkout-zone" required={!demo} autoComplete="address-level2" value={zone} onChange={(event) => setZone(event.target.value)} className={inputClass}><option value="">{demo ? 'Completar en el chat' : 'Seleccioná tu localidad'}</option><option value="Ensenada">Ensenada</option><option value="Punta Lara">Punta Lara</option></select>
                         </label>
                         <div className="grid grid-cols-[minmax(0,1fr)_6rem] gap-3">
                           <label htmlFor="checkout-street" className={labelClass}><span>Calle</span>
-                            <input id="checkout-street" required maxLength={200} autoComplete="address-line1" value={address} onChange={(event) => setAddress(event.target.value)} className={inputClass} />
+                            <input id="checkout-street" required={!demo} maxLength={200} autoComplete="address-line1" value={address} onChange={(event) => setAddress(event.target.value)} className={inputClass} />
                           </label>
                           <label htmlFor="checkout-number" className={labelClass}><span>Número</span>
-                            <input id="checkout-number" required maxLength={20} value={number} onChange={(event) => setNumber(event.target.value)} className={inputClass} />
+                            <input id="checkout-number" required={!demo} maxLength={20} value={number} onChange={(event) => setNumber(event.target.value)} className={inputClass} />
                           </label>
                         </div>
                       </div>
                     )}
-                    {payment === 'TRANSFERENCIA' && <p className="text-xs leading-relaxed text-monu-text/70">Te pediremos el comprobante por WhatsApp para que lo revise el local.</p>}
+                    {payment === 'TRANSFERENCIA' && <p className="text-xs leading-relaxed text-monu-text/70">Te pediremos el comprobante {demo ? 'en el chat' : 'por WhatsApp'} para que lo revise el local.</p>}
                   </fieldset>
-                  {currentDraft && (
+                  {!demo && currentDraft && (
                     <div className="rounded-2xl border border-monu-green/15 bg-monu-green/5 p-4">
                       <p role="status" className="flex items-center gap-2 text-sm font-bold text-monu-dark"><Check aria-hidden="true" className="size-4 shrink-0" />Listo para enviar por WhatsApp</p>
                       <details className="mt-2 text-sm">
@@ -240,16 +265,16 @@ export default function CartDrawer({ isOpen, onClose }) {
                   <p className="text-sm font-medium text-monu-text/70">Subtotal estimado</p>
                   <p className="font-heading text-2xl font-extrabold tracking-tight text-monu-dark">{'$' + total.toLocaleString('es-AR')}</p>
                 </div>
-                {currentDraft?.url_whatsapp ? (
+                {!demo && currentDraft?.url_whatsapp ? (
                   <a ref={readyRef} href={currentDraft.url_whatsapp} target="_blank" rel="noopener noreferrer" className={actionClass + ' flex items-center justify-center gap-2 bg-monu-green text-white hover:bg-monu-dark'}><MessageCircle aria-hidden="true" className="size-5 shrink-0" />Abrir WhatsApp<ArrowRight aria-hidden="true" className="size-4" /></a>
                 ) : (
-                  <button type="submit" disabled={busy} aria-busy={busy} className={actionClass + ' flex items-center justify-center gap-2 bg-monu-green text-white hover:bg-monu-dark'}>
+                  <button type="submit" disabled={busy || chatConfig.status !== 'ready'} aria-busy={busy || chatConfig.status === 'loading'} className={actionClass + ' flex items-center justify-center gap-2 bg-monu-green text-white hover:bg-monu-dark'}>
                     {busy ? <LoaderCircle aria-hidden="true" className="size-5 motion-safe:animate-spin" /> : <MessageCircle aria-hidden="true" className="size-5 shrink-0" />}
-                    {busy ? 'Preparando…' : 'Continuar por WhatsApp'}
+                    {busy ? 'Preparando…' : chatConfig.status === 'loading' ? 'Comprobando disponibilidad…' : demo ? 'Continuar en el chat' : 'Continuar por WhatsApp'}
                   </button>
                 )}
               </div>
-              <p className="mt-3 text-center text-xs leading-relaxed text-monu-text/70 sm:text-right">{currentDraft ? 'Enviá el mensaje para registrar tu pedido.' : 'Confirmamos tu pedido y el total por WhatsApp.'}</p>
+              <p className="mt-3 text-center text-xs leading-relaxed text-monu-text/70 sm:text-right">{demo ? 'El pedido se registra al procesar el carrito con los datos completos. El total lo valida el local.' : currentDraft ? 'Enviá el mensaje para registrar tu pedido.' : 'Confirmamos tu pedido y el total por WhatsApp.'}</p>
             </footer>
           </form>
         )}

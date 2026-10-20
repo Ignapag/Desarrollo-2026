@@ -67,10 +67,18 @@ async def _finalizar_fallido(identificador):
 
 async def enviar_uno():
     async with conexion() as conn:
-        cola = ColaWhatsAppSQL(UnidadDeTrabajo(conn))
+        uow = UnidadDeTrabajo(conn)
+        cola = ColaWhatsAppSQL(uow)
         mensaje = await cola.reclamar()
         if not mensaje:
             return False
+        # La identidad del canal perdura aunque venza o se deshabilite la demo.
+        if await uow.valor(
+            "SELECT EXISTS (SELECT 1 FROM chat_demo_sesion WHERE telefono=%s)",
+            (mensaje["telefono"],),
+        ):
+            await cola.resultado(mensaje["id"], "SIMULADO")
+            return True
         if settings.whatsapp_modo == "real" and not await cola.dentro_ventana(mensaje["telefono"]):
             await cola.resultado(mensaje["id"], "FALLIDO")
             # Fuera de ventana requiere plantilla; queda retenido para personal.

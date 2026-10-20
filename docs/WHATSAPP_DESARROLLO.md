@@ -1,6 +1,6 @@
 # WhatsApp: desarrollo y demostración local
 
-Esta guía describe la implementación de desarrollo al 17 de octubre de 2026.
+Esta guía incluye el canal web de demostración del 20 de octubre de 2026.
 El alcance de producto sigue en [WHATSAPP_ALCANCE.md](WHATSAPP_ALCANCE.md).
 El backend interpreta mensajes, valida y persiste operaciones; Gemini propone
 acciones y WhatsApp transporta mensajes. La apertura del chat no crea un pedido.
@@ -45,6 +45,10 @@ compartida. No aplicar estos comandos a esa base ni habilitar excepciones para
 aceptar destinos remotos. No hace falta cambiar el `.env` existente.
 
 ## Ejecutar la demo completa
+
+Para presentar el recorrido desde la web, usar la alternativa de la sección
+[Chat web de demostración](#chat-web-de-demostración). El script siguiente
+conserva su utilidad como prueba reproducible del núcleo sin navegador.
 
 Desde la misma terminal de `App/backend`:
 
@@ -114,6 +118,161 @@ reemplazarlo por `.\.venv\Scripts\python.exe -m scripts.whatsapp_worker --una-ve
 después de cada recepción. El webhook y `/simular` guardan inbox; no interpretan
 ni envían respuestas dentro de la petición HTTP. No hay un scheduler automático
 dentro de FastAPI: API y frontend sin worker no completan el procesamiento.
+
+## Chat web de demostración
+
+Es una alternativa dentro del mismo menú cliente, accesible sin cuenta desde el
+botón **Abrir chat de demostración** y **Continuar en el chat** del carrito.
+Usa PostgreSQL y las operaciones reales del bot; simula exclusivamente el
+transporte WhatsApp. El aviso de la interfaz identifica la demo y distingue el
+intérprete real del simulado. No necesita cuenta empresarial ni conexión con Meta.
+
+Preparar primero la **base descartable** de esta guía. Aplicar también
+`027_chat_demo.sql` mediante el runner existente. API y worker necesitan las mismas
+variables; repetir este bloque en cada terminal dedicada de `App/backend`:
+
+```powershell
+$env:DATABASE_URL = 'postgresql://monu:monu@127.0.0.1:55432/monuburger'
+$env:ENTORNO = 'desarrollo'
+$env:WHATSAPP_MODO = 'simulado'
+$env:CHAT_DEMO_HABILITADO = 'true'
+$env:GEMINI_MODO = 'real'
+$env:WHATSAPP_TRANSFERENCIA_DATOS = 'DEMO ACADEMICA: comprobante ficticio, sin valor bancario'
+```
+
+La clave `GEMINI_API_KEY` y el modelo configurable `GEMINI_MODELO` se leen sólo
+en el backend. Configurar la clave localmente en el `.env` existente, usando
+`GEMINI_API_KEY=<CLAVE_DE_GOOGLE_AI_STUDIO>`, o mediante una variable de entorno
+privada en ambas terminales. No pegarla en este chat ni crear una variable
+`VITE_*`. Se conserva el modelo predeterminado existente; no se cambia por activar
+el canal web. Para repetir sin Google, usar `$env:GEMINI_MODO = 'simulado'` en
+API y worker: la interfaz lo identifica expresamente.
+
+Antes de iniciar los procesos, desde una de esas terminales:
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.migrate --seed
+.\.venv\Scripts\python.exe -m scripts.migrate --status
+```
+
+En tres terminales:
+
+| Proceso | Carpeta | Comando |
+| --- | --- | --- |
+| API, con el bloque anterior | `App/backend` | `.\.venv\Scripts\python.exe run.py` |
+| Worker, con el mismo bloque y clave | `App/backend` | `.\.venv\Scripts\python.exe -m scripts.whatsapp_worker` |
+| Web | `App/frontend` | `npm run dev` |
+
+Abrir `http://localhost:5173/menu`. Usar el proxy `/api` de Vite y conservar el
+mismo host al recargar: la cookie pertenece al navegador y al host. API y web
+en sitios distintos no son un despliegue soportado por esta demo. Sin worker,
+los mensajes quedan **Pendiente de procesamiento**; no hay respuesta ficticia
+ni IA ejecutada en la petición HTTP. También se puede ejecutar el worker con
+`--una-vez` después de cada mensaje, conservando las mismas variables.
+
+### Persistencia, acceso y límites del canal web
+
+- `CHAT_DEMO_HABILITADO=false` es el valor predeterminado. Aun con `true`, se
+  rechaza producción, WhatsApp real o una base que no sea local. `DATABASE_URL`
+  debe estar definida explícitamente en la terminal; no basta heredar una URL
+  del `.env`. No habilitar excepciones para destinos remotos.
+- `chat_demo_sesion` conserva un hash de un token aleatorio de 256 bits, una
+  identidad interna exclusiva y un cliente sin cuenta. La cookie
+  `monu_chat_demo` es HttpOnly, SameSite Strict, dura siete días, usa Secure con
+  HTTPS y sólo se envía a `/api/chat-demo`. El teléfono declarado no autentica
+  ni fija `whatsapp_verificado`. Perder/borrar la cookie impide recuperar ese
+  historial; no existe recuperación por teléfono, ID o cuenta de empleado.
+- Las identidades técnicas comienzan con `000`, no son destinatarios reales.
+  El worker identifica el canal por la sesión **persistida**, incluso vencida,
+  y termina sus salidas como `SIMULADO` sin llamar a Meta, aunque después se
+  cambie la configuración global. No borrar esas sesiones como mantenimiento:
+  también conservan el enrutamiento de mensajes históricos.
+- Se reutilizan `whatsapp_borrador`, `whatsapp_entrada`, `whatsapp_sesion`, memoria
+  semántica, pedidos, stock, cambios, atenciones, comprobantes y outbox. El origen
+  operativo conserva `WHATSAPP` porque se demuestra ese flujo. La vinculación al
+  cliente ocurre desde el adaptador seguro, antes de recibir el primer mensaje;
+  no se inventa una identidad verificada por Meta.
+- Continuar desde el carrito guarda y recibe el borrador atómicamente. Al
+  procesarlo, si están completos sus datos, el núcleo registra el pedido; si
+  faltan, pregunta. No se agrega una segunda confirmación de compra distinta
+  del flujo actual. Las propuestas que cambian el importe siguen requiriendo
+  `confirmar`, y cocina/pagos conservan sus validaciones y revisión humana.
+- Cada POST de negocio lleva un UUID. `chat_demo_operacion` guarda su huella y
+  la entrada: repetir UUID y contenido recupera el resultado; cambiar contenido
+  produce `409`. Las solicitudes de una sesión se serializan y no se admite un
+  segundo mensaje mientras quede uno pendiente. El navegador conserva en
+  `sessionStorage` sólo UUID/huella de intentos fallidos para reintentar; la
+  conversación, el carrito enviado y los pedidos se recuperan del servidor.
+- Se permiten hasta 80 entradas por sesión y 300 globales en 24 horas móviles,
+  con presupuesto serializado en PostgreSQL; los reintentos idempotentes no
+  consumen otra entrada. Hay hasta 100 sesiones nuevas por 24 horas. Se conserva
+  el límite de texto de 2000 caracteres, contexto de 10.000 bytes, cuatro turnos
+  semánticos y salida de 256 tokens del adaptador Gemini. Cada entrada tiene como
+  máximo dos interpretaciones por cambios concurrentes y dos intentos HTTP por
+  interpretación. Los avisos, adjuntos y comandos deterministas no consumen IA.
+- El historial devuelve los últimos 200 mensajes y 20 borradores de la sesión;
+  los anteriores siguen guardados, sin paginación en esta interfaz de demo.
+  El carrito todavía no enviado sigue siendo estado local de React; al
+  continuarlo ya queda persistido. Los borradores sin pedido vencen según el
+  flujo existente de 30 minutos, independientemente de los siete días de cookie.
+- Los comprobantes ficticios quedan como bytes privados en `chat_demo_archivo`,
+  hasta 2 MiB, MIME PDF/PNG/JPEG y firma inicial compatible. Esa validación no
+  certifica integridad, autenticidad bancaria ni ausencia de contenido malicioso.
+  Se descargan como adjuntos con `nosniff` y sin caché, por su propia sesión o por
+  personal autorizado en la bandeja existente. Recibirlos nunca acredita dinero
+  ni envía su contenido a Gemini.
+- Las respuestas del personal, revisiones y cambios efectivos de estado usan la
+  misma outbox. La web consulta cada dos segundos mientras el chat está abierto y
+  visible; la bandeja interna mantiene su actualización manual existente.
+
+### API del adaptador web
+
+Todos los POST requieren `X-Chat-Demo: 1`; si hay `Origin`, debe ser el propio
+o uno de `ORIGENES_PERMITIDOS`. La habilitación se comprueba antes de solicitar
+una conexión. El canal interno `/api/whatsapp/simular` conserva su guarda de personal.
+
+| Método y ruta bajo `/api/chat-demo` | Contrato |
+| --- | --- |
+| `GET /config` | Disponibilidad, modo de interpretación y presencia de credencial, sin revelar secretos. |
+| `POST /sesion` | Crea o reutiliza la cookie anónima; no crea pedido. |
+| `GET /conversacion` | Cookie vigente; mensajes, estados y borradores propios, sin caché. |
+| `POST /borradores` | `{solicitud_id: UUID, borrador: <BorradorEntrada>}`; `202`, guarda borrador y entrada inicial en una transacción. Contacto/modalidad/pago/dirección pueden omitirse. |
+| `POST /mensajes` | `{solicitud_id: UUID, texto: string}`; `202`. No acepta teléfono, IDs ajenos ni referencias de otros carritos. |
+| `POST /comprobantes` | Bytes del archivo, `Content-Type` permitido y `X-Solicitud-Id: UUID`; `202`. |
+| `GET /comprobantes/{entrada_id}/archivo` | Cookie propietaria vigente; otra sesión recibe `404`. |
+
+### Guion breve para presentar
+
+1. Entrar sin cuenta al menú y agregar **La Típica Doble**. Para demostrar una
+   aclaración ambigua, agregar también otra variante con tomate.
+2. En el carrito elegir **Definir en el chat** para entrega y pago, y continuar.
+   Mostrar que queda borrador hasta responder `retiro` y `transferencia`. Con
+   Gemini real se pueden usar frases naturales; en modo simulado, usar esos
+   comandos reproducibles. Recargar y volver a abrir el chat recupera lo guardado.
+3. Enviar `¿Le podés sacar el tomate?`. Si hay varios productos, responder
+   `producto 1`. En otra sesión de navegador de personal, abrir Pedidos/Cocina:
+   la compra conserva su número y muestra **Sin Tomate**.
+4. Adjuntar una imagen o PDF de prueba sin datos personales. Mostrar en el panel
+   el comprobante pendiente y descargarlo. Aclarar que todavía no se acreditó
+   dinero ni se habilitó preparar por transferencia.
+5. El empleado verifica ficticiamente el ingreso en la base de demostración,
+   aprueba el total vigente desde la bandeja y envía a preparación. Volver al
+   chat y mostrar el aviso persistido. Después de preparar, pedir `cantidad: 2`
+   y responder `confirmar`: permanece el pedido vigente hasta revisión del personal.
+6. Para mostrar el caso sin proveedor, configurar `GEMINI_MODO=real` sin clave
+   en una terminal de prueba y reiniciar API/worker con ese entorno. Un texto
+   que necesite IA recibe indisponibilidad y conserva el pedido; **Pedir atención
+   humana** o `quiero hablar con una persona` usa el camino determinista. El
+   empleado responde desde la bandeja y su mensaje aparece en el mismo chat.
+
+El 20/10/2026 se comprobaron el recorrido HTTP/worker con IA simulada y PostgreSQL
+descartable, pagos, ambigüedad, aislamiento, archivos, fallo sin credencial y doble
+solicitud con conexiones/commits independientes. Una consulta real de interpretación
+con datos ficticios agotó el timeout del proveedor: **no acredita una prueba exitosa
+con Gemini**. No hubo navegador conectado para verificar apariencia, responsive o
+teclado. Estos límites son independientes de la prueba histórica del 17/10.
+
+## Recorrido manual por WhatsApp
 
 La API sirve `http://localhost:8000/docs`; Vite normalmente sirve
 `http://localhost:5173`. Las credenciales de desarrollo están en

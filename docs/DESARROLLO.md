@@ -167,6 +167,12 @@ base descartable; no usar la base compartida. Los paneles del personal actualiza
 solo pedidos cada ocho segundos, con pausa en pestañas ocultas; la bandeja de
 comprobantes y cambios tiene actualización manual.
 
+El [chat web de demostración](WHATSAPP_DESARROLLO.md#chat-web-de-demostración)
+agrega `CHAT_DEMO_HABILITADO=true` para continuar el carrito dentro del mismo
+menú, sin copiar mensajes al simulador. Usa WhatsApp simulado y permite Gemini
+real o simulado por configuración; requiere la migración 027, cookie de sesión,
+base local explícita y el mismo worker. Está desactivado por defecto.
+
 ## Esquema generado
 
 Después de un cambio SQL, desde `App/backend`:

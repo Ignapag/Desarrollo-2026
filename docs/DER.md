@@ -7,7 +7,7 @@ Modelo de datos **tal como está implementado** en la base.
 > quedar desactualizado respecto del esquema real. CI verifica que
 > este al dia.
 
-**36 entidades · 64 relaciones.**
+**39 entidades · 69 relaciones.**
 
 Este diagrama reemplaza al entregado en la Actividad N°2: las diferencias
 están explicadas una por una en [CAMBIOS_DER.md](CAMBIOS_DER.md) (C-01 a C-12).
@@ -93,6 +93,11 @@ erDiagram
     WHATSAPP_ENTRADA o|--o{ WHATSAPP_SESION : solicitud_id
     PRODUCTO ||--o{ PRODUCTO_VARIANTE_INGREDIENTE : producto_id
     INGREDIENTE ||--o{ PRODUCTO_VARIANTE_INGREDIENTE : ingrediente_id
+    CLIENTE ||--o{ CHAT_DEMO_SESION : cliente_id
+    CHAT_DEMO_SESION ||--o{ CHAT_DEMO_OPERACION : sesion_hash
+    WHATSAPP_ENTRADA ||--|| CHAT_DEMO_OPERACION : entrada_id
+    CHAT_DEMO_SESION ||--o{ CHAT_DEMO_ARCHIVO : sesion_hash
+    WHATSAPP_ENTRADA ||--|| CHAT_DEMO_ARCHIVO : entrada_id
 ```
 
 ---
@@ -609,6 +614,35 @@ erDiagram
     }
 ```
 
+### Chat demo
+
+```mermaid
+erDiagram
+    CHAT_DEMO_SESION ||--o{ CHAT_DEMO_OPERACION : sesion_hash
+    CHAT_DEMO_SESION ||--o{ CHAT_DEMO_ARCHIVO : sesion_hash
+    CHAT_DEMO_SESION {
+        text token_hash PK
+        text telefono UK
+        bigint cliente_id FK
+        timestamptz creado_en
+        timestamptz expira_en
+    }
+    CHAT_DEMO_OPERACION {
+        text sesion_hash PK
+        uuid solicitud_id PK
+        text huella
+        text entrada_id FK
+        timestamptz creado_en
+    }
+    CHAT_DEMO_ARCHIVO {
+        text media_id PK
+        text sesion_hash FK
+        text entrada_id FK
+        text mime
+        bytea contenido
+    }
+```
+
 ---
 
 ## Relaciones en detalle
@@ -618,6 +652,11 @@ erDiagram
 | `alerta_stock` | `ingrediente_id` | `ingrediente` | 1 : N | Sí |
 | `alerta_stock` | `resuelta_por` | `usuario` | 1 : N | No |
 | `auditoria` | `usuario_id` | `usuario` | 1 : N | No |
+| `chat_demo_archivo` | `sesion_hash` | `chat_demo_sesion` | 1 : N | Sí |
+| `chat_demo_archivo` | `entrada_id` | `whatsapp_entrada` | 1 : 1 | Sí |
+| `chat_demo_operacion` | `sesion_hash` | `chat_demo_sesion` | 1 : N | Sí |
+| `chat_demo_operacion` | `entrada_id` | `whatsapp_entrada` | 1 : 1 | Sí |
+| `chat_demo_sesion` | `cliente_id` | `cliente` | 1 : N | Sí |
 | `cierre_caja` | `aprobado_por` | `usuario` | 1 : N | No |
 | `cierre_caja` | `generado_por` | `usuario` | 1 : N | No |
 | `cliente` | `usuario_id` | `usuario` | 1 : 1 | No |

@@ -72,7 +72,9 @@ columnas, tipos, obligatoriedad, relaciones y valores permitidos.
 
 **Pedido item receta snapshot** — sin tablas nuevas
 
-Total: **36 tablas**.
+**Chat demo** — [`chat_demo_sesion`](#chat_demo_sesion), [`chat_demo_operacion`](#chat_demo_operacion), [`chat_demo_archivo`](#chat_demo_archivo)
+
+Total: **39 tablas**.
 
 ---
 
@@ -751,3 +753,39 @@ _Recetas explícitas por variante. No se infieren cantidades ni se modifican las
 **Vistas:** `producto_disponible`
 
 ## 026_pedido_item_receta_snapshot — Pedido item receta snapshot
+
+## 027_chat_demo — Chat demo
+
+### chat_demo_sesion
+
+_Adaptador web de demostración. Las reglas e inbox/outbox siguen siendo del bot._
+
+| Columna | Tipo | Obligatoria | Notas |
+|---------|------|-------------|-------|
+| `token_hash` | TEXT | Sí | PK |
+| `telefono` | TEXT | Sí | único |
+| `cliente_id` | BIGINT | Sí | FK → `cliente.id` |
+| `creado_en` | TIMESTAMPTZ | Sí | default `now()` |
+| `expira_en` | TIMESTAMPTZ | Sí | default `now() + interval '7 days'` |
+
+### chat_demo_operacion
+
+| Columna | Tipo | Obligatoria | Notas |
+|---------|------|-------------|-------|
+| `sesion_hash` | TEXT | Sí | PK · FK → `chat_demo_sesion.token_hash` |
+| `solicitud_id` | UUID | Sí | PK |
+| `huella` | TEXT | Sí | — |
+| `entrada_id` | TEXT | Sí | único · FK → `whatsapp_entrada.id` |
+| `creado_en` | TIMESTAMPTZ | Sí | default `now()` |
+
+### chat_demo_archivo
+
+_BYTEA permite persistencia atómica y acceso privado sin otro servicio/volumen._
+
+| Columna | Tipo | Obligatoria | Notas |
+|---------|------|-------------|-------|
+| `media_id` | TEXT | Sí | PK |
+| `sesion_hash` | TEXT | Sí | FK → `chat_demo_sesion.token_hash` |
+| `entrada_id` | TEXT | Sí | único · FK → `whatsapp_entrada.id` |
+| `mime` | TEXT | Sí | valores: `image/png`, `image/jpeg`, `application/pdf` |
+| `contenido` | BYTEA | Sí | — |

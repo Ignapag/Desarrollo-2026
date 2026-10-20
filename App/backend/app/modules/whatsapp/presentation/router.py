@@ -96,9 +96,19 @@ async def archivo_atencion(atencion_id: int, personal: Empleado):
 
 
 async def _adjunto(media_id: str):
-    if settings.whatsapp_modo != "real":
-        raise DatosInvalidos("El adjunto simulado no tiene archivo real")
-    contenido, mime = await transporte().bajar_comprobante(media_id)
+    if media_id.startswith("demo:"):
+        # Sólo se llega desde rutas con guarda de personal, nunca por una URL pública.
+        async with conexion() as conn:
+            archivo = await UnidadDeTrabajo(conn).uno(
+                "SELECT contenido,mime FROM chat_demo_archivo WHERE media_id=%s", (media_id,),
+            )
+        if not archivo:
+            raise NoEncontrado("El comprobante no existe")
+        contenido, mime = archivo["contenido"], archivo["mime"]
+    else:
+        if settings.whatsapp_modo != "real":
+            raise DatosInvalidos("El adjunto simulado no tiene archivo real")
+        contenido, mime = await transporte().bajar_comprobante(media_id)
     return Response(
         contenido,
         media_type=mime,
