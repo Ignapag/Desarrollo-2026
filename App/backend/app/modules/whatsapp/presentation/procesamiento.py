@@ -22,13 +22,22 @@ async def _interpretar(preparado):
     if len(preparado["texto"]) > LIMITE_INTERPRETACION:
         # Se deriva el mensaje completo; nunca se interpreta un prefijo.
         return {"accion": "humano", "argumentos": {}, "motivo": "MENSAJE_LARGO"}
-    return await interpretador().interpretar(preparado["texto"], preparado["contexto"])
+    modo_demo = settings.chat_demo_gemini_modo if preparado.get("canal_demo") else None
+    proveedor = interpretador(modo_demo) if modo_demo else interpretador()
+    return await proveedor.interpretar(preparado["texto"], preparado["contexto"])
 
 
 async def procesar_entrada(identificador):
     for intento in range(INTENTOS_INTERPRETACION):
         async with conexion() as conn:
-            preparado = await construir_servicio(UnidadDeTrabajo(conn)).preparar(identificador)
+            uow = UnidadDeTrabajo(conn)
+            preparado = await construir_servicio(uow).preparar(identificador)
+            if preparado and preparado["interpretar"] and settings.chat_demo_gemini_modo:
+                preparado["canal_demo"] = await uow.valor(
+                    """SELECT EXISTS(SELECT 1 FROM chat_demo_sesion d
+                    JOIN whatsapp_entrada e ON e.telefono=d.telefono WHERE e.id=%s)""",
+                    (identificador,),
+                )
         if preparado is None:
             return
         # El foco también puede cambiar entre etapas de un adjunto o comando guiado.
@@ -65,11 +74,11 @@ async def _finalizar_fallido(identificador):
             )
 
 
-async def enviar_uno():
+async def enviar_uno(*, solo_demo=False):
     async with conexion() as conn:
         uow = UnidadDeTrabajo(conn)
         cola = ColaWhatsAppSQL(uow)
-        mensaje = await cola.reclamar()
+        mensaje = await cola.reclamar(solo_demo=True) if solo_demo else await cola.reclamar()
         if not mensaje:
             return False
         # La identidad del canal perdura aunque venza o se deshabilite la demo.
@@ -99,12 +108,14 @@ async def enviar_uno():
     return True
 
 
-async def procesar_lote(limite=20):
+async def procesar_lote(limite=20, *, solo_demo=False):
     async with conexion() as conn:
-        pendientes = await ColaWhatsAppSQL(UnidadDeTrabajo(conn)).pendientes(limite)
+        pendientes = await ColaWhatsAppSQL(UnidadDeTrabajo(conn)).pendientes(
+            limite, solo_demo=solo_demo,
+        )
     for entrada in pendientes:
         await procesar_entrada(entrada["id"])
     for _ in range(limite):
-        if not await enviar_uno():
+        if not await enviar_uno(solo_demo=solo_demo):
             break
     return {"entradas": len(pendientes)}

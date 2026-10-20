@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import json
 from contextlib import asynccontextmanager
 
 import pytest
@@ -95,6 +96,7 @@ async def test_sin_worker_no_procesa_la_cola(monkeypatch):
 def test_arranque_no_registra_consultas_con_tokens(monkeypatch):
     serve = despliegue()
     capturado = {}
+    monkeypatch.setattr(serve, "cargar_demo_publica", lambda: False, raising=False)
     monkeypatch.setattr(serve.uvicorn, "run", lambda app, **kw: capturado.update(kw))
     monkeypatch.setenv("PORT", "10000")
     serve.iniciar_servidor(con_worker=False)
@@ -102,6 +104,80 @@ def test_arranque_no_registra_consultas_con_tokens(monkeypatch):
     assert capturado["port"] == 10000
     assert capturado["access_log"] is False
     assert capturado["reload"] is False
+
+
+@pytest.mark.parametrize("modo", ["real", "simulado"])
+def test_arranque_demo_publica_carga_autorizacion_y_procesa_solo_su_canal(monkeypatch, modo):
+    serve = despliegue()
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "whatsapp_modo", "simulado")
+    monkeypatch.setattr(settings, "chat_demo_habilitado", False)
+    monkeypatch.setattr(settings, "chat_demo_bd_compartida_autorizada", False, raising=False)
+    monkeypatch.setattr(settings, "gemini_modo", "simulado")
+    monkeypatch.setattr(settings, "chat_demo_gemini_modo", None)
+
+    class Base:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def execute(self, sql, params):
+            assert params == ("chat_demo_publico",)
+            return self
+
+        def fetchone(self):
+            return (json.dumps({"habilitado": True, "gemini_modo": modo}),)
+
+    monkeypatch.setattr(serve.psycopg, "connect", lambda *a, **kw: Base())
+    monkeypatch.setattr(serve.uvicorn, "run", lambda *a, **kw: None)
+    monkeypatch.setattr(serve.app.router, "lifespan_context", serve.app.router.lifespan_context)
+    serve.iniciar_servidor(con_worker=True)
+    assert settings.chat_demo_habilitado
+    assert settings.chat_demo_bd_compartida_autorizada
+    assert settings.chat_demo_gemini_modo == modo
+    assert settings.gemini_modo == "simulado"
+    opciones = serve.app.router.lifespan_context.keywords
+    assert opciones["con_worker"]
+    assert opciones["solo_demo"]
+
+
+@pytest.mark.parametrize(
+    "valor",
+    [
+        None,
+        "false",
+        "{}",
+        '{"habilitado":"true"}',
+        "no-json",
+        '{"habilitado":true,"gemini_modo":[]}',
+        '{"habilitado":true,"gemini_modo":{}}',
+    ],
+)
+def test_sin_parametro_explicito_no_habilita_demo_publica(monkeypatch, valor):
+    serve = despliegue()
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "chat_demo_habilitado", False)
+
+    class Base:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def execute(self, *args):
+            return self
+
+        def fetchone(self):
+            return None if valor is None else (valor,)
+
+    monkeypatch.setattr(serve.psycopg, "connect", lambda *a, **kw: Base())
+    assert not serve.cargar_demo_publica()
+    assert not settings.chat_demo_habilitado
 
 
 async def test_migracion_de_despliegue_es_idempotente_y_no_carga_seed(monkeypatch):
@@ -145,3 +221,25 @@ async def test_worker_continua_tras_un_fallo_transitorio(monkeypatch, caplog):
         await whatsapp_worker.procesar_continuamente()
     assert intentos == 2
     assert "secreto-que-no-debe-aparecer" not in caplog.text
+
+
+async def test_worker_externo_carga_perfil_antes_de_procesar(monkeypatch):
+    from scripts import whatsapp_worker
+
+    pasos = []
+
+    async def abrir():
+        pasos.append("pool")
+
+    async def cerrar():
+        pasos.append("cerrar")
+
+    async def lote(**opciones):
+        pasos.append(opciones)
+
+    monkeypatch.setattr(whatsapp_worker, "cargar_demo_publica", lambda: pasos.append("perfil"))
+    monkeypatch.setattr(whatsapp_worker, "abrir_pool", abrir)
+    monkeypatch.setattr(whatsapp_worker, "cerrar_pool", cerrar)
+    monkeypatch.setattr(whatsapp_worker, "procesar_lote", lote)
+    await whatsapp_worker.ejecutar(una_vez=True, solo_demo=True)
+    assert pasos == ["perfil", "pool", {"solo_demo": True}, "cerrar"]

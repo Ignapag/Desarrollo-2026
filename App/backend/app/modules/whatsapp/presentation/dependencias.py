@@ -31,8 +31,8 @@ def construir_servicio(uow: UoW) -> ServicioBot:
 ServicioBotDep = Annotated[ServicioBot, Depends(construir_servicio)]
 
 
-def interpretador():
-    if settings.gemini_modo == "real":
+def interpretador(modo=None):
+    if (modo or settings.gemini_modo) == "real":
         return GeminiInterpretador(settings.gemini_api_key, settings.gemini_modelo)
     return SimuladoInterpretador()
 

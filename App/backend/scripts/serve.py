@@ -1,7 +1,7 @@
 """Arranque de Render: python -m scripts.serve [--migrar] [--sin-worker].
 
-Conserva la única API y su pool. En modo WhatsApp real ejecuta el worker en
-el mismo servicio; en simulado no procesa colas automáticamente. En Windows
+Conserva la única API y su pool. Ejecuta el worker en WhatsApp real o demo
+habilitada; con transporte simulado sólo procesa el canal web. En Windows
 el desarrollo habitual sigue usando run.py.
 """
 
@@ -20,6 +20,8 @@ import uvicorn
 from app.core.config import settings
 from app.main import app
 from app.main import ciclo_de_vida as ciclo_api
+from app.modules.whatsapp.presentation.configuracion_demo import cargar_demo_publica
+from app.modules.whatsapp.presentation.router_demo import habilitado as demo_habilitada
 from scripts.migrate import _aplicadas, _migraciones, aplicar
 from scripts.whatsapp_worker import procesar_continuamente
 
@@ -42,7 +44,8 @@ def migrar() -> None:
         if conn.execute("SELECT to_regclass('schema_migrations')").fetchone()[0]:
             aplicadas = _aplicadas(conn)
             modificadas = [
-                archivo.stem for archivo in _migraciones()
+                archivo.stem
+                for archivo in _migraciones()
                 if archivo.stem in aplicadas
                 and not checksum_compatible(archivo, aplicadas[archivo.stem])
             ]
@@ -54,9 +57,14 @@ def migrar() -> None:
 
 
 @asynccontextmanager
-async def ciclo_servicio(api, *, con_worker: bool):
+async def ciclo_servicio(api, *, con_worker: bool, solo_demo=False):
     async with ciclo_api(api):
-        tarea = asyncio.create_task(procesar_continuamente()) if con_worker else None
+        tarea = None
+        if con_worker:
+            ciclo = (
+                procesar_continuamente(solo_demo=True) if solo_demo else procesar_continuamente()
+            )
+            tarea = asyncio.create_task(ciclo)
         try:
             yield
         finally:
@@ -67,10 +75,14 @@ async def ciclo_servicio(api, *, con_worker: bool):
 
 
 def iniciar_servidor(*, con_worker: bool) -> None:
+    cargar_demo_publica()
     if settings.whatsapp_modo == "real":
         campos = (
-            "whatsapp_token", "whatsapp_phone_number_id", "whatsapp_numero_negocio",
-            "whatsapp_app_secret", "whatsapp_verify_token",
+            "whatsapp_token",
+            "whatsapp_phone_number_id",
+            "whatsapp_numero_negocio",
+            "whatsapp_app_secret",
+            "whatsapp_verify_token",
         )
         faltantes = [campo.upper() for campo in campos if not getattr(settings, campo).strip()]
         if settings.gemini_modo == "real" and not settings.gemini_api_key.strip():
@@ -78,11 +90,16 @@ def iniciar_servidor(*, con_worker: bool) -> None:
         if faltantes:
             raise RuntimeError("Falta configurar: " + ", ".join(faltantes))
     app.router.lifespan_context = partial(
-        ciclo_servicio, con_worker=con_worker and settings.whatsapp_modo == "real"
+        ciclo_servicio,
+        con_worker=con_worker and (settings.whatsapp_modo == "real" or demo_habilitada()),
+        solo_demo=settings.whatsapp_modo != "real",
     )
     uvicorn.run(
-        app, host="0.0.0.0", port=int(os.environ.get("PORT", "8000")),
-        reload=False, access_log=False,
+        app,
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", "8000")),
+        reload=False,
+        access_log=False,
     )
 
 

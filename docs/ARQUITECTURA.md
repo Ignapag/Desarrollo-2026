@@ -217,7 +217,9 @@ Vite reenvía `/api` a `http://127.0.0.1:8000` en desarrollo.
    Este recorrido no usa el enviador simulado del módulo de notificaciones anterior.
    El adaptador web académico en `whatsapp/presentation/router_demo.py` reutiliza
    ese núcleo con una sesión anónima HttpOnly, identidad técnica propia y modo
-   explícito restringido a PostgreSQL local. La migración 027 persiste sesión,
+   explícito. La publicación en base compartida requiere autorización persistida
+   en `parametro.chat_demo_publico`, leída por `scripts.serve` al iniciar. Sin ella,
+   se conserva la guarda local. La migración 027 persiste sesión,
    huellas idempotentes y archivos privados; el cliente declarado no se transforma
    en WhatsApp verificado. El worker enruta sus salidas por la sesión persistida
    y las deja `SIMULADO`, incluso si vence o cambia la configuración del transporte.

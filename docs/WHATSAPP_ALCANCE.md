@@ -192,6 +192,8 @@ mensajes, pedidos, cambios, comprobantes, revisiones y avisos siguen persistidos
 en PostgreSQL y afectan los paneles y el stock de la base descartable.
 No agrega una segunda web ni modifica las reglas de confirmación, cocina o pagos.
 La sesión anónima emitida por backend aísla el historial sin autenticar por teléfono.
-El modo queda desactivado por defecto y restringido a una base local explícita.
+El modo queda desactivado por defecto. La publicación autorizada por el dueño
+puede usar la base compartida mediante configuración persistida explícita; los
+tests y seeds conservan la restricción a una base local descartable.
 Configuración, comandos y límites implementados en
 [chat web de demostración](WHATSAPP_DESARROLLO.md#chat-web-de-demostración).

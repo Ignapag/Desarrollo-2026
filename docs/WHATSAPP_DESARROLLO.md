@@ -172,8 +172,10 @@ ni IA ejecutada en la petición HTTP. También se puede ejecutar el worker con
 
 ### Persistencia, acceso y límites del canal web
 
-- `CHAT_DEMO_HABILITADO=false` es el valor predeterminado. Aun con `true`, se
-  rechaza producción, WhatsApp real o una base que no sea local. `DATABASE_URL`
+- `CHAT_DEMO_HABILITADO=false` es el valor predeterminado. En la configuración
+  local, aun con `true`, se rechaza producción, WhatsApp real o una base remota.
+  La excepción deliberada es la [publicación autorizada](#publicación-autorizada-en-la-base-compartida).
+  Para el recorrido local, `DATABASE_URL`
   debe estar definida explícitamente en la terminal; no basta heredar una URL
   del `.env`. No habilitar excepciones para destinos remotos.
 - `chat_demo_sesion` conserva un hash de un token aleatorio de 256 bits, una
@@ -271,6 +273,54 @@ solicitud con conexiones/commits independientes. Una consulta real de interpreta
 con datos ficticios agotó el timeout del proveedor: **no acredita una prueba exitosa
 con Gemini**. No hubo navegador conectado para verificar apariencia, responsive o
 teclado. Estos límites son independientes de la prueba histórica del 17/10.
+
+### Publicación autorizada en la base compartida
+
+El propietario autorizó expresamente el 20/10/2026 que la demo publicada cree
+pedidos y afecte stock en la base compartida. Esta autorización no habilita ejecutar
+pytest, seed, reset ni limpieza masiva sobre esa base: las pruebas automatizadas
+siguen usando PostgreSQL local descartable.
+
+La activación se guarda en la tabla existente `parametro`, sin claves de proveedor:
+
+| Clave | Valor JSON de activación |
+| --- | --- |
+| `chat_demo_publico` | `{"habilitado":true,"gemini_modo":"real"}` |
+
+`python -m scripts.serve --migrar` consulta ese parámetro al arrancar. Únicamente
+un objeto válido con `habilitado` booleano verdadero permite el canal público,
+conserva `ENTORNO=produccion` y selecciona el intérprete indicado (`real` o
+`simulado`; predeterminado `real`). Las claves de Gemini siguen en las variables
+privadas existentes del backend y el modelo sigue siendo configurable. Sin clave
+válida se conserva la conversación y se ofrece atención humana; no se sustituye
+silenciosamente por el intérprete simulado.
+
+La autorización activa `CHAT_DEMO_HABILITADO` y
+`CHAT_DEMO_BD_COMPARTIDA_AUTORIZADA` en la configuración del proceso. También pueden
+configurarse ambas variables explícitamente, conservando el modo Gemini del
+entorno. Son dos condiciones necesarias para permitir producción/base remota;
+sin autorización compartida se conserva la guarda local. El parámetro persistido
+válido prevalece al iniciar mediante `scripts.serve`.
+
+El worker se ejecuta con el ciclo de esa misma API. Si `WHATSAPP_MODO=simulado`,
+el worker integrado filtra inbox, reclamos y recuperación de salidas abandonadas
+por las sesiones web: **no procesa ni marca simulados mensajes históricos de
+Meta**. Si WhatsApp está en modo real, conserva el procesamiento normal y sólo
+las salidas web van al transporte simulado. No es necesario cambiar el modo de
+WhatsApp existente para activar el chat. Un worker externo para el canal web debe
+usar `.\.venv\Scripts\python.exe -m scripts.whatsapp_worker --solo-demo`.
+
+La migración 027 debe estar aplicada antes de servir esta versión. Desplegar API
+y frontend mediante la integración Git existente; el arranque `--migrar` aplica
+pendientes sin seed. Revisar `GET /api/chat-demo/config` en el dominio de clientes:
+debe devolver `habilitado: true`, `interpretador: "real"` y
+`gemini_configurado: true` para la demo con Gemini.
+
+Para desactivar la activación persistida, cambiar el JSON a
+`{"habilitado":false}` y reiniciar/republicar el servicio. Conservar las variables
+de autorización apagadas en ese caso. El cambio del parámetro se toma al reiniciar;
+no borra sesiones, pedidos, archivos ni notificaciones, y el enrutamiento histórico
+de salidas web continúa simulado aunque venza la cookie.
 
 ## Recorrido manual por WhatsApp
 

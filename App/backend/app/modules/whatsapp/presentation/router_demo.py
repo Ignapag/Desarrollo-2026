@@ -21,6 +21,9 @@ router = APIRouter(prefix="/api/chat-demo", tags=["Chat de demostración"])
 
 
 def habilitado():
+    if settings.chat_demo_habilitado and settings.chat_demo_bd_compartida_autorizada:
+        # Publicación intencional: el canal se enruta por sesión, nunca hacia Meta.
+        return True
     if (
         not settings.chat_demo_habilitado
         or settings.es_produccion
@@ -89,7 +92,7 @@ class MensajeDemo(BaseModel):
 
 def proveedor():
     return {
-        "interpretador": settings.gemini_modo,
+        "interpretador": settings.chat_demo_gemini_modo or settings.gemini_modo,
         "gemini_configurado": bool(settings.gemini_api_key),
     }
 

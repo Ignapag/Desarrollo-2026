@@ -348,3 +348,33 @@ async def test_limite_no_impide_recuperar_intento_y_cookie_vencida_no_lee_histor
         (sesion["token_hash"],),
     )
     assert (await chat.get("/api/chat-demo/conversacion")).status_code == 401
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("modo", ["real", "simulado"])
+async def test_publicacion_compartida_requiere_autorizacion_explicita_y_conserva_cookie(
+    monkeypatch, modo
+):
+    from app.modules.whatsapp.presentation.router_demo import router
+
+    monkeypatch.setattr(settings, "chat_demo_habilitado", True)
+    monkeypatch.setattr(settings, "chat_demo_bd_compartida_autorizada", False)
+    monkeypatch.setattr(settings, "entorno", "produccion")
+    monkeypatch.setattr(settings, "whatsapp_modo", modo)
+    monkeypatch.setattr(settings, "database_url", "postgresql://x:x@remoto.example/demo")
+    app = FastAPI()
+    app.include_router(router)
+    app.add_exception_handler(ErrorDominio, manejador_error_dominio)
+
+    async def no_conectar():
+        pytest.fail("Sin cookie no debe abrir conexión aunque la demo pública esté autorizada")
+
+    app.dependency_overrides[obtener_uow] = no_conectar
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="https://prueba",
+    ) as cliente:
+        assert (await cliente.get("/api/chat-demo/config")).json()["habilitado"] is False
+        monkeypatch.setattr(settings, "chat_demo_bd_compartida_autorizada", True)
+        assert (await cliente.get("/api/chat-demo/config")).json()["habilitado"] is True
+        assert (await cliente.get("/api/chat-demo/conversacion")).status_code == 401

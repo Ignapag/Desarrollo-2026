@@ -8,26 +8,34 @@ class ColaWhatsAppSQL:
     def __init__(self, uow: UnidadDeTrabajo):
         self.uow = uow
 
-    async def pendientes(self, limite=20):
+    async def pendientes(self, limite=20, *, solo_demo=False):
         return await self.uow.todos(
             "SELECT id,texto FROM whatsapp_entrada WHERE estado='PENDIENTE' "
+            "AND (NOT %s OR EXISTS(SELECT 1 FROM chat_demo_sesion d "
+            "WHERE d.telefono=whatsapp_entrada.telefono)) "
             "ORDER BY creado_en LIMIT %s",
-            (limite,),
+            (solo_demo, limite),
         )
 
-    async def reclamar(self):
+    async def reclamar(self, *, solo_demo=False):
         # Un proceso caído pudo haber enviado: no volver a enviar sin evidencia.
         await self.uow.ejecutar(
             """UPDATE whatsapp_salida SET estado='INCIERTO',actualizado_en=now()
-            WHERE estado='ENVIANDO' AND actualizado_en<now()-interval '5 minutes'"""
+            WHERE estado='ENVIANDO' AND actualizado_en<now()-interval '5 minutes'
+            AND (NOT %s OR EXISTS(SELECT 1 FROM chat_demo_sesion d
+                WHERE d.telefono=whatsapp_salida.telefono))""",
+            (solo_demo,),
         )
         return await self.uow.uno(
             """UPDATE whatsapp_salida SET estado='ENVIANDO',intentos=intentos+1,
             actualizado_en=now() WHERE id=(
                 SELECT id FROM whatsapp_salida
                 WHERE estado IN ('PENDIENTE','FALLIDO') AND intentos<3 AND proximo_intento_en<=now()
+                AND (NOT %s OR EXISTS(SELECT 1 FROM chat_demo_sesion d
+                    WHERE d.telefono=whatsapp_salida.telefono))
                 ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1
-            ) RETURNING *"""
+            ) RETURNING *""",
+            (solo_demo,),
         )
 
     async def dentro_ventana(self, telefono):
@@ -192,10 +200,14 @@ class ColaWhatsAppSQL:
                 detalle = [
                     f"{etiqueta}: {datos[campo]}"
                     for campo, etiqueta in (
-                        ("direccion", "Calle"), ("numero", "Número"), ("localidad", "Localidad"),
-                        ("referencias", "Referencia"), ("tipo_entrega", "Entrega solicitada"),
+                        ("direccion", "Calle"),
+                        ("numero", "Número"),
+                        ("localidad", "Localidad"),
+                        ("referencias", "Referencia"),
+                        ("tipo_entrega", "Entrega solicitada"),
                         ("metodo_pago", "Pago solicitado"),
-                    ) if isinstance(datos.get(campo), str)
+                    )
+                    if isinstance(datos.get(campo), str)
                 ]
                 if detalle:
                     a["mensaje"] += (

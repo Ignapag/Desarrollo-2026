@@ -63,6 +63,14 @@ incluir las direcciones exactas de ambos proyectos, sin comodines con cookies.
 
 ## Orden y validación de la publicación
 
+La [activación pública del chat académico](WHATSAPP_DESARROLLO.md#publicación-autorizada-en-la-base-compartida)
+está autorizada sobre la base compartida. Se controla mediante el parámetro
+persistido `chat_demo_publico` y el arranque existente
+`python -m scripts.serve --migrar`: conserva producción, credenciales privadas y
+las reglas operativas. Con WhatsApp simulado, el worker integrado sólo procesa
+el canal web; con WhatsApp real conserva ambos canales y nunca envía la demo a Meta.
+No cargar seed ni ejecutar tests sobre esa base para activar el chat.
+
 Antes de habilitar compras, coordinar la migración 015 y actualizar API y worker
 en Render como indica la [guía de WhatsApp](WHATSAPP_DESARROLLO.md#identidad-comercial-y-vinculación).
 No ejecutar seed ni limpiezas en la base compartida. La autorización a preparar

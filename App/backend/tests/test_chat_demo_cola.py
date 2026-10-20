@@ -9,6 +9,61 @@ import pytest
 from app.modules.whatsapp.presentation import procesamiento
 
 
+@pytest.mark.parametrize("canal_demo,modo_esperado", [(True, "simulado"), (False, None)])
+async def test_gemini_demo_no_cambia_interpretador_de_meta(monkeypatch, canal_demo, modo_esperado):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "gemini_modo", "real")
+    monkeypatch.setattr(settings, "chat_demo_gemini_modo", "simulado")
+    modos = []
+
+    class Proveedor:
+        async def interpretar(self, texto, contexto):
+            return {"accion": "consulta", "argumentos": {}}
+
+    def construir(modo=None):
+        modos.append(modo)
+        return Proveedor()
+
+    monkeypatch.setattr(procesamiento, "interpretador", construir)
+    await procesamiento._interpretar({"texto": "estado", "contexto": {}, "canal_demo": canal_demo})
+    assert modos == [modo_esperado]
+    assert settings.gemini_modo == "real"
+
+
+async def test_worker_solo_demo_no_reclama_ni_altera_cola_whatsapp(uow):
+    from app.modules.whatsapp.infrastructure.cola import ColaWhatsAppSQL
+
+    telefono = "000221555000075"
+    cliente = await uow.valor("SELECT id FROM cliente ORDER BY id LIMIT 1")
+    await uow.ejecutar(
+        "INSERT INTO chat_demo_sesion(token_hash,telefono,cliente_id) VALUES (%s,%s,%s)",
+        (uuid4().hex, telefono, cliente),
+    )
+    real = await encolar(uow, "5492215550075")
+    viejo_real = await encolar(uow, "5492215550076")
+    await uow.ejecutar(
+        "UPDATE whatsapp_salida SET estado='ENVIANDO',actualizado_en=now()-interval '1 hour' "
+        "WHERE id=%s",
+        (viejo_real,),
+    )
+    demo = await encolar(uow, telefono)
+    for numero in ("5492215550075", telefono):
+        await uow.ejecutar(
+            "INSERT INTO whatsapp_entrada(id,telefono,texto) VALUES (%s,%s,'consulta')",
+            (uuid4().hex, numero),
+        )
+    cola = ColaWhatsAppSQL(uow)
+    pendientes = await cola.pendientes(solo_demo=True)
+    assert len(pendientes) == 1
+    assert (await cola.reclamar(solo_demo=True))["id"] == demo
+    assert await uow.valor("SELECT estado FROM whatsapp_salida WHERE id=%s", (real,)) == "PENDIENTE"
+    assert (
+        await uow.valor("SELECT estado FROM whatsapp_salida WHERE id=%s", (viejo_real,))
+        == "ENVIANDO"
+    )
+
+
 @pytest.fixture
 def worker(uow, monkeypatch):
     observado = SimpleNamespace(abiertas=0, transacciones=0, envios=[])

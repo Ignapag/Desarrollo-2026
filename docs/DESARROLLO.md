@@ -171,7 +171,10 @@ El [chat web de demostración](WHATSAPP_DESARROLLO.md#chat-web-de-demostración)
 agrega `CHAT_DEMO_HABILITADO=true` para continuar el carrito dentro del mismo
 menú, sin copiar mensajes al simulador. Usa WhatsApp simulado y permite Gemini
 real o simulado por configuración; requiere la migración 027, cookie de sesión,
-base local explícita y el mismo worker. Está desactivado por defecto.
+base local explícita y el mismo worker. Está desactivado por defecto; la
+[publicación autorizada](WHATSAPP_DESARROLLO.md#publicación-autorizada-en-la-base-compartida)
+permite usar la base compartida mediante un parámetro persistido sin ejecutar
+pruebas ni seed en ella.
 
 ## Esquema generado
 
