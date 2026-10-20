@@ -274,6 +274,13 @@ con datos ficticios agotó el timeout del proveedor: **no acredita una prueba ex
 con Gemini**. No hubo navegador conectado para verificar apariencia, responsive o
 teclado. Estos límites son independientes de la prueba histórica del 17/10.
 
+En la comprobación posterior de la publicación del mismo 20/10, Gemini real sí
+completó modalidad y pago desde una frase natural y retiró tomate del pedido
+persistido. El flujo se ejecutó por el proxy del dominio cliente con cookie y
+worker integrado, sobre la base compartida autorizada. La compra de verificación
+quedó identificada como **Demo Verificacion de publicacion**, pedido **#1306**,
+pendiente. No se registró dinero ni se inició cocina en esa comprobación.
+
 ### Publicación autorizada en la base compartida
 
 El propietario autorizó expresamente el 20/10/2026 que la demo publicada cree

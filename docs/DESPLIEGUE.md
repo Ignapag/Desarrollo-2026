@@ -6,8 +6,8 @@ se hace al compilar, no por un parámetro que pueda cambiar el visitante.
 
 | Configuración | Clientes | Personal |
 | --- | --- | --- |
-| Proyecto | Crear uno nuevo; nombre sugerido `monu-burger-clientes` | Conservar el proyecto `monu-burger` |
-| Dirección | La que asigne Pages al proyecto nuevo; aún sin publicar | `https://monu-burger.pages.dev` |
+| Proyecto | `monu-burger-clientes` | `monu-burger` |
+| Dirección | `https://monu-burger-clientes.pages.dev` | `https://monu-burger.pages.dev` |
 | Root directory | `App/frontend` | `App/frontend` |
 | Build command | `npm run build:clientes` | `npm run build:personal` |
 | Build output directory | `dist` | `dist` |
@@ -21,7 +21,8 @@ consultan la API existente:
 ## Qué está preparado en el código
 
 - En clientes solo se registran las rutas del menú; no se consulta la sesión ni
-  se ofrecen login o gestión. El pedido continúa por WhatsApp.
+  se ofrecen login o gestión. El pedido continúa por WhatsApp o por el chat
+  académico cuando está habilitado.
 - En personal se registran login, dashboard y reparto con sus guardas. No se
   registra el menú público ni el checkout. Las cuentas históricas de clientes
   no permiten iniciar una sesión del personal.
@@ -115,8 +116,11 @@ Después de publicar, comprobar en cada dominio:
   login ni el intercambio real con Meta ya estén desplegados o funcionando.
 
 La comprobación local no publica los proyectos ni cambia la configuración de
-Cloudflare o Render. La URL de clientes será real cuando Pages termine el nuevo
-despliegue.
+Cloudflare o Render. El 20/10/2026 se comprobaron ambos dominios publicados,
+el bundle cliente con chat y su proxy `/api/chat-demo`. La sesión desde el origen
+exacto de clientes respondió `200` después de autorizar los dominios de Pages.
+Se verificaron mediante HTTP Gemini real, un pedido persistido y su modificación
+**Sin Tomate**. Esto no sustituye una revisión visual interactiva en navegador.
 
 Referencias oficiales: [configuración de builds](https://developers.cloudflare.com/pages/configuration/build-configuration/),
 [Pages Functions](https://developers.cloudflare.com/pages/functions/get-started/) y
