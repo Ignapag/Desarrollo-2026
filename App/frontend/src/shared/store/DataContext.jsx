@@ -1,6 +1,6 @@
 ﻿import { createContext, useContext, useReducer, useEffect } from 'react';
 
-import { useState, useCallback, useRef, useLayoutEffect } from 'react';
+import { useState, useCallback, useRef, useLayoutEffect, useMemo } from 'react';
 import { useAuth } from '../../auth/AuthContext';
 import { apiFetch } from '../api/http';
 import { portal } from '../portal';
@@ -163,6 +163,19 @@ export function DataProvider({ children }) {
   const lastOrdersRead = useRef(0);
   const operationsRef = useRef(new Map());
   const [operations, setOperations] = useState({ owner: user, entries: [] });
+  const projectOrder = useCallback((order) => {
+    const entry = operations.owner === user && operations.entries.find((item) => item.id === order.id && item.status === 'pending');
+    if (entry?.preview) return entry.preview;
+    const confirmed = state.ordersOwner === user && state.orders.find((item) => item.id === order.id);
+    return confirmed && confirmed.version > order.version ? confirmed : order;
+  }, [operations, user, state.orders, state.ordersOwner]);
+  const visibleOrders = useMemo(() => {
+    if (!user) return [];
+    const orders = state.ordersOwner === user ? state.orders : [];
+    const previews = operations.owner === user ? operations.entries.filter((entry) => entry.status === 'pending' && entry.preview) : [];
+    if (!previews.length) return orders;
+    return [...orders.map(projectOrder), ...previews.filter((entry) => !orders.some((order) => order.id === entry.id)).map((entry) => entry.preview)];
+  }, [state.orders, state.ordersOwner, operations, projectOrder, user]);
 
   useLayoutEffect(() => {
     freshnessRef.current = createFreshnessFence();
@@ -311,7 +324,7 @@ export function DataProvider({ children }) {
 
   const publishOperations = () => {
     if (userRef.current !== user) return;
-    setOperations({ owner: user, entries: [...operationsRef.current.values()].map(({ id, number, status, message }) => ({ id, number, status, message })) });
+    setOperations({ owner: user, entries: [...operationsRef.current.values()].map(({ id, number, status, message, preview, silent }) => ({ id, number, status, message, preview, silent })) });
   };
 
   const orderOperationPending = (id) => userRef.current === user && operationsRef.current.get(id)?.status === 'pending';
@@ -324,10 +337,13 @@ export function DataProvider({ children }) {
   };
 
   // La operación vive en el provider, no en el modal que la inició.
-  const startOrderOperation = ({ id, number, operation, success = 'Pedido actualizado.', onSuccess, onError }) => {
+  const startOrderOperation = ({ id, number, operation, optimisticOrder, success = 'Pedido actualizado.', onSuccess, onError }) => {
     if (!user || userRef.current !== user || orderOperationPending(id)) return false;
     clearTimeout(operationsRef.current.get(id)?.timer);
-    const entry = { id, number, status: 'pending', message: 'En segundo plano' };
+    // La proyección sólo cambia la vista. La respuesta de la API conserva la autoridad
+    // sobre versión, dinero, stock y fechas; un fallo retira la proyección de inmediato.
+    const preview = confirmedOrder(optimisticOrder, id) ? mapOrder(optimisticOrder) : null;
+    const entry = { id, number, status: 'pending', message: '', preview, silent: Boolean(preview) };
     operationsRef.current.set(id, entry);
     publishOperations();
     let committed = false;
@@ -530,7 +546,7 @@ export function DataProvider({ children }) {
 
   return (
     <DataContext.Provider value={{
-      state: { ...state, orders: user && state.ordersOwner === user ? state.orders : [] },
+      state: { ...state, orders: visibleOrders },
       dispatch,
       loading,
       refreshData,
@@ -548,6 +564,7 @@ export function DataProvider({ children }) {
       runOrderMutation,
       startOrderOperation,
       orderOperationPending,
+      projectOrder,
       dismissOrderOperation,
       orderOperations: operations.owner === user ? operations.entries : [],
       createIngredient,

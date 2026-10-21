@@ -55,7 +55,8 @@ test('enviar a cocina cierra y desmonta el detalle antes de responder el servido
     const current = useData();
     useLayoutEffect(() => { data = current; });
     const [open, setOpen] = useState(true);
-    return open ? createElement(OrderDetail, { id: 17, onClose: () => setOpen(false) }) : createElement('p', null, 'Tablero disponible');
+    return open ? createElement(OrderDetail, { id: 17, onClose: () => setOpen(false) })
+      : createElement('div', null, 'Tablero disponible', createElement(Feedback));
   }
   const container = await mount(t, createElement(Screen));
   await act(async () => reactProps(button(container, 'Enviar a cocina')).onClick());
@@ -63,11 +64,84 @@ test('enviar a cocina cierra y desmonta el detalle antes de responder el servido
   assert.match(container.textContent, /Tablero disponible/);
   assert.equal(writes, 1);
   assert.equal(data.orderOperationPending(17), true);
+  assert.equal(data.state.orders[0].estado, 'EN_PREPARACION', 'El tablero cambia antes del acuse');
+  assert.equal(data.state.orders[0].version, 3, 'No inventa una versión del servidor');
+  assert.doesNotMatch(container.textContent, /segundo plano|Pedido actualizado/i);
   assert.equal(data.startOrderOperation({ id: 17, operation: () => { writes += 1; } }), false);
   await act(async () => { writing.resolve(response({ ...order, estado: 'EN_PREPARACION', version: 4 })); });
   assert.equal(data.orderOperationPending(17), false);
   assert.equal(data.state.orders[0].estado, 'EN_PREPARACION');
   assert.equal(writes, 1);
+  assert.doesNotMatch(container.textContent, /Pedido actualizado/);
+});
+
+test('el estado visual vuelve inmediatamente si falla cocina, aunque la lectura esté demorada', async (t) => {
+  const writing = deferred();
+  const refreshing = deferred();
+  let data;
+  let reads = 0;
+  globalThis.fetch = async () => ++reads === 1 ? response([order]) : refreshing.promise;
+  function Screen() { const current = useData(); useLayoutEffect(() => { data = current; }); return createElement(Feedback); }
+  const container = await mount(t, createElement(Screen));
+  await act(async () => data.startOrderOperation({ id: 17, number: 88,
+    optimisticOrder: { ...order, estado: 'EN_PREPARACION' }, operation: () => writing.promise }));
+  assert.equal(data.state.orders[0].estado, 'EN_PREPARACION');
+  assert.doesNotMatch(container.textContent, /segundo plano/i);
+  await act(async () => { writing.reject(new Error('Stock insuficiente')); });
+  assert.equal(data.state.orders[0].estado, 'PENDIENTE');
+  assert.match(container.textContent, /Stock insuficiente/);
+  await act(async () => refreshing.resolve(response([order])));
+});
+
+test('la respuesta real reemplaza el estado anticipado y sus datos completos', async (t) => {
+  const writing = deferred();
+  let data;
+  globalThis.fetch = async () => response([order]);
+  function Capture() { const current = useData(); useLayoutEffect(() => { data = current; }); return null; }
+  await mount(t, createElement(Capture));
+  await act(async () => data.startOrderOperation({ id: 17,
+    optimisticOrder: { ...order, estado: 'EN_PREPARACION' }, operation: () => writing.promise }));
+  assert.equal(data.state.orders[0].estado, 'EN_PREPARACION');
+  await act(async () => writing.resolve({ ...order, estado: 'CONFIRMADO', version: 8 }));
+  assert.equal(data.state.orders[0].estado, 'CONFIRMADO');
+  assert.equal(data.state.orders[0].version, 8);
+});
+
+test('revertir una comanda no modifica la otra que sigue guardándose', async (t) => {
+  const first = deferred();
+  const second = deferred();
+  const refresh = deferred();
+  const orders = [order, { ...order, id: 18, numero: 89 }];
+  let data;
+  let reads = 0;
+  globalThis.fetch = async () => ++reads === 1 ? response(orders) : refresh.promise;
+  function Capture() { const current = useData(); useLayoutEffect(() => { data = current; }); return null; }
+  await mount(t, createElement(Capture));
+  await act(async () => {
+    data.startOrderOperation({ id: 17, optimisticOrder: { ...orders[0], estado: 'EN_PREPARACION' }, operation: () => first.promise });
+    data.startOrderOperation({ id: 18, optimisticOrder: { ...orders[1], estado: 'EN_PREPARACION' }, operation: () => second.promise });
+  });
+  assert.ok(data.state.orders.every((entry) => entry.estado === 'EN_PREPARACION'));
+  await act(async () => first.reject(new Error('Sin stock')));
+  assert.equal(data.state.orders.find((entry) => entry.id === 17).estado, 'PENDIENTE');
+  assert.equal(data.state.orders.find((entry) => entry.id === 18).estado, 'EN_PREPARACION');
+  await act(async () => second.resolve({ ...orders[1], estado: 'EN_PREPARACION', version: 4 }));
+  await act(async () => refresh.resolve(response(orders)));
+  assert.equal(data.state.orders.find((entry) => entry.id === 18).version, 4);
+});
+
+test('el pedido abierto desde búsqueda se proyecta también al navegar al tablero', async (t) => {
+  const writing = deferred();
+  let data;
+  globalThis.fetch = async () => response([]);
+  function Capture() { const current = useData(); useLayoutEffect(() => { data = current; }); return null; }
+  await mount(t, createElement(Capture));
+  await act(async () => data.startOrderOperation({ id: 17, optimisticOrder: { ...order, estado: 'EN_PREPARACION' }, operation: () => writing.promise }));
+  assert.equal(data.projectOrder({ id: 17, estado: 'PENDIENTE' }).estado, 'EN_PREPARACION');
+  assert.equal(data.state.orders[0].estado, 'EN_PREPARACION');
+  await act(async () => writing.resolve({ ...order, estado: 'EN_PREPARACION', version: 4 }));
+  assert.equal(data.state.orders[0].version, 4);
+  assert.equal(data.projectOrder({ id: 17, estado: 'PENDIENTE', version: 3 }).estado, 'EN_PREPARACION', 'Una búsqueda atrasada no revierte el acuse');
 });
 
 test('un fallo después de cerrar conserva el pedido y un error recuperable', async (t) => {
@@ -92,7 +166,9 @@ test('las operaciones de otra sesión no publican resultados ni mensajes sobre l
   function Capture() { const current = useData(); useLayoutEffect(() => { data = current; }); return null; }
   const container = await mount(t, createElement(Capture));
   assert.equal(typeof data.startOrderOperation, 'function');
-  await act(async () => data.startOrderOperation({ id: 17, number: 88, operation: () => writing.promise }));
+  await act(async () => data.startOrderOperation({ id: 17, number: 88,
+    optimisticOrder: { ...order, estado: 'EN_PREPARACION' }, operation: () => writing.promise }));
+  assert.equal(data.state.orders[0].estado, 'EN_PREPARACION');
   setUser({ id: 2, role: 'admin', backendRole: 'EMPLEADO' });
   t.after(() => setUser({ id: 1, role: 'admin', backendRole: 'EMPLEADO' }));
   await act(async () => container.rerender());

@@ -54,7 +54,7 @@ export function StateOperation({ order, role, commands, run, busy }) {
     : item.correccion ? ({ PENDIENTE: 'Volver a nuevos', CONFIRMADO: 'Volver a confirmados', EN_PREPARACION: 'Volver a cocina', LISTO: 'Volver a listo' })[item.estado] || item.label : item.label;
   const apply = (command) => {
     if (busy || (command.estado === 'EN_PREPARACION' && needsPayment)) return;
-    void run(() => commands.state(order, command, reason.trim() || `Acción desde el panel: ${command.label}.`), 'Pedido actualizado.');
+    void run(() => commands.state(order, command, reason.trim() || `Acción desde el panel: ${command.label}.`), 'Pedido actualizado.', { optimisticOrder: { ...order, estado: command.estado } });
   };
   return <section aria-label="Acciones del pedido" className="space-y-3">
     {primary && <button type="button" disabled={busy || (primary.estado === 'EN_PREPARACION' && needsPayment)} onClick={() => apply(primary)} className={`${buttonClass} w-full bg-monu-dark text-white`}>{label(primary)}</button>}

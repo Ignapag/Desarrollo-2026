@@ -25,8 +25,12 @@ confirma su cambio y evita duplicar acciones sobre el mismo pedido.
 
 Al enviar un estado, cobro, edición o acción de reparto desde el detalle, el modal
 se cierra al aceptar el clic. La operación continúa en el provider de la sesión,
-incluso al cambiar de sección; no se aborta al desmontar el formulario. El pedido
-conserva su estado confirmado hasta recibir la respuesta de la API. Una operación
+incluso al cambiar de sección; no se aborta al desmontar el formulario. Los cambios de
+estado mueven la tarjeta inmediatamente, incluida la entrada a cocina y el marcado
+de listo, también desde búsquedas. Esa proyección visual no inventa versión, fechas,
+stock ni pagos: la respuesta de la API reemplaza los datos; si falla, se retira la
+proyección y se muestra el error para revisar el pedido. No se muestran avisos de
+«segundo plano» ni notificaciones de éxito para estos movimientos. Una operación
 pendiente impide otra sobre la misma compra, sin bloquear las demás.
 La confirmación del ingreso de una transferencia mantiene el detalle abierto:
 actualiza el pago y habilita enviar a cocina con la respuesta confirmada, sin

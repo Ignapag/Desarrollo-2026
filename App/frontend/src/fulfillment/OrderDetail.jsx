@@ -63,12 +63,12 @@ export default function OrderDetail({ id, onClose, requireFresh = false }) {
     try { await load(); } catch (failure) { if (mounted.current) setError(`No se pudo actualizar el detalle. ${failure.message}`); }
     finally { lock.current = false; if (mounted.current) setLoading(false); }
   };
-  const run = (operation, success, { keepOpen = false } = {}) => {
+  const run = (operation, success, { keepOpen = false, optimisticOrder } = {}) => {
     if (lock.current || busy || stale) return;
     lock.current = true;
     const ticket = ++request.current;
     const accepted = startOrderOperation({
-      id, number: order.numero, operation, success,
+      id, number: order.numero, operation, success, optimisticOrder,
       onSuccess: keepOpen ? (updated) => {
         if (!mounted.current || ticket !== request.current) return;
         lock.current = false;

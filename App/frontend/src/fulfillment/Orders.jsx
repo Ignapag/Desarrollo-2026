@@ -8,7 +8,7 @@ import WhatsAppInbox from './WhatsAppInbox';
 import OrderDetail from './OrderDetail';
 
 export default function Orders() {
-  const { state, refreshOrders, watchOrders, orderOperationPending } = useData();
+  const { state, refreshOrders, watchOrders, orderOperationPending, projectOrder } = useData();
   const [params, setParams] = useSearchParams();
   const location = useLocation();
   const query = params.get('q') || '';
@@ -42,7 +42,7 @@ export default function Orders() {
     }, 250);
     return () => { clearTimeout(timer); controller.abort(); };
   }, [remote, queryPath, revision, state.orders]);
-  const orders = remote ? results?.path === queryPath ? results.orders : [] : state.orders;
+  const orders = remote ? results?.path === queryPath ? results.orders.map((order) => projectOrder?.(order) || order) : [] : state.orders;
   const countsKnown = remote ? results?.path === queryPath : state.ordersStatus === 'ready' || orders.length > 0;
   const columns = ORDER_STATES.filter(([id]) => scope === 'history' ? ['ENTREGADO', 'CANCELADO'].includes(id) : scope === 'active' ? !['ENTREGADO', 'CANCELADO'].includes(id) : true);
   const refresh = () => { if (remote) setRevision((value) => value + 1); else void refreshOrders(undefined, true).catch(() => undefined); };
@@ -65,7 +65,6 @@ export default function Orders() {
           <p className="font-bold break-words">{order.client}</p><p className="text-sm break-words">{order.address}</p>
           <ul className="text-sm space-y-1">{order.items.map((item, index) => <li key={index} className="break-words">{item}</li>)}</ul>
           <p className="text-sm">Total: {money(order.total)} · Saldo: {money(order.saldo_pendiente)}</p>
-          {orderOperationPending(order.id) && <p role="status" className="text-sm font-bold text-monu-green">Acción en segundo plano</p>}
           <button type="button" disabled={orderOperationPending(order.id)} onClick={() => setSelected(order.id)} className={`${buttonClass} w-full bg-monu-dark text-white`}>Ver detalle y operar #{order.number}</button>
         </article>)}
         {!orders.some((order) => order.estado === id) && <p className="text-sm text-monu-text/80">{state.ordersStatus === 'error' || error ? 'Información sin actualizar.' : loading || state.ordersStatus === 'loading' ? 'Consultando...' : 'Sin pedidos en este estado.'}</p>}

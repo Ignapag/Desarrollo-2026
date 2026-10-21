@@ -439,12 +439,16 @@ test('cocina puede operar otra comanda mientras una confirma su cambio', async (
   const ready = elements(container, (node) => node.localName === 'button' && node.textContent === 'Listo para reparto');
   assert.equal(ready.length, 2);
   await act(async () => reactProps(ready[0]).onClick());
+  assert.equal(data.state.orders.find((item) => item.id === 17).estado, 'LISTO');
+  assert.equal(elements(container, (node) => node.localName === 'button' && node.textContent === 'Listo para reparto').length, 1);
   assert.notEqual(reactProps(ready[1]).disabled, true);
   await act(async () => reactProps(ready[1]).onClick());
   assert.equal(writes.length, 2);
   await act(async () => { second.resolve(response({ ...active[1], estado: 'LISTO', version: 4 })); });
   assert.equal(data.state.orders.find((item) => item.id === 18).estado, 'LISTO');
-  assert.equal(data.state.orders.find((item) => item.id === 17).estado, 'EN_PREPARACION');
+  assert.equal(data.state.orders.find((item) => item.id === 17).estado, 'LISTO');
+  assert.equal(data.state.orders.find((item) => item.id === 17).version, 3);
+  assert.equal(data.orderOperationPending(17), true);
   await act(async () => { first.resolve(response({ ...active[0], estado: 'LISTO', version: 4 })); });
   assert.equal(data.state.orders.length, 2);
   assert.ok(data.state.orders.every((item) => item.estado === 'LISTO'));
