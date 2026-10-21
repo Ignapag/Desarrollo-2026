@@ -88,6 +88,12 @@ registra reintegros. Si el nuevo total es menor al neto cobrado, caja debe regis
 la devolución real antes de retomar el cambio. Las solicitudes compuestas que el
 bot no puede representar de forma segura se derivan completas, sin ejecutar una parte.
 
+La IA puede proponer hasta ocho operaciones en un mismo mensaje, combinando productos,
+cantidades, variantes, personalizaciones, entrega, dirección y pago. El bot guarda el
+plan completo mientras pide los datos faltantes y muestra una sola propuesta final.
+`confirmar` aplica el conjunto en una transacción; no guarda partes anticipadamente.
+Los índices de productos refieren a las líneas originales de esa solicitud.
+
 Después de asignar un repartidor se coordina la modificación con el personal.
 La IA no cambia estados físicos de cocina o reparto a partir del texto de un
 cliente. Los recorridos de regreso y corrección manual están en

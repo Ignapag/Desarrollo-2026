@@ -181,6 +181,15 @@ la devolución real antes de retomar la modificación. El bot no acredita compro
 inventa reintegros ni altera estados físicos por el texto de un cliente. Las operaciones
 compuestas que no puede representar de forma segura se derivan completas.
 
+Las solicitudes compuestas representables usan `ServicioPedidos.cotizar_edicion`
+y `editar_edicion`: composición, dirección, modalidad y pago se cotizan como un
+resultado final y se guardan juntos con una sola versión e historial. No se encadenan
+ediciones con totales intermedios. La cotización no crea direcciones ni descuenta stock;
+el neto conciliado se compara con el total final. El chat conserva hasta ocho operaciones
+y sus aclaraciones, muestra dirección, método y resumen final, y exige confirmar el
+conjunto incluso si el importe no cambia. Los errores posteriores a la primera escritura
+se propagan para revertir íntegramente el intento.
+
 El proveedor se consulta sin mantener una transacción abierta. Antes de aplicar
 una respuesta se vuelven a verificar la compra seleccionada, su versión, los
 importes y el reparto. Un conflicto conserva el pedido y requiere revisar la

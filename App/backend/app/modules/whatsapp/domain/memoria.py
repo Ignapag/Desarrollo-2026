@@ -39,6 +39,8 @@ def resumir_turno(accion, b, ingredientes_permitidos):
     elif nombre == "datos":
         campos = sorted(set(args) & CAMPOS_DATOS)
         cliente = "Aportó datos del pedido: " + ", ".join(campos) + "."
+    elif nombre == "editar_pedido":
+        cliente = "Pidió varios cambios del pedido en una misma solicitud."
     elif nombre == "quitar_ingrediente":
         ingrediente = str(args.get("ingrediente", "")).casefold()
         cliente = "Pidió quitar un ingrediente."
@@ -64,7 +66,9 @@ def resumir_turno(accion, b, ingredientes_permitidos):
         asistente = "La solicitud quedó para atención del personal, sin modificar el pedido."
     elif pregunta:
         asistente = PREGUNTAS[pregunta]
-    elif (b.get("propuesta") or {}).get("tipo") in {"TOTAL", "COMPOSICION", "CANCELACION"}:
+    elif (b.get("propuesta") or {}).get("tipo") in {
+        "TOTAL", "COMPOSICION", "CANCELACION", "MULTIPLE",
+    }:
         asistente = "Pidió confirmar expresamente el nuevo total antes de aplicar el cambio."
     else:
         asistente = "Respondió sobre el pedido y validó la operación según sus reglas."

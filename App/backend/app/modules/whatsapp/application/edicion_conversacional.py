@@ -117,7 +117,7 @@ def comando_guiado(texto, b=None):
 def es_modificacion(accion, b):
     nombre = accion.get("accion")
     return (
-        nombre in ACCIONES_ITEMS | {"datos"}
+        nombre in ACCIONES_ITEMS | {"datos", "editar_pedido"}
         or (
             nombre == "preguntar"
             and (accion.get("argumentos") or {}).get("campo")
@@ -195,165 +195,10 @@ async def editar_productos(bot, b, entrada, accion):
         nombre, args = propuesta["accion"]["accion"], dict(propuesta["accion"]["argumentos"])
         items = propuesta["items"]
     else:
-        args = dict(accion.get("argumentos") or {})
-        # Una intención nueva invalida la confirmación anterior incluso si falla.
-        b["propuesta"] = None
-        pendiente = (b.get("contexto_chat") or {}).get("edicion") or {}
-        if nombre == "completar_edicion":
-            if not pendiente:
-                return AYUDA
-            if pendiente["operacion"] != foto:
-                bot._limpiar_solicitud(b)
-                return "💬 Tu pedido cambió. Revisá el resumen antes de pedir nuevamente el cambio."
-            nombre = pendiente["accion"]
-            args = {**pendiente["argumentos"], **args}
-        elif pendiente:
-            # Una intención nueva reemplaza explícitamente la aclaración anterior.
-            b["contexto_chat"].pop("edicion", None)
-        permitidos = ARGUMENTOS_EDICION.get(nombre, set())
-        if set(args) - permitidos:
-            return await bot._derivar(b, entrada, {"accion": "humano"})
-        items = [
-            {
-                k: i[k]
-                for k in ("id", "producto_id", "cantidad", "aclaraciones", "variante")
-                if k in i
-            }
-            for i in pedido["items"]
-        ]
-        if nombre == "cancelar":
-            return await _cancelar(bot, b, entrada, pedido, foto)
-        indice = args.get("item_indice")
-        if nombre != "agregar_producto":
-            if indice is None and len(items) == 1:
-                indice = 1
-                args["item_indice"] = 1
-            if type(indice) is not int or not 1 <= indice <= len(items):
-                _guardar_pendiente(b, nombre, args, entrada, foto, "producto")
-                listado = "\n".join(
-                    f"{n}. {i['nombre_producto']}" for n, i in enumerate(pedido["items"], 1)
-                )
-                return f"🍔 ¿Cuál producto querés modificar?\n{listado}\nRespondé *producto N*."
-        if nombre == "quitar_producto":
-            if len(items) == 1:
-                return await _cancelar(bot, b, entrada, pedido, foto)
-            items.pop(indice - 1)
-        elif nombre in {"agregar_producto", "reemplazar_producto", "cambiar_variante"}:
-            productos = await catalogo(bot)
-            if not productos:
-                return await bot._derivar(b, entrada, {"accion": "humano"})
-            producto = None
-            elegido_pendiente = (
-                pendiente.get("producto_elegido_id")
-                if accion.get("accion") == "completar_edicion"
-                and args.get("producto") == pendiente.get("argumentos", {}).get("producto")
-                else None
-            )
-            if nombre == "cambiar_variante":
-                producto = next(
-                    (p for p in productos if p["id"] == items[indice - 1]["producto_id"]), None
-                )
-                if args.get("producto") and (
-                    not producto or normalizar(args["producto"]) != normalizar(producto["nombre"])
-                ):
-                    return await bot._derivar(b, entrada, {"accion": "humano"})
-            elif "catalogo_indice" in args:
-                opciones = (b.get("contexto_chat") or {}).get("catalogo_opciones", [])
-                elegido = args["catalogo_indice"]
-                if type(elegido) is int and 1 <= elegido <= len(opciones):
-                    producto = next(
-                        (p for p in productos if p["id"] == opciones[elegido - 1]), None
-                    )
-            elif elegido_pendiente is not None:
-                producto = next((p for p in productos if p["id"] == elegido_pendiente), None)
-            elif args.get("producto"):
-                buscado = normalizar(str(args["producto"]))
-                coincidencias = [p for p in productos if normalizar(p["nombre"]) == buscado]
-                if not coincidencias:
-                    coincidencias = [
-                        p for p in productos if buscado and buscado in normalizar(p["nombre"])
-                    ]
-                if len(coincidencias) == 1:
-                    producto = coincidencias[0]
-                elif coincidencias:
-                    productos = coincidencias
-            if producto is None:
-                args.pop("catalogo_indice", None)
-                _guardar_pendiente(b, nombre, args, entrada, foto, "producto")
-                b["contexto_chat"]["catalogo_opciones"] = [p["id"] for p in productos[:30]]
-                listado = "\n".join(f"{n}. {p['nombre']}" for n, p in enumerate(productos[:30], 1))
-                return f"🍔 Elegí un producto del catálogo:\n{listado}\nRespondé *catálogo N*."
-            args.pop("catalogo_indice", None)
-            args["producto"] = producto["nombre"]
-            variantes = producto.get("variantes") or []
-            seleccion = next(
-                (
-                    v["nombre"]
-                    for v in variantes
-                    if normalizar(v["nombre"]) == normalizar(str(args.get("variante", "")))
-                ),
-                None,
-            )
-            if variantes and seleccion is None:
-                _guardar_pendiente(b, nombre, args, entrada, foto, "variante")
-                b["contexto_chat"]["edicion"]["producto_elegido_id"] = producto["id"]
-                return (
-                    f"🍔 ¿Qué variante querés para {producto['nombre']}? "
-                    + ", ".join(v["nombre"] for v in variantes)
-                    + ". Respondé *variante NOMBRE*."
-                )
-            cantidad = args.get("cantidad")
-            if nombre in {"reemplazar_producto", "cambiar_variante"} and cantidad is None:
-                cantidad = items[indice - 1]["cantidad"]
-            if type(cantidad) is not int or not 1 <= cantidad <= 50:
-                _guardar_pendiente(b, nombre, args, entrada, foto, "cantidad")
-                b["contexto_chat"]["edicion"]["producto_elegido_id"] = producto["id"]
-                return "🍔 ¿Cuántas unidades querés agregar? Respondé *cantidad N* (1 a 50)."
-            nuevo = {
-                "producto_id": producto["id"],
-                "cantidad": cantidad,
-                "variante": seleccion,
-                "aclaraciones": args.get("aclaraciones") or None,
-            }
-            if nombre == "agregar_producto":
-                items.append(nuevo)
-            elif nombre == "cambiar_variante" and seleccion == items[indice - 1].get("variante"):
-                # Repetir la variante vigente no representa una nueva compra ni
-                # autoriza actualizar el precio o la receta ya acordados.
-                items[indice - 1]["cantidad"] = cantidad
-                if "aclaraciones" in args:
-                    items[indice - 1]["aclaraciones"] = args["aclaraciones"] or None
-            else:
-                if nombre == "cambiar_variante" and "aclaraciones" not in args:
-                    nuevo["aclaraciones"] = items[indice - 1].get("aclaraciones")
-                items[indice - 1] = nuevo
-        elif nombre == "cantidad":
-            cantidad = args.get("cantidad")
-            if type(cantidad) is not int or not 1 <= cantidad <= 50:
-                _guardar_pendiente(b, nombre, args, entrada, foto, "cantidad")
-                return (
-                    "🍔 Respondé *cantidad N*, entre 1 y 50; para quitar usá *quitar producto N*."
-                )
-            items[indice - 1]["cantidad"] = cantidad
-        elif nombre in {"personalizar", "quitar_ingrediente"}:
-            if nombre == "quitar_ingrediente":
-                ingrediente = str(args.get("ingrediente", ""))
-                notas = items[indice - 1].get("aclaraciones") or ""
-                args["aclaraciones"] = ", ".join(filter(None, [notas, "Sin " + ingrediente]))
-            if "aclaraciones" not in args:
-                _guardar_pendiente(b, nombre, args, entrada, foto, "personalizacion")
-                ingredientes = await bot._ingredientes_item(pedido["items"][indice - 1])
-                opciones = [
-                    i["nombre"] for i in ingredientes if i["nombre"].casefold() in bot.quitables
-                ]
-                return (
-                    "🍔 Podés indicar *Sin ingrediente* ("
-                    + ", ".join(opciones)
-                    + ") o *receta original* para retirar las personalizaciones."
-                )
-            items[indice - 1]["aclaraciones"] = args["aclaraciones"] or None
-        else:
-            return AYUDA
+        resultado = await resolver_items(bot, b, entrada, pedido, accion)
+        if isinstance(resultado, str):
+            return resultado
+        items, nombre, args = resultado
     try:
         cotizacion = await bot.pedidos.cotizar_items(pedido["id"], items)
     except ErrorDominio as error:
@@ -416,6 +261,172 @@ async def editar_productos(bot, b, entrada, accion):
         "APLICADO",
     )
     return "✅ Cambio guardado.\n\n" + resumen(await bot.repo.pedido(pedido["id"]))
+
+
+async def resolver_items(bot, b, entrada, pedido, accion, *, permitir_vacio=False):
+    """Prepara una composicion sin escribir el pedido; conserva aclaraciones en b."""
+    nombre = accion.get("accion")
+    foto = bot._foto_operacion(pedido)
+    args = dict(accion.get("argumentos") or {})
+    # Una intención nueva invalida la confirmación anterior incluso si falla.
+    b["propuesta"] = None
+    pendiente = (b.get("contexto_chat") or {}).get("edicion") or {}
+    if nombre == "completar_edicion":
+        if not pendiente:
+            return AYUDA
+        if pendiente["operacion"] != foto:
+            bot._limpiar_solicitud(b)
+            return "💬 Tu pedido cambió. Revisá el resumen antes de pedir nuevamente el cambio."
+        nombre = pendiente["accion"]
+        args = {**pendiente["argumentos"], **args}
+    elif pendiente:
+        # Una intención nueva reemplaza explícitamente la aclaración anterior.
+        b["contexto_chat"].pop("edicion", None)
+    permitidos = ARGUMENTOS_EDICION.get(nombre, set())
+    if set(args) - permitidos:
+        return await bot._derivar(b, entrada, {"accion": "humano"})
+    items = [
+        {
+            k: i[k]
+            for k in ("id", "producto_id", "cantidad", "aclaraciones", "variante")
+            if k in i
+        }
+        for i in pedido["items"]
+    ]
+    if nombre == "cancelar":
+        return await _cancelar(bot, b, entrada, pedido, foto)
+    indice = args.get("item_indice")
+    if nombre != "agregar_producto":
+        if indice is None and len(items) == 1:
+            indice = 1
+            args["item_indice"] = 1
+        if type(indice) is not int or not 1 <= indice <= len(items):
+            _guardar_pendiente(b, nombre, args, entrada, foto, "producto")
+            listado = "\n".join(
+                f"{n}. {i['nombre_producto']}" for n, i in enumerate(pedido["items"], 1)
+            )
+            return f"🍔 ¿Cuál producto querés modificar?\n{listado}\nRespondé *producto N*."
+    if nombre == "quitar_producto":
+        if len(items) == 1 and not permitir_vacio:
+            return await _cancelar(bot, b, entrada, pedido, foto)
+        items.pop(indice - 1)
+    elif nombre in {"agregar_producto", "reemplazar_producto", "cambiar_variante"}:
+        productos = await catalogo(bot)
+        if not productos:
+            return await bot._derivar(b, entrada, {"accion": "humano"})
+        producto = None
+        elegido_pendiente = (
+            pendiente.get("producto_elegido_id")
+            if accion.get("accion") == "completar_edicion"
+            and args.get("producto") == pendiente.get("argumentos", {}).get("producto")
+            else None
+        )
+        if nombre == "cambiar_variante":
+            producto = next(
+                (p for p in productos if p["id"] == items[indice - 1]["producto_id"]), None
+            )
+            if args.get("producto") and (
+                not producto or normalizar(args["producto"]) != normalizar(producto["nombre"])
+            ):
+                return await bot._derivar(b, entrada, {"accion": "humano"})
+        elif "catalogo_indice" in args:
+            opciones = (b.get("contexto_chat") or {}).get("catalogo_opciones", [])
+            elegido = args["catalogo_indice"]
+            if type(elegido) is int and 1 <= elegido <= len(opciones):
+                producto = next(
+                    (p for p in productos if p["id"] == opciones[elegido - 1]), None
+                )
+        elif elegido_pendiente is not None:
+            producto = next((p for p in productos if p["id"] == elegido_pendiente), None)
+        elif args.get("producto"):
+            buscado = normalizar(str(args["producto"]))
+            coincidencias = [p for p in productos if normalizar(p["nombre"]) == buscado]
+            if not coincidencias:
+                coincidencias = [
+                    p for p in productos if buscado and buscado in normalizar(p["nombre"])
+                ]
+            if len(coincidencias) == 1:
+                producto = coincidencias[0]
+            elif coincidencias:
+                productos = coincidencias
+        if producto is None:
+            args.pop("catalogo_indice", None)
+            _guardar_pendiente(b, nombre, args, entrada, foto, "producto")
+            b["contexto_chat"]["catalogo_opciones"] = [p["id"] for p in productos[:30]]
+            listado = "\n".join(f"{n}. {p['nombre']}" for n, p in enumerate(productos[:30], 1))
+            return f"🍔 Elegí un producto del catálogo:\n{listado}\nRespondé *catálogo N*."
+        args.pop("catalogo_indice", None)
+        args["producto"] = producto["nombre"]
+        variantes = producto.get("variantes") or []
+        seleccion = next(
+            (
+                v["nombre"]
+                for v in variantes
+                if normalizar(v["nombre"]) == normalizar(str(args.get("variante", "")))
+            ),
+            None,
+        )
+        if variantes and seleccion is None:
+            _guardar_pendiente(b, nombre, args, entrada, foto, "variante")
+            b["contexto_chat"]["edicion"]["producto_elegido_id"] = producto["id"]
+            return (
+                f"🍔 ¿Qué variante querés para {producto['nombre']}? "
+                + ", ".join(v["nombre"] for v in variantes)
+                + ". Respondé *variante NOMBRE*."
+            )
+        cantidad = args.get("cantidad")
+        if nombre in {"reemplazar_producto", "cambiar_variante"} and cantidad is None:
+            cantidad = items[indice - 1]["cantidad"]
+        if type(cantidad) is not int or not 1 <= cantidad <= 50:
+            _guardar_pendiente(b, nombre, args, entrada, foto, "cantidad")
+            b["contexto_chat"]["edicion"]["producto_elegido_id"] = producto["id"]
+            return "🍔 ¿Cuántas unidades querés agregar? Respondé *cantidad N* (1 a 50)."
+        nuevo = {
+            "producto_id": producto["id"],
+            "cantidad": cantidad,
+            "variante": seleccion,
+            "aclaraciones": args.get("aclaraciones") or None,
+        }
+        if nombre == "agregar_producto":
+            items.append(nuevo)
+        elif nombre == "cambiar_variante" and seleccion == items[indice - 1].get("variante"):
+            # Repetir la variante vigente no representa una nueva compra ni
+            # autoriza actualizar el precio o la receta ya acordados.
+            items[indice - 1]["cantidad"] = cantidad
+            if "aclaraciones" in args:
+                items[indice - 1]["aclaraciones"] = args["aclaraciones"] or None
+        else:
+            if nombre == "cambiar_variante" and "aclaraciones" not in args:
+                nuevo["aclaraciones"] = items[indice - 1].get("aclaraciones")
+            items[indice - 1] = nuevo
+    elif nombre == "cantidad":
+        cantidad = args.get("cantidad")
+        if type(cantidad) is not int or not 1 <= cantidad <= 50:
+            _guardar_pendiente(b, nombre, args, entrada, foto, "cantidad")
+            return (
+                "🍔 Respondé *cantidad N*, entre 1 y 50; para quitar usá *quitar producto N*."
+            )
+        items[indice - 1]["cantidad"] = cantidad
+    elif nombre in {"personalizar", "quitar_ingrediente"}:
+        if nombre == "quitar_ingrediente":
+            ingrediente = str(args.get("ingrediente", ""))
+            notas = items[indice - 1].get("aclaraciones") or ""
+            args["aclaraciones"] = ", ".join(filter(None, [notas, "Sin " + ingrediente]))
+        if "aclaraciones" not in args:
+            _guardar_pendiente(b, nombre, args, entrada, foto, "personalizacion")
+            ingredientes = await bot._ingredientes_item(pedido["items"][indice - 1])
+            opciones = [
+                i["nombre"] for i in ingredientes if i["nombre"].casefold() in bot.quitables
+            ]
+            return (
+                "🍔 Podés indicar *Sin ingrediente* ("
+                + ", ".join(opciones)
+                + ") o *receta original* para retirar las personalizaciones."
+            )
+        items[indice - 1]["aclaraciones"] = args["aclaraciones"] or None
+    else:
+        return AYUDA
+    return items, nombre, args
 
 
 async def _cancelar(bot, b, entrada, pedido, foto):

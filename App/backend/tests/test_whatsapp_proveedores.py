@@ -160,7 +160,7 @@ async def test_gemini_solo_pide_una_accion_y_omite_contexto_personal(http):
     assert solicitud.full_url.endswith("/models/gemini-3.1-flash-lite:generateContent")
     assert "clave-ficticia" not in solicitud.full_url
     datos = json.loads(solicitud.data)
-    assert datos["generationConfig"]["maxOutputTokens"] <= 256
+    assert datos["generationConfig"]["maxOutputTokens"] <= 768
     assert datos["generationConfig"]["candidateCount"] == 1
     assert set(datos["toolConfig"]["functionCallingConfig"]["allowedFunctionNames"]) >= {
         "datos",

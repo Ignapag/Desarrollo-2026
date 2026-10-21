@@ -48,7 +48,12 @@ class RepositorioPedidos(RepositorioEdicionItems, Protocol):
     async def obtener(self, pedido_id: int, *, bloquear: bool = False) -> dict | None: ...
     async def detalle(self, pedido_id: int) -> dict | None: ...
     async def costo_direccion(self, direccion_id: int) -> Decimal | None: ...
+    async def costo_localidad(self, localidad: str) -> Decimal | None: ...
     async def neto_cobrado(self, pedido_id: int) -> Decimal: ...
+    async def guardar_edicion(
+        self, pedido_id: int, nuevos: dict, *, usuario_id: int | None,
+        origen: str, anterior: dict, anteriores: list[dict],
+    ) -> dict: ...
     async def editar_operacion(
         self,
         pedido_id: int,
@@ -88,6 +93,130 @@ class ServicioPedidos:
     def __init__(self, repo: RepositorioPedidos, stock: ProcesadorStock) -> None:
         self.repo = repo
         self.stock = stock
+
+    async def cotizar_edicion(
+        self, pedido_id: int, *, items: list[dict], cambios: dict,
+    ) -> dict:
+        """Cotiza el resultado completo sin crear direcciones ni modificar la compra."""
+        pedido, anteriores, nuevos = await self._preparar_edicion(
+            pedido_id, items=items, cambios=cambios,
+        )
+        await self.stock.ajustar_composicion(
+            pedido_id, anteriores, nuevos["items"], pedido["version"], None, aplicar=False,
+        )
+        return nuevos
+
+    async def editar_edicion(
+        self, pedido_id: int, *, items: list[dict], cambios: dict, version_esperada: int,
+        total_esperado: Decimal, usuario_id: int | None = None, origen: str = "WHATSAPP",
+    ) -> dict:
+        """Aplica composicion y operacion con un unico total, version e historial.
+
+        El llamador conserva la unidad de trabajo y debe revertirla ante cualquier
+        error: stock, direccion y pedido pertenecen a la misma transaccion.
+        """
+        if (isinstance(version_esperada, bool) or not isinstance(version_esperada, int)
+                or version_esperada < 0):
+            raise DatosInvalidos("La version esperada es obligatoria")
+        if not isinstance(origen, str) or not origen.strip() or len(origen) > 50:
+            raise DatosInvalidos("El origen no es valido")
+        if (not isinstance(total_esperado, Decimal) or not total_esperado.is_finite()
+                or total_esperado < 0):
+            raise DatosInvalidos("El total esperado no es valido")
+        pedido, anteriores, nuevos = await self._preparar_edicion(
+            pedido_id, items=items, cambios=cambios, version_esperada=version_esperada,
+        )
+        if nuevos["total"] != total_esperado:
+            raise ReglaDeNegocio("El total cambio; revise y confirme nuevamente la propuesta")
+        await self.stock.ajustar_composicion(
+            pedido_id, anteriores, nuevos["items"], pedido["version"], usuario_id, aplicar=True,
+        )
+        if nuevos["direccion_nueva"] is not None:
+            nuevos["direccion_id"] = await self.repo.crear_direccion(
+                pedido["cliente_id"], nuevos["direccion_nueva"],
+            )
+            if nuevos["direccion_id"] is None:
+                raise DatosInvalidos("La direccion no tiene cobertura activa")
+        return await self.repo.guardar_edicion(
+            pedido_id, nuevos, usuario_id=usuario_id, origen=origen.strip(),
+            anterior=pedido, anteriores=anteriores,
+        )
+
+    async def _preparar_edicion(
+        self, pedido_id: int, *, items: list[dict], cambios: dict,
+        version_esperada: int | None = None,
+    ) -> tuple[dict, list[dict], dict]:
+        permitidos = {"tipo_entrega", "direccion_id", "direccion_nueva",
+                      "metodo_pago_acordado", "observaciones"}
+        if not isinstance(cambios, dict) or set(cambios) - permitidos:
+            raise DatosInvalidos("Los datos del cambio no son validos")
+        pedido = await self.repo.obtener(pedido_id, bloquear=True)
+        if pedido is None:
+            raise NoEncontrado("El pedido no existe")
+        self._comprobar_version(pedido, version_esperada)
+        if (pedido["estado"] not in {"PENDIENTE", "CONFIRMADO"}
+                or pedido.get("preparacion_en") or pedido.get("asignado")):
+            raise ReglaDeNegocio("La modificacion requiere revision del personal")
+        nuevos = {**pedido, **cambios, "direccion_nueva": cambios.get("direccion_nueva")}
+        if (not isinstance(nuevos["tipo_entrega"], str)
+                or nuevos["tipo_entrega"] not in {"DELIVERY", "RETIRO"}):
+            raise DatosInvalidos("La modalidad no es valida")
+        if (not isinstance(nuevos["metodo_pago_acordado"], str)
+                or nuevos["metodo_pago_acordado"] not in {"EFECTIVO", "TRANSFERENCIA"}):
+            raise DatosInvalidos("El metodo acordado no es valido")
+        observaciones = nuevos.get("observaciones")
+        if observaciones is not None and (
+            not isinstance(observaciones, str) or len(observaciones) > 500
+        ):
+            raise DatosInvalidos("Las observaciones no son validas")
+        if nuevos["tipo_entrega"] == "RETIRO":
+            if nuevos["direccion_nueva"] is not None or cambios.get("direccion_id") is not None:
+                raise DatosInvalidos("La direccion requiere modalidad delivery")
+            nuevos["direccion_id"] = None
+            nuevos["costo_envio"] = Decimal("0")
+        elif nuevos["direccion_nueva"] is not None:
+            if cambios.get("direccion_id") is not None:
+                raise DatosInvalidos("Indique una sola direccion")
+            direccion = self._validar_direccion_edicion(nuevos["direccion_nueva"])
+            nuevos["direccion_nueva"] = direccion
+            nuevos["direccion_id"] = None
+            nuevos["costo_envio"] = await self.repo.costo_localidad(direccion["localidad"])
+        else:
+            direccion_id = nuevos.get("direccion_id")
+            if (isinstance(direccion_id, bool) or not isinstance(direccion_id, int)
+                    or direccion_id <= 0
+                    or not await self.repo.direccion_valida(pedido["cliente_id"], direccion_id)):
+                raise DatosInvalidos("La direccion no pertenece al cliente o no tiene cobertura")
+            nuevos["costo_envio"] = await self.repo.costo_direccion(direccion_id)
+        if nuevos["costo_envio"] is None:
+            raise DatosInvalidos("La direccion no tiene cobertura activa")
+        anteriores = await self.repo.items_edicion(pedido_id)
+        nuevos["items"] = await preparar_items(self.repo, anteriores, items)
+        nuevos["subtotal"] = sum((item["subtotal"] for item in nuevos["items"]), Decimal("0"))
+        nuevos["total"] = nuevos["subtotal"] + nuevos["costo_envio"] - pedido["descuento_total"]
+        if nuevos["total"] < 0:
+            raise ReglaDeNegocio("El nuevo total no puede ser negativo")
+        if nuevos["total"] < await self.repo.neto_cobrado(pedido_id):
+            raise ReglaDeNegocio(
+                "El nuevo total es menor al neto cobrado; gestione el reintegro primero"
+            )
+        return pedido, anteriores, nuevos
+
+    @staticmethod
+    def _validar_direccion_edicion(datos: dict) -> dict:
+        campos = {"calle", "numero", "localidad", "referencia"}
+        if not isinstance(datos, dict) or set(datos) - campos:
+            raise DatosInvalidos("La direccion no es valida")
+        direccion = {**datos, "numero": datos.get("numero", "S/N")}
+        for campo, maximo in (("calle", 160), ("numero", 30), ("localidad", 100)):
+            valor = direccion.get(campo)
+            if not isinstance(valor, str) or not valor.strip() or len(valor) > maximo:
+                raise DatosInvalidos("La direccion no es valida")
+            direccion[campo] = valor.strip()
+        referencia = direccion.get("referencia")
+        if referencia is not None and (not isinstance(referencia, str) or len(referencia) > 300):
+            raise DatosInvalidos("La referencia no es valida")
+        return direccion
 
     async def cotizar_items(self, pedido_id: int, items: list[dict]) -> dict:
         pedido, anteriores, nuevos, subtotal, total = await self._preparar_edicion_items(

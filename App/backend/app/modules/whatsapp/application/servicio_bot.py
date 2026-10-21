@@ -25,6 +25,7 @@ from app.modules.whatsapp.application.edicion_conversacional import (
     es_modificacion,
     requiere_personal,
 )
+from app.modules.whatsapp.application.edicion_multiple import editar_multiples
 from app.modules.whatsapp.domain.memoria import (
     CAMPOS_DATOS,
     PREGUNTAS,
@@ -394,7 +395,7 @@ class ServicioBot:
             ],
             "edicion_pendiente": {
                 k: v for k, v in (chat.get("edicion") or {}).items()
-                if k in {"accion", "argumentos"}
+                if k in {"accion", "argumentos", "datos_presentes"}
             },
             "conversacion": {
                 "solicitud_pendiente": pregunta_actual(b),
@@ -543,10 +544,19 @@ class ServicioBot:
             respuesta = await self._derivar(
                 b, {**entrada, "id": entrada.get("_solicitud_id", entrada["id"])}, accion
             )
+        elif accion.get("accion") == "editar_pedido" and not b["pedido_id"]:
+            respuesta = "💬 Completá primero el pedido del carrito para poder modificarlo."
         elif not b["pedido_id"]:
             respuesta = self._recoger_datos(b, accion, entrada)
             if respuesta is None:
                 respuesta = await self._completar(b, accion, texto)
+        elif accion.get("accion") == "editar_pedido" or (
+            (b.get("contexto_chat") or {}).get("multiple")
+            and accion.get("accion") in (ACCIONES_ITEMS - {"cancelar"})
+            | {"datos", "preguntar", "confirmar"}
+        ) or (accion.get("accion") == "confirmar"
+              and (b.get("propuesta") or {}).get("tipo") == "MULTIPLE"):
+            respuesta = await editar_multiples(self, b, {**entrada, "texto": texto}, accion)
         elif accion.get("accion") in ACCIONES_ITEMS or (
             accion.get("accion") == "confirmar" and (b.get("propuesta") or {}).get("tipo")
             in {"COMPOSICION", "CANCELACION"}

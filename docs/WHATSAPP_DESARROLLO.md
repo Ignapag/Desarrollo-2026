@@ -42,10 +42,14 @@ con resumen y total. `confirmar` se procesó sin IA y dejó dos ítems en el mis
 con la personalización canónica «Sin Panceta». Fueron dos llamadas reales y datos
 ficticios; la transacción se revirtió al terminar. No hubo cambios en la base compartida.
 
-Esa comprobación cubrió agregar el producto y aclarar su variante. Todavía falta
-verificar el mensaje compuesto «agregar una Crispy sin bacon y enviarla a otra
-dirección»: las pruebas anteriores no demuestran que se preserve toda esa intención.
-Es un caso pendiente de verificación de la ampliación.
+La ampliación posterior de solicitudes múltiples también se verificó con Gemini real
+y PostgreSQL local descartable: «quiero agregar una crispy sin bacon y que me lo envien
+a ensenada calle 52 n 32» produjo `editar_pedido` con el alta y la dirección/delivery.
+El backend preguntó variante sin aplicar ninguna parte. Un segundo turno real «Doble»
+produjo `completar_edicion`, una propuesta conjunta y una confirmación determinista
+que conservó el mismo pedido, agregó Crispy con «Sin Panceta» y cambió a delivery.
+Fueron dos llamadas reales con datos ficticios y la transacción se revirtió; no se
+escribieron pedidos de prueba en la base compartida.
 
 El intento de consultar la configuración pública no obtuvo respuesta accesible;
 no verifica el despliegue. Estas comprobaciones locales no acreditan la publicación
@@ -277,7 +281,7 @@ ni IA ejecutada en la petición HTTP. También se puede ejecutar el worker con
   con presupuesto serializado en PostgreSQL; los reintentos idempotentes no
   consumen otra entrada. Hay hasta 100 sesiones nuevas por 24 horas. Se conserva
   el límite de texto de 2000 caracteres, contexto de 10.000 bytes, cuatro turnos
-  semánticos y salida de 256 tokens del adaptador Gemini. Cada entrada tiene como
+  semánticos y salida de hasta 768 tokens del adaptador Gemini. Cada entrada tiene como
   máximo dos interpretaciones por cambios concurrentes; cada una permite por defecto
   dos intentos HTTP en veinte segundos, hasta cuatro llamadas/cuarenta segundos de
   espera de IA por entrada. Los límites son configurables y la demora de API/base
@@ -704,6 +708,16 @@ Las solicitudes compuestas que no se pueden representar con seguridad se derivan
 no se ejecuta una parte ni se anuncia éxito del conjunto. También se rechazan argumentos
 ajenos a la acción, extras, descuentos e ingredientes inexistentes.
 
+`editar_pedido` representa entre una y ocho operaciones de productos o datos operativos
+en un mismo mensaje. Cada operación se valida con su propio contrato y los índices
+refieren a las líneas originales, aunque se quite o reemplace otra. El plan, sus datos
+y la aclaración activa se guardan en `contexto_chat`; «Doble», `cantidad N`, `producto N`
+y los campos de dirección completan la solicitud sin perder el resto. La propuesta
+`MULTIPLE` muestra productos, total, entrega, dirección nueva y método de pago. Se aplica
+entera mediante `ServicioPedidos.editar_edicion` después de `confirmar`, revalidando
+versión, fondos, estado, cobertura, precios y stock. Una intención nueva inválida
+invalida la confirmación previa; las cancelaciones se solicitan por separado.
+
 La revisión de comprobantes **registra una decisión humana**, no una validación
 bancaria. `total_verificado` obliga a aprobar el importe observado; si cambia
 antes de la aprobación, el backend responde `409` y conserva el pedido. Rechazar
@@ -1031,7 +1045,7 @@ El worker puede reinterpretar una vez ante un cambio concurrente: máximo cuatro
 llamadas y cuarenta segundos de espera de IA por entrada con los valores por defecto.
 Con los máximos configurables son seis llamadas y noventa segundos. Es un presupuesto
 del proveedor, no una garantía de latencia de API o base. Las llamadas ocurren fuera de
-la transacción y sin historial remoto, con una candidata y hasta 256 tokens de salida.
+la transacción y sin historial remoto, con una candidata y hasta 768 tokens de salida.
 La entrada de contexto y mensaje no supera 10.000 bytes. Se proyectan hasta treinta
 productos (ID/nombre, diez nombres de variantes disponibles y veinte ingredientes),
 diez ítems, la intención de edición pendiente y cuatro turnos semánticos. El contexto
@@ -1042,7 +1056,10 @@ referencias y comprobantes no consumen Gemini; tampoco se usa grounding ni búsq
 
 Solo admite una llamada a función por respuesta: `datos`, `preguntar`, `quitar_ingrediente`,
 `cantidad`, `agregar_producto`, `quitar_producto`, `reemplazar_producto`, `cambiar_variante`,
-`personalizar`, `completar_edicion`, `cancelar`, `confirmar`, `consulta` o `humano`.
+`personalizar`, `completar_edicion`, `editar_pedido`, `cancelar`, `confirmar`, `consulta` o `humano`.
+`editar_pedido` contiene hasta ocho operaciones con sus argumentos; no admite planes
+anidados, cancelaciones ni confirmaciones dentro del plan. La confirmación sigue siendo
+un turno explícito independiente.
 Los argumentos se validan por acción; conservar faltantes permite preguntar sin
 inventar opciones. El modelo nunca ejecuta funciones ni confirma pagos, precios o estados.
 

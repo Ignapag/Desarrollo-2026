@@ -189,6 +189,21 @@ class RepositorioPedidosSQL:
     ) -> dict:
         if items == anteriores:
             return await self.detalle(pedido_id)
+        await self._guardar_composicion(pedido_id, items)
+        await self.uow.ejecutar(
+            "UPDATE pedido SET subtotal=%s,total=%s,version=version+1 WHERE id=%s",
+            (subtotal, total, pedido_id),
+        )
+        cambios = {"items": {"anterior": anteriores, "nuevo": items}}
+        await self.uow.ejecutar(
+            "INSERT INTO pedido_estado_historial(pedido_id,estado_anterior,estado_nuevo,usuario_id,"
+            "observacion,origen,version,cambios) SELECT id,estado,estado,%s,'Edicion de productos',"
+            "%s,version,%s::jsonb FROM pedido WHERE id=%s",
+            (usuario_id, origen, json.dumps(cambios, default=str), pedido_id),
+        )
+        return await self.detalle(pedido_id)
+
+    async def _guardar_composicion(self, pedido_id: int, items: list[dict]) -> None:
         conservados = [item["id"] for item in items if item.get("id") is not None]
         await self.uow.ejecutar(
             "DELETE FROM pedido_item WHERE pedido_id=%s AND NOT (id=ANY(%s::bigint[]))",
@@ -213,24 +228,55 @@ class RepositorioPedidosSQL:
                      item["aclaraciones"], item.get("variante"),
                      json.dumps(item["receta_snapshot"])),
                 )
+
+    async def guardar_edicion(
+        self, pedido_id: int, nuevos: dict, *, usuario_id: int | None,
+        origen: str, anterior: dict, anteriores: list[dict],
+    ) -> dict:
+        campos = ("tipo_entrega", "direccion_id", "metodo_pago_acordado", "observaciones",
+                  "subtotal", "costo_envio", "total")
+        cambios = {
+            campo: {"anterior": anterior.get(campo), "nuevo": nuevos.get(campo)}
+            for campo in campos if anterior.get(campo) != nuevos.get(campo)
+        }
+        if nuevos["items"] != anteriores:
+            await self._guardar_composicion(pedido_id, nuevos["items"])
+            cambios["items"] = {"anterior": anteriores, "nuevo": nuevos["items"]}
+        if not cambios:
+            return await self.detalle(pedido_id)
         await self.uow.ejecutar(
-            "UPDATE pedido SET subtotal=%s,total=%s,version=version+1 WHERE id=%s",
-            (subtotal, total, pedido_id),
+            "UPDATE pedido SET tipo_entrega=%s,direccion_id=%s,metodo_pago_acordado=%s,"
+            "observaciones=%s,subtotal=%s,costo_envio=%s,total=%s,version=version+1 WHERE id=%s",
+            tuple(nuevos[campo] for campo in campos) + (pedido_id,),
         )
-        cambios = {"items": {"anterior": anteriores, "nuevo": items}}
         await self.uow.ejecutar(
-            "INSERT INTO pedido_estado_historial(pedido_id,estado_anterior,estado_nuevo,usuario_id,"
-            "observacion,origen,version,cambios) SELECT id,estado,estado,%s,'Edicion de productos',"
-            "%s,version,%s::jsonb FROM pedido WHERE id=%s",
+            "INSERT INTO pedido_estado_historial(pedido_id,estado_anterior,estado_nuevo,"
+            "usuario_id,observacion,origen,version,cambios) "
+            "SELECT id,estado,estado,%s,'Edicion conjunta del pedido',%s,version,%s::jsonb "
+            "FROM pedido WHERE id=%s",
             (usuario_id, origen, json.dumps(cambios, default=str), pedido_id),
+        )
+        await self.uow.ejecutar(
+            "UPDATE whatsapp_borrador SET tipo_entrega=%s,metodo_pago=%s,"
+            "direccion=(SELECT to_jsonb(d) FROM direccion d WHERE d.id=%s),version=version+1 "
+            "WHERE pedido_id=%s",
+            (nuevos["tipo_entrega"], nuevos["metodo_pago_acordado"],
+             nuevos["direccion_id"], pedido_id),
         )
         return await self.detalle(pedido_id)
 
     async def costo_direccion(self, direccion_id: int) -> Decimal | None:
         return await self.uow.valor(
             "SELECT z.costo_envio FROM direccion d JOIN zona_cobertura z ON z.id=d.zona_id "
-            "WHERE d.id=%s AND d.activa AND z.activa",
+            "WHERE d.id=%s AND d.activa AND z.activa FOR SHARE OF z,d",
             (direccion_id,),
+        )
+
+    async def costo_localidad(self, localidad: str) -> Decimal | None:
+        return await self.uow.valor(
+            "SELECT costo_envio FROM zona_cobertura "
+            "WHERE lower(nombre)=lower(%s) AND activa FOR SHARE",
+            (localidad,),
         )
 
     async def neto_cobrado(self, pedido_id: int) -> Decimal:
