@@ -16,6 +16,7 @@ from app.core.seguridad import crear_token
 from app.errores import ReglaDeNegocio
 from app.main import app
 from app.modules.delivery.presentation.dependencias import obtener_servicio_delivery
+from app.modules.usuarios.presentation.dependencias import sesion_vigente, usuario_actual
 from tests.soporte_bd import conectar_o_omitir
 from tests.test_delivery_bd import ENSENADA_CENTRO, crear_pedido_listo
 
@@ -60,6 +61,8 @@ async def api(uow):
         yield uow
 
     app.dependency_overrides[obtener_uow] = unidad_prueba
+    # Las pruebas inyectan actores de distintos roles para aislar las reglas logisticas.
+    app.dependency_overrides[sesion_vigente] = usuario_actual
     try:
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"
@@ -67,6 +70,7 @@ async def api(uow):
             yield cliente
     finally:
         app.dependency_overrides.pop(obtener_uow, None)
+        app.dependency_overrides.pop(sesion_vigente, None)
 
 
 @pytest.mark.asyncio

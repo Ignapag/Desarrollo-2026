@@ -74,7 +74,9 @@ columnas, tipos, obligatoriedad, relaciones y valores permitidos.
 
 **Chat demo** — [`chat_demo_sesion`](#chat_demo_sesion), [`chat_demo_operacion`](#chat_demo_operacion), [`chat_demo_archivo`](#chat_demo_archivo)
 
-Total: **39 tablas**.
+**Permisos por rol** — [`rol_acceso`](#rol_acceso), [`rol_permiso`](#rol_permiso)
+
+Total: **41 tablas**.
 
 ---
 
@@ -789,3 +791,21 @@ _BYTEA permite persistencia atómica y acceso privado sin otro servicio/volumen.
 | `entrada_id` | TEXT | Sí | único · FK → `whatsapp_entrada.id` |
 | `mime` | TEXT | Sí | valores: `image/png`, `image/jpeg`, `application/pdf` |
 | `contenido` | BYTEA | Sí | — |
+
+## 028_permisos_por_rol — Permisos por rol
+
+### rol_acceso
+
+_Matrices de acceso versionadas. No modifica usuarios ni credenciales._
+
+| Columna | Tipo | Obligatoria | Notas |
+|---------|------|-------------|-------|
+| `rol` | TEXT | Sí | PK · valores: `ADMINISTRADOR`, `DUENIO`, `EMPLEADO`, `REPARTIDOR`, `CLIENTE` |
+| `version` | INTEGER | Sí | default `1` |
+
+### rol_permiso
+
+| Columna | Tipo | Obligatoria | Notas |
+|---------|------|-------------|-------|
+| `rol` | TEXT | Sí | PK · FK → `rol_acceso.rol` |
+| `permiso` | TEXT | Sí | PK · valores: `auditoria.ver`, `caja.aprobar`, `caja.generar`, `caja.ver`, `clientes.ver`, `delivery.corregir`, `delivery.operar`, `delivery.planificar`, `delivery.ver`, `pagos.conciliar`, `pagos.corregir`, `pagos.registrar`, `pagos.ver`, `pedidos.cambiar_estado`, `pedidos.crear`, `pedidos.editar`, `pedidos.recuperar`, `pedidos.ver`, `productos.gestionar`, `productos.ver_receta`, `reportes.financieros`, `reportes.ver`, `stock.gestionar`, `stock.reponer`, `stock.ver`, `usuarios.administrar_permisos`, `usuarios.asignar_roles`, `usuarios.gestionar`, `usuarios.ver`, `whatsapp.gestionar`, `whatsapp.gestionar_notificaciones`, `whatsapp.ver`, `whatsapp.ver_notificaciones` |

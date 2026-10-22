@@ -27,6 +27,7 @@ class SesionSalida(BaseModel):
     apellido: str
     username: str
     rol: str
+    permisos: list[str]
 
 
 class UsuarioSalida(BaseModel):

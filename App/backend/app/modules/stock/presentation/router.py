@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Annotated
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Depends, Query, status
 
 from app.modules.stock.domain.entidades import DatosIngrediente
 from app.modules.stock.presentation.dependencias import ServicioStockDep
@@ -16,14 +17,19 @@ from app.modules.stock.presentation.esquemas import (
     ReposicionCrear,
     ReposicionSalida,
 )
-from app.modules.usuarios.presentation.dependencias import PersonalInterno
+from app.modules.usuarios.domain.entidades import ClaimsSesion
+from app.modules.usuarios.presentation.dependencias import requiere_permiso
+
+PermisoStockVer = Annotated[ClaimsSesion, Depends(requiere_permiso("stock", "ver"))]
+PermisoStockGestionar = Annotated[ClaimsSesion, Depends(requiere_permiso("stock", "gestionar"))]
+PermisoStockReponer = Annotated[ClaimsSesion, Depends(requiere_permiso("stock", "reponer"))]
 
 router = APIRouter(prefix="/api/stock", tags=["stock"])
 
 
 @router.get("/ingredientes", response_model=list[IngredienteSalida])
 async def listar_ingredientes(
-    _sesion: PersonalInterno,
+    _sesion: PermisoStockVer,
     servicio: ServicioStockDep,
     nombre: str | None = None,
     responsable_id: int | None = Query(default=None, gt=0),
@@ -36,11 +42,9 @@ async def listar_ingredientes(
     return [IngredienteSalida(**fila) for fila in filas]
 
 
-@router.post(
-    "/ingredientes", response_model=IngredienteSalida, status_code=status.HTTP_201_CREATED
-)
+@router.post("/ingredientes", response_model=IngredienteSalida, status_code=status.HTTP_201_CREATED)
 async def crear_ingrediente(
-    datos: IngredienteCrear, _sesion: PersonalInterno, servicio: ServicioStockDep
+    datos: IngredienteCrear, _sesion: PermisoStockGestionar, servicio: ServicioStockDep
 ) -> IngredienteSalida:
     fila = await servicio.registrar(DatosIngrediente(**datos.model_dump()))
     return IngredienteSalida(**fila)
@@ -50,7 +54,7 @@ async def crear_ingrediente(
 async def modificar_ingrediente(
     ingrediente_id: int,
     datos: IngredienteModificar,
-    _sesion: PersonalInterno,
+    _sesion: PermisoStockGestionar,
     servicio: ServicioStockDep,
 ) -> IngredienteSalida:
     fila = await servicio.modificar(ingrediente_id, datos.model_dump(exclude_unset=True))
@@ -61,7 +65,7 @@ async def modificar_ingrediente(
 async def reponer_ingrediente(
     ingrediente_id: int,
     datos: ReposicionCrear,
-    sesion: PersonalInterno,
+    sesion: PermisoStockReponer,
     servicio: ServicioStockDep,
 ) -> ReposicionSalida:
     fila = await servicio.reponer(
@@ -72,7 +76,7 @@ async def reponer_ingrediente(
 
 @router.get("/movimientos", response_model=list[MovimientoSalida])
 async def historial_stock(
-    _sesion: PersonalInterno,
+    _sesion: PermisoStockVer,
     servicio: ServicioStockDep,
     ingrediente_id: int | None = Query(default=None, gt=0),
     desde: date | None = None,

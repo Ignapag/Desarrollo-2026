@@ -16,7 +16,7 @@ from app.modules.productos.infrastructure.repositorio_sql import RepositorioProd
 from app.modules.productos.presentation.esquemas import ProductoCrear, RecetaActualizar
 from app.modules.productos.presentation.router import router
 from app.modules.usuarios.domain.entidades import ClaimsSesion, Rol
-from app.modules.usuarios.presentation.dependencias import usuario_actual
+from app.modules.usuarios.presentation.dependencias import sesion_vigente
 
 
 def producto(**cambios):
@@ -160,7 +160,7 @@ async def test_roles_receta_no_autorizados_no_abren_uow(rol, metodo):
     app = FastAPI()
     app.include_router(router)
     app.add_exception_handler(ErrorDominio, manejador_error_dominio)
-    app.dependency_overrides[usuario_actual] = lambda: ClaimsSesion(1, rol, "prueba")
+    app.dependency_overrides[sesion_vigente] = lambda: ClaimsSesion(1, rol, "prueba")
 
     async def conexion_prohibida():
         pytest.fail("Un rol sin permiso no debe abrir conexión")
@@ -268,7 +268,7 @@ async def test_bd_receta_http_valida_permiso_cantidades_y_guarda(uow):
         yield uow
 
     app.dependency_overrides[obtener_uow] = conexion_prueba
-    app.dependency_overrides[usuario_actual] = lambda: ClaimsSesion(1, Rol.DUENIO, "prueba")
+    app.dependency_overrides[sesion_vigente] = lambda: ClaimsSesion(1, Rol.DUENIO, "prueba")
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as cliente:

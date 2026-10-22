@@ -20,8 +20,9 @@ AGRUPACIONES = {"DIA": "day", "SEMANA": "week", "MES": "month"}
 ZONA_NEGOCIO = "America/Argentina/Buenos_Aires"
 
 
-def validar_rol(rol: str, *, financiero: bool = False) -> None:
-    if rol not in ROLES_REPORTES or (financiero and rol != "DUENIO"):
+def validar_rol(rol: str, *, financiero: bool = False, autorizado: bool | None = None) -> None:
+    permitido = rol in ROLES_REPORTES and (not financiero or rol == "DUENIO")
+    if not (permitido if autorizado is None else autorizado):
         raise SinPermiso("No tiene permiso para consultar este reporte")
 
 

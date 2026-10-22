@@ -98,14 +98,20 @@ class ServicioDelivery:
         )
 
     async def planificar_y_asignar(
-        self, *, usuario_id: int | None = None, rol: str | None = None
+        self,
+        *,
+        usuario_id: int | None = None,
+        rol: str | None = None,
+        autorizado: bool | None = None,
     ) -> ResultadoPlanificacion:
         """Arma los viajes y los persiste (RF-04).
 
         Se ejecuta cuando hay pedidos listos para despacho. Los pedidos que no
         consiguen repartidor quedan esperando a la proxima corrida.
         """
-        self._personal(rol)
+        self._personal(rol, autorizado=autorizado)
+        if rol == "REPARTIDOR":
+            raise SinPermiso("La planificacion global no se limita a tu propio viaje")
         radio_agrupacion, radio_busqueda, max_por_viaje = await self._parametros()
         candidatos = await self.repo.pedidos_para_despachar(bloquear=True)
         repartidores = await self.repo.repartidores_disponibles(bloquear=True)
@@ -182,8 +188,9 @@ class ServicioDelivery:
     # ------------------------------ operacion -------------------------
 
     @staticmethod
-    def _personal(rol: str | None) -> None:
-        if rol is not None and rol not in {"EMPLEADO", "ADMINISTRADOR", "DUENIO"}:
+    def _personal(rol: str | None, *, autorizado: bool | None = None) -> None:
+        permitido = rol is None or rol in {"EMPLEADO", "ADMINISTRADOR", "DUENIO"}
+        if not (permitido if autorizado is None else autorizado):
             raise SinPermiso("Esta operacion requiere personal del local")
 
     @staticmethod
@@ -298,9 +305,15 @@ class ServicioDelivery:
         return True
 
     async def desasignar_envio(
-        self, envio_id: int, *, motivo: str, usuario_id: int | None = None, rol: str | None = None
+        self,
+        envio_id: int,
+        *,
+        motivo: str,
+        usuario_id: int | None = None,
+        rol: str | None = None,
+        autorizado: bool | None = None,
     ) -> dict:
-        self._personal(rol)
+        self._personal(rol, autorizado=autorizado)
         if not motivo.strip():
             raise ReglaDeNegocio("La desasignacion requiere un motivo")
         envio, viaje = await self._envio_bloqueado(envio_id, usuario_id, rol)
@@ -326,8 +339,10 @@ class ServicioDelivery:
         motivo: str,
         usuario_id: int | None = None,
         rol: str | None = None,
+        autorizado: bool | None = None,
     ) -> dict:
-        self._personal(rol)
+        self._personal(rol, autorizado=autorizado)
+        self._autorizar({"repartidor_id": repartidor_id}, usuario_id, rol)
         if not motivo.strip():
             raise ReglaDeNegocio("La asignacion requiere un motivo")
         pedido = await self.repo.pedido_asignable(pedido_id)
@@ -389,9 +404,10 @@ class ServicioDelivery:
         motivo: str,
         usuario_id: int | None = None,
         rol: str | None = None,
+        autorizado: bool | None = None,
     ) -> dict:
         liberado = await self.desasignar_envio(
-            envio_id, motivo=motivo, usuario_id=usuario_id, rol=rol
+            envio_id, motivo=motivo, usuario_id=usuario_id, rol=rol, autorizado=autorizado
         )
         return await self.asignar_pedido(
             liberado["pedido_id"],
@@ -399,6 +415,7 @@ class ServicioDelivery:
             motivo=motivo,
             usuario_id=usuario_id,
             rol=rol,
+            autorizado=autorizado,
         )
 
     async def registrar_fallo(
@@ -428,8 +445,9 @@ class ServicioDelivery:
         version_esperada: int,
         usuario_id: int | None = None,
         rol: str | None = None,
+        autorizado: bool | None = None,
     ) -> dict:
-        self._personal(rol)
+        self._personal(rol, autorizado=autorizado)
         if not motivo.strip():
             raise ReglaDeNegocio("El regreso requiere un motivo")
         envio, viaje = await self._envio_bloqueado(envio_id, usuario_id, rol)
@@ -446,6 +464,7 @@ class ServicioDelivery:
             origen="DELIVERY",
             rol=rol,
             correccion=True,
+            permitir_correccion=autorizado,
         )
         await self._cerrar_si_resuelto(viaje, usuario_id)
         await auditoria.registrar(
@@ -464,8 +483,10 @@ class ServicioDelivery:
         viajes = await self.repo.viajes_activos()
         return [v for v in viajes if rol != "REPARTIDOR" or v["repartidor_id"] == usuario_id]
 
-    async def repartidores_disponibles(self, *, rol: str) -> list[dict]:
-        self._personal(rol)
+    async def repartidores_disponibles(
+        self, *, rol: str, autorizado: bool | None = None
+    ) -> list[dict]:
+        self._personal(rol, autorizado=autorizado)
         return [
             {"id": r.repartidor_id, "nombre": r.nombre, "estado": "DISPONIBLE"}
             for r in await self.repo.repartidores_disponibles()
@@ -480,8 +501,9 @@ class ServicioDelivery:
         regreso_confirmado: bool,
         usuario_id: int,
         rol: str,
+        autorizado: bool | None = None,
     ) -> dict:
-        if rol not in {"ADMINISTRADOR", "DUENIO"}:
+        if not (rol in {"ADMINISTRADOR", "DUENIO"} if autorizado is None else autorizado):
             raise SinPermiso("Solo administracion puede corregir una entrega")
         if not motivo.strip() or regreso_confirmado is not True:
             raise ReglaDeNegocio("La correccion exige motivo y confirmar el paquete en el local")
@@ -499,7 +521,9 @@ class ServicioDelivery:
             origen="DELIVERY",
             rol=rol,
             correccion=True,
+            permitir_correccion=autorizado,
             tratamiento_stock="CONSERVAR",
+            permitir_recuperacion=autorizado,
         )
         if viaje["estado"] == "EN_RUTA":
             await self._cerrar_si_resuelto(viaje, usuario_id)

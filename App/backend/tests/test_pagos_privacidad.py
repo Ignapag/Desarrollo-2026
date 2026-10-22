@@ -14,10 +14,13 @@ from app.core.errores import manejador_error_dominio
 from app.core.seguridad import crear_token
 from app.errores import ErrorDominio
 from app.modules.pagos.presentation.router import router
+from app.modules.usuarios.presentation.dependencias import sesion_vigente, usuario_actual
 
 
 def aplicacion():
     app = FastAPI()
+    # Identidad sintetica: esta suite verifica negocio, no resolucion de sesiones.
+    app.dependency_overrides[sesion_vigente] = usuario_actual
     app.add_exception_handler(ErrorDominio, manejador_error_dominio)
     app.include_router(router)
     return app

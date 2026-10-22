@@ -10,7 +10,9 @@ implementar sin tocar el resto del modulo.
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from typing import Annotated
+
+from fastapi import APIRouter, Depends
 
 from app.modules.notificaciones.presentation.dependencias import ServicioNotificacionesDep
 from app.modules.notificaciones.presentation.esquemas import (
@@ -20,16 +22,25 @@ from app.modules.notificaciones.presentation.esquemas import (
     PlantillaSalida,
     ResultadoProcesamiento,
 )
-from app.modules.usuarios.presentation.dependencias import AdministradorODuenio, PersonalInterno
+from app.modules.usuarios.domain.entidades import ClaimsSesion
+from app.modules.usuarios.presentation.dependencias import requiere_permiso
+
+PermisoWhatsappGestionarNotificaciones = Annotated[
+    ClaimsSesion, Depends(requiere_permiso("whatsapp", "gestionar_notificaciones"))
+]
+PermisoWhatsappVerNotificaciones = Annotated[
+    ClaimsSesion, Depends(requiere_permiso("whatsapp", "ver_notificaciones"))
+]
 
 router = APIRouter(prefix="/api/notificaciones", tags=["notificaciones"])
 
 
 # ------------------------------ CU_BOT_04 a 07: plantillas -----------------
 
+
 @router.get("/plantillas", response_model=list[PlantillaSalida])
 async def buscar_plantillas(
-    _sesion: AdministradorODuenio,
+    _sesion: PermisoWhatsappGestionarNotificaciones,
     servicio: ServicioNotificacionesDep,
     nombre: str | None = None,
     evento: str | None = None,
@@ -41,7 +52,9 @@ async def buscar_plantillas(
 
 @router.post("/plantillas", response_model=PlantillaSalida, status_code=201)
 async def registrar_plantilla(
-    datos: PlantillaEntrada, sesion: AdministradorODuenio, servicio: ServicioNotificacionesDep
+    datos: PlantillaEntrada,
+    sesion: PermisoWhatsappGestionarNotificaciones,
+    servicio: ServicioNotificacionesDep,
 ) -> PlantillaSalida:
     creada = await servicio.registrar_plantilla(
         clave=datos.clave,
@@ -57,7 +70,7 @@ async def registrar_plantilla(
 async def modificar_plantilla(
     plantilla_id: int,
     datos: ModificarPlantillaEntrada,
-    sesion: AdministradorODuenio,
+    sesion: PermisoWhatsappGestionarNotificaciones,
     servicio: ServicioNotificacionesDep,
 ) -> PlantillaSalida:
     actualizada = await servicio.modificar_plantilla(
@@ -72,7 +85,9 @@ async def modificar_plantilla(
 
 @router.post("/plantillas/{plantilla_id}/desactivar", response_model=PlantillaSalida)
 async def desactivar_plantilla(
-    plantilla_id: int, sesion: AdministradorODuenio, servicio: ServicioNotificacionesDep
+    plantilla_id: int,
+    sesion: PermisoWhatsappGestionarNotificaciones,
+    servicio: ServicioNotificacionesDep,
 ) -> PlantillaSalida:
     desactivada = await servicio.desactivar_plantilla(plantilla_id, ejecutor_id=sesion.usuario_id)
     return PlantillaSalida(**desactivada)
@@ -80,9 +95,10 @@ async def desactivar_plantilla(
 
 # ------------------------------ consulta y procesamiento -------------------
 
+
 @router.get("", response_model=list[NotificacionSalida])
 async def listar_notificaciones(
-    _sesion: PersonalInterno,
+    _sesion: PermisoWhatsappVerNotificaciones,
     servicio: ServicioNotificacionesDep,
     pedido_id: int | None = None,
     estado: str | None = None,
@@ -93,7 +109,7 @@ async def listar_notificaciones(
 
 @router.post("/procesar", response_model=ResultadoProcesamiento)
 async def procesar_pendientes(
-    _sesion: AdministradorODuenio, servicio: ServicioNotificacionesDep
+    _sesion: PermisoWhatsappGestionarNotificaciones, servicio: ServicioNotificacionesDep
 ) -> ResultadoProcesamiento:
     """Dispara el envio de las notificaciones PENDIENTE.
 

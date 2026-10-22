@@ -76,6 +76,40 @@ class RepositorioUsuariosSQL:
 
     # ------------------------------ escrituras --------------------------
 
+    async def bloquear_gestion(self, usuario_id: int) -> None:
+        # Serializa cambios de rol/estado para no perder al último administrador.
+        await self.uow.ejecutar("SELECT pg_advisory_xact_lock(7019262026028)")
+        # Comparte el bloqueo con asignación de viajes. Después se reevalúa actividad.
+        await self.uow.ejecutar(
+            "SELECT usuario_id FROM repartidor WHERE usuario_id=%s FOR UPDATE", (usuario_id,),
+        )
+
+    async def sincronizar_perfil(self, usuario_id: int, rol: str, estado: str) -> None:
+        if rol == "REPARTIDOR":
+            await self.uow.ejecutar(
+                """INSERT INTO repartidor (usuario_id, estado) VALUES (%s,%s)
+                   ON CONFLICT (usuario_id) DO UPDATE SET estado=EXCLUDED.estado""",
+                (usuario_id, "DISPONIBLE" if estado == "ACTIVO" else "FUERA_DE_SERVICIO"),
+            )
+        else:
+            await self.uow.ejecutar(
+                "UPDATE repartidor SET estado='FUERA_DE_SERVICIO' WHERE usuario_id=%s",
+                (usuario_id,),
+            )
+        if rol == "CLIENTE":
+            # Nunca fusionar por teléfono declarado ni borrar perfiles con historial.
+            await self.uow.ejecutar(
+                """INSERT INTO cliente (usuario_id, nombre, telefono_whatsapp)
+                   SELECT id, concat_ws(' ', nombre, apellido), COALESCE(telefono,'')
+                   FROM usuario WHERE id=%s ON CONFLICT (usuario_id) DO NOTHING""",
+                (usuario_id,),
+            )
+
+    async def administradores_activos(self) -> int:
+        return await self.uow.valor(
+            "SELECT count(*) FROM usuario WHERE rol='ADMINISTRADOR' AND estado='ACTIVO'"
+        )
+
     async def crear(
         self,
         *,

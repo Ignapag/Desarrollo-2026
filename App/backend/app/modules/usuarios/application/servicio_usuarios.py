@@ -11,8 +11,13 @@ from dataclasses import dataclass
 from app.core import auditoria
 from app.core.db import UnidadDeTrabajo
 from app.core.seguridad import hashear_password
-from app.errores import NoEncontrado, ReglaDeNegocio
-from app.modules.usuarios.domain.entidades import AccionesAuditoria, Rol, validar_password
+from app.errores import DatosInvalidos, NoEncontrado, ReglaDeNegocio
+from app.modules.usuarios.domain.entidades import (
+    AccionesAuditoria,
+    PasswordInvalida,
+    Rol,
+    validar_password,
+)
 from app.modules.usuarios.infrastructure.repositorio_sql import RepositorioUsuariosSQL
 
 ROLES_VALIDOS = {rol.value for rol in Rol}
@@ -76,7 +81,10 @@ class ServicioUsuarios:
     async def registrar(self, datos: DatosNuevoUsuario, *, ejecutor_id: int | None) -> dict:
         if datos.rol not in ROLES_VALIDOS:
             raise ReglaDeNegocio(f"Rol invalido: {datos.rol}")
-        validar_password(datos.password, username=datos.username)
+        try:
+            validar_password(datos.password, username=datos.username)
+        except PasswordInvalida as exc:
+            raise DatosInvalidos(str(exc)) from exc
 
         if await self.repo.existe_username(datos.username):
             raise ReglaDeNegocio("Ese nombre de usuario ya existe")
@@ -93,6 +101,7 @@ class ServicioUsuarios:
             password_hash=password_hash,
             rol=datos.rol,
         )
+        await self.repo.sincronizar_perfil(usuario_id, datos.rol, "ACTIVO")
 
         await auditoria.registrar(
             self.uow,
@@ -107,9 +116,11 @@ class ServicioUsuarios:
     # ------------------------------ CU_USR_04: desactivar -----------------
 
     async def desactivar(self, usuario_id: int, *, ejecutor_id: int | None) -> dict:
+        await self.repo.bloquear_gestion(usuario_id)
         usuario = await self.obtener(usuario_id)
         if usuario["estado"] == "INACTIVO":
             raise ReglaDeNegocio("El usuario ya esta inactivo")
+        await self._proteger_administracion(usuario, ejecutor_id)
 
         if await self.repo.tiene_actividad_operativa(usuario_id):
             raise ReglaDeNegocio(
@@ -118,6 +129,7 @@ class ServicioUsuarios:
             )
 
         await self.repo.cambiar_estado(usuario_id, "INACTIVO")
+        await self.repo.sincronizar_perfil(usuario_id, usuario["rol"], "INACTIVO")
         await auditoria.registrar(
             self.uow,
             accion=AccionesAuditoria.USUARIO_DESACTIVADO,
@@ -132,9 +144,14 @@ class ServicioUsuarios:
     async def modificar(
         self, usuario_id: int, datos: DatosUsuario, *, ejecutor_id: int | None
     ) -> dict:
+        await self.repo.bloquear_gestion(usuario_id)
         actual = await self.obtener(usuario_id)
         if datos.estado not in ESTADOS_VALIDOS:
             raise ReglaDeNegocio(f"Estado invalido: {datos.estado}")
+        if actual["estado"] == "ACTIVO" and datos.estado == "INACTIVO":
+            await self._proteger_administracion(actual, ejecutor_id)
+            if await self.repo.tiene_actividad_operativa(usuario_id):
+                raise ReglaDeNegocio("Resolvé los viajes abiertos antes de desactivar al usuario")
         if datos.username != actual["username"] and await self.repo.existe_username(
             datos.username, excluir_id=usuario_id
         ):
@@ -147,6 +164,8 @@ class ServicioUsuarios:
             username=datos.username,
             estado=datos.estado,
         )
+        if actual["estado"] != datos.estado:
+            await self.repo.sincronizar_perfil(usuario_id, actual["rol"], datos.estado)
         await auditoria.registrar(
             self.uow,
             accion=AccionesAuditoria.USUARIO_MODIFICADO,
@@ -167,12 +186,17 @@ class ServicioUsuarios:
     async def asignar_rol(self, usuario_id: int, rol: str, *, ejecutor_id: int | None) -> dict:
         if rol not in ROLES_VALIDOS:
             raise ReglaDeNegocio(f"Rol invalido: {rol}")
+        await self.repo.bloquear_gestion(usuario_id)
         actual = await self.obtener(usuario_id)
         rol_anterior = actual["rol"]
         if rol_anterior == rol:
             return actual
+        await self._proteger_administracion(actual, ejecutor_id)
+        if await self.repo.tiene_actividad_operativa(usuario_id):
+            raise ReglaDeNegocio("Resolvé los viajes abiertos antes de cambiar el rol del usuario")
 
         await self.repo.cambiar_rol(usuario_id, rol)
+        await self.repo.sincronizar_perfil(usuario_id, rol, actual["estado"])
         await auditoria.registrar(
             self.uow,
             accion=AccionesAuditoria.ROL_ASIGNADO,
@@ -182,3 +206,12 @@ class ServicioUsuarios:
             datos={"rol_anterior": rol_anterior, "rol_nuevo": rol},
         )
         return await self.obtener(usuario_id)
+
+    async def _proteger_administracion(self, usuario, ejecutor_id):
+        if usuario["id"] == ejecutor_id:
+            raise ReglaDeNegocio("No podés quitar tu propio acceso de administración")
+        if (
+            usuario["rol"] == "ADMINISTRADOR" and usuario["estado"] == "ACTIVO"
+            and await self.repo.administradores_activos() <= 1
+        ):
+            raise ReglaDeNegocio("Debe quedar al menos un administrador activo")

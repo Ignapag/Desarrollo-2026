@@ -214,6 +214,8 @@ async def test_archivo_ficticio_persistido_aislado_no_acredita_dinero(chat, uow)
 
     # La misma bandeja interna debe descargar el archivo persistido en la demo.
     app_personal = FastAPI()
+    from app.modules.usuarios.presentation.dependencias import sesion_vigente, usuario_actual
+    app_personal.dependency_overrides[sesion_vigente] = usuario_actual
     app_personal.include_router(interno.router)
     from unittest.mock import patch
 

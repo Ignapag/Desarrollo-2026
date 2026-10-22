@@ -57,17 +57,26 @@ def validar_password(password: str, *, username: str | None = None) -> None:
 
 @dataclass(slots=True, frozen=True)
 class ClaimsSesion:
-    """Lo que viaja adentro del JWT: lo minimo para autorizar sin ir a la base.
+    """Identidad del token o sesión vigente después de consultar la base.
 
-    Se arma al decodificar la cookie de sesion (ver app/core/dependencias.py)
-    y no se vuelve a consultar la base en cada request: el token ya
-    certifica identidad y rol al momento de emitirse, con una vigencia de
-    `settings.jwt_exp_minutos`.
+    El JWT solo identifica al usuario. La presentación vuelve a cargar su estado,
+    rol y permisos antes de autorizar. ``None`` permite usar la política inicial
+    al invocar reglas de dominio de forma aislada; la sesión HTTP lleva siempre
+    los permisos persistidos, incluso cuando el conjunto está vacío.
     """
 
     usuario_id: int
     rol: Rol
     username: str
+    permisos: frozenset[str] | None = None
+
+    def puede(self, permiso: str) -> bool:
+        from app.modules.usuarios.domain.permisos import PERMISOS_INICIALES
+
+        if self.rol == Rol.ADMINISTRADOR:
+            return True
+        disponibles = self.permisos if self.permisos is not None else PERMISOS_INICIALES[self.rol]
+        return permiso in disponibles
 
 
 class AccionesAuditoria:

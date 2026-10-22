@@ -7,7 +7,7 @@ Modelo de datos **tal como está implementado** en la base.
 > quedar desactualizado respecto del esquema real. CI verifica que
 > este al dia.
 
-**39 entidades · 69 relaciones.**
+**41 entidades · 70 relaciones.**
 
 Este diagrama reemplaza al entregado en la Actividad N°2: las diferencias
 están explicadas una por una en [CAMBIOS_DER.md](CAMBIOS_DER.md) (C-01 a C-12).
@@ -98,6 +98,7 @@ erDiagram
     WHATSAPP_ENTRADA ||--|| CHAT_DEMO_OPERACION : entrada_id
     CHAT_DEMO_SESION ||--o{ CHAT_DEMO_ARCHIVO : sesion_hash
     WHATSAPP_ENTRADA ||--|| CHAT_DEMO_ARCHIVO : entrada_id
+    ROL_ACCESO ||--o{ ROL_PERMISO : rol
 ```
 
 ---
@@ -643,6 +644,21 @@ erDiagram
     }
 ```
 
+### Permisos por rol
+
+```mermaid
+erDiagram
+    ROL_ACCESO ||--o{ ROL_PERMISO : rol
+    ROL_ACCESO {
+        text rol PK
+        integer version
+    }
+    ROL_PERMISO {
+        text rol PK
+        text permiso PK
+    }
+```
+
 ---
 
 ## Relaciones en detalle
@@ -701,6 +717,7 @@ erDiagram
 | `promocion` | `creada_por` | `usuario` | 1 : N | No |
 | `punto_encuentro` | `zona_id` | `zona_cobertura` | 1 : N | No |
 | `repartidor` | `usuario_id` | `usuario` | 1 : 1 | Sí |
+| `rol_permiso` | `rol` | `rol_acceso` | 1 : N | Sí |
 | `viaje` | `repartidor_id` | `repartidor` | 1 : N | Sí |
 | `viaje` | `asignado_por` | `usuario` | 1 : N | No |
 | `whatsapp_atencion` | `resuelta_por` | `usuario` | 1 : N | No |

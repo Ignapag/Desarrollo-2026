@@ -18,10 +18,13 @@ from app.modules.pedidos.presentation.router import router as pedidos_router
 from app.modules.reportes.infrastructure.repositorio_sql import RepositorioReportesSQL
 from app.modules.reportes.presentation.dependencias import obtener_servicio_reportes
 from app.modules.reportes.presentation.router import router as reportes_router
+from app.modules.usuarios.presentation.dependencias import sesion_vigente, usuario_actual
 
 
 def aplicacion():
     app = FastAPI()
+    # Identidad sintetica: esta suite verifica negocio, no resolucion de sesiones.
+    app.dependency_overrides[sesion_vigente] = usuario_actual
     app.add_exception_handler(ErrorDominio, manejador_error_dominio)
     app.include_router(reportes_router)
     app.include_router(pedidos_router)

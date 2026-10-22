@@ -37,14 +37,31 @@ class ServicioReportes:
         self.stock = stock
 
     async def clientes(
-        self, *, rol: str, q: str | None = None, limite: int = 50, desplazamiento: int = 0
+        self,
+        *,
+        rol: str,
+        q: str | None = None,
+        limite: int = 50,
+        desplazamiento: int = 0,
+        autorizado: bool | None = None,
     ) -> dict:
-        if rol not in {"EMPLEADO", "ADMINISTRADOR", "DUENIO"}:
+        if not (
+            rol in {"EMPLEADO", "ADMINISTRADOR", "DUENIO"} if autorizado is None else autorizado
+        ):
             raise SinPermiso("No tiene permiso para consultar el directorio de clientes")
         return await self.repo.clientes(q=q, limite=limite, desplazamiento=desplazamiento)
 
-    async def dashboard(self, *, rol: str, fecha_desde: date, fecha_hasta: date) -> dict:
-        validar_rol(rol)
+    async def dashboard(
+        self,
+        *,
+        rol: str,
+        fecha_desde: date,
+        fecha_hasta: date,
+        autorizado: bool | None = None,
+        financieros: bool | None = None,
+    ) -> dict:
+        validar_rol(rol, autorizado=autorizado)
+        financieros = rol == "DUENIO" if financieros is None else financieros
         validar_periodo(fecha_desde, fecha_hasta)
         resumen = await self.repo.resumen_pedidos()
         ventas = await self.ventas(
@@ -99,7 +116,7 @@ class ServicioReportes:
             "alertas_stock": [fila for fila in ingredientes if fila["indicador_alerta"]],
             "actualizado_en": resumen["actualizado_en"],
         }
-        if rol == "DUENIO":
+        if financieros:
             metodos = await self.repo.pagos_por_metodo(fecha_desde, fecha_hasta)
             resultado["ingreso_neto_confirmado"] = sum(
                 (fila["ingreso_neto"] for fila in metodos), Decimal("0")
@@ -116,8 +133,11 @@ class ServicioReportes:
         agrupacion: str,
         categoria_id: int | None = None,
         producto_id: int | None = None,
+        autorizado: bool | None = None,
+        financieros: bool | None = None,
     ) -> list[dict]:
-        validar_rol(rol)
+        validar_rol(rol, autorizado=autorizado)
+        financieros = rol == "DUENIO" if financieros is None else financieros
         validar_periodo(fecha_desde, fecha_hasta)
         grupo_sql = validar_agrupacion(agrupacion)
         filas = await self.repo.ventas(
@@ -126,10 +146,10 @@ class ServicioReportes:
             grupo_sql,
             categoria_id,
             producto_id,
-            incluir_montos=rol == "DUENIO",
+            incluir_montos=financieros,
         )
         totales: dict[date, Decimal] = defaultdict(lambda: Decimal("0"))
-        if rol == "DUENIO":
+        if financieros:
             for fila in filas:
                 totales[fila["periodo"]] += fila["monto_total"]
         ordenadas = sorted(
@@ -148,7 +168,7 @@ class ServicioReportes:
                 "cantidad_vendida": fila["cantidad_vendida"],
                 "ranking": posiciones[periodo],
             }
-            if rol == "DUENIO":
+            if financieros:
                 total = totales[periodo]
                 item["monto_total"] = fila["monto_total"]
                 item["participacion"] = fila["monto_total"] * 100 / total if total else Decimal("0")
@@ -165,13 +185,14 @@ class ServicioReportes:
         fecha_hasta: date,
         categoria_id: int | None = None,
         producto_id: int | None = None,
+        autorizado: bool | None = None,
     ) -> list[dict]:
         """Usa precios historicos y costos actuales: no es rentabilidad historica exacta.
 
         costo_unitario=0 se respeta como dato almacenado; el esquema no distingue
         un costo genuinamente cero de uno aun no cargado.
         """
-        validar_rol(rol, financiero=True)
+        validar_rol(rol, financiero=True, autorizado=autorizado)
         validar_periodo(fecha_desde, fecha_hasta)
         filas = await self.repo.rentabilidad(fecha_desde, fecha_hasta, categoria_id, producto_id)
         resultado = []
