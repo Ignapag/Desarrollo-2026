@@ -1,4 +1,6 @@
-﻿import { useData } from '../shared/store/DataContext';
+﻿import { can } from '../auth/permissions';
+import { useAuth } from '../auth/AuthContext';
+import { useData } from '../shared/store/DataContext';
 import { useEffect, useRef, useState } from 'react';
 import { DataError } from '../fulfillment/operationUi';
 import { useSearchParams } from 'react-router-dom';
@@ -9,6 +11,7 @@ import RecipeModal from './RecipeModal';
 import { newRecipe, serializeRecipe } from './recipeModel';
 
 export default function Catalog() {
+  const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const query = (searchParams.get('q') || '').toLowerCase();
   const { state, createProduct, deactivateProduct, refreshCatalog, refreshInventory } = useData();
@@ -92,7 +95,7 @@ export default function Catalog() {
           <h1 className="text-3xl font-extrabold font-heading text-monu-dark mb-1">Catálogo de Menú</h1>
           <p className="text-monu-text/70">Gestioná los productos que ven los clientes.</p>
         </div>
-        <button 
+        <button disabled={!can(user, 'productos.gestionar')}
           onClick={() => setIsAdding(true)}
           className="bg-monu-dark text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-black transition shadow-md"
         >
@@ -100,7 +103,7 @@ export default function Catalog() {
         </button>
       </div>
 
-      {isAdding && (
+      {isAdding && can(user, 'productos.gestionar') && (
         <div className="bg-white p-5 rounded-2xl shadow-sm border border-monu-green/10 mb-6 flex flex-col gap-4">
           <h3 className="font-extrabold text-lg border-b pb-2">Agregar nuevo producto</h3>
           <fieldset disabled={saving} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -176,17 +179,17 @@ export default function Catalog() {
                   ${product.price ? product.price.toLocaleString('es-AR') : product.variants?.[0]?.price?.toLocaleString('es-AR')}
                 </td>
                 <td className="p-4 text-right">
-                  <button onClick={() => setEditingProduct(product)} className="min-h-11 rounded-lg border border-monu-green/20 px-3 py-2 font-bold text-monu-green hover:bg-monu-cream focus-visible:ring-2 focus-visible:ring-monu-green" aria-label={`Editar receta de ${product.name}`}>Receta</button>
+                  <button disabled={!can(user, 'productos.ver_receta')} onClick={() => setEditingProduct(product)} className="min-h-11 rounded-lg border border-monu-green/20 px-3 py-2 font-bold text-monu-green hover:bg-monu-cream focus-visible:ring-2 focus-visible:ring-monu-green" aria-label={`Editar receta de ${product.name}`}>Receta</button>
                   {deletingId === product.id ? (
                     <div className="flex flex-col gap-1 items-end">
                       <span className="text-xs font-bold text-red-500">¿Seguro?</span>
                       <div className="flex gap-1">
-                        <button onClick={() => handleDelete(product.id)} className="text-xs font-bold bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded transition">Sí</button>
+                        <button disabled={!can(user, 'productos.gestionar')} onClick={() => handleDelete(product.id)} className="text-xs font-bold bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded transition">Sí</button>
                         <button onClick={() => setDeletingId(null)} className="text-xs font-bold bg-gray-200 hover:bg-gray-300 text-monu-dark px-2 py-1 rounded transition">No</button>
                       </div>
                     </div>
                   ) : (
-                    <button onClick={() => setDeletingId(product.id)} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition" title="Eliminar">
+                    <button disabled={!can(user, 'productos.gestionar')} onClick={() => setDeletingId(product.id)} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition" title="Eliminar">
                       <Trash2 className="w-5 h-5" />
                     </button>
                   )}

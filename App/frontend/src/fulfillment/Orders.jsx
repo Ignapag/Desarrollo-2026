@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
+import { useAuth } from '../auth/AuthContext';
+import { can, canVisit } from '../auth/permissions';
 import { useData } from '../shared/store/DataContext';
 import { apiFetch } from '../shared/api/http';
 import { ORDER_STATES, mapOrder, ordersPath, dateTime, money } from './orderModel';
@@ -8,6 +10,7 @@ import WhatsAppInbox from './WhatsAppInbox';
 import OrderDetail from './OrderDetail';
 
 export default function Orders() {
+  const { user } = useAuth();
   const { state, refreshOrders, watchOrders, orderOperationPending, projectOrder } = useData();
   const [params, setParams] = useSearchParams();
   const location = useLocation();
@@ -47,8 +50,8 @@ export default function Orders() {
   const columns = ORDER_STATES.filter(([id]) => scope === 'history' ? ['ENTREGADO', 'CANCELADO'].includes(id) : scope === 'active' ? !['ENTREGADO', 'CANCELADO'].includes(id) : true);
   const refresh = () => { if (remote) setRevision((value) => value + 1); else void refreshOrders(undefined, true).catch(() => undefined); };
   return <div className="space-y-5">
-    <div className="flex flex-wrap gap-3 justify-between items-start"><div><h1 className="text-3xl font-extrabold font-heading text-monu-dark">Gestión de pedidos</h1><p className="text-monu-text/80">Operación, historial y correcciones sobre el mismo pedido.</p></div><Link to="/delivery" className={buttonClass}>Gestionar reparto</Link></div>
-    <WhatsAppInbox section={params.get('bandeja')} requestKey={location.key} />
+    <div className="flex flex-wrap gap-3 justify-between items-start"><div><h1 className="text-3xl font-extrabold font-heading text-monu-dark">Gestión de pedidos</h1><p className="text-monu-text/80">Operación, historial y correcciones sobre el mismo pedido.</p></div>{canVisit(user, '/delivery') && <Link to="/delivery" className={buttonClass}>Gestionar reparto</Link>}</div>
+    {can(user, 'whatsapp.ver') && <WhatsAppInbox section={params.get('bandeja')} requestKey={location.key} />}
     {clientId && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-monu-bone p-3 text-sm"><p>Pedidos de <strong>{params.get('cliente') || `cliente #${clientId}`}</strong></p><Link to="/dashboard/orders" className={buttonClass}>Ver todos los clientes</Link></div>}
     <div className="flex flex-wrap gap-3 items-end">
       <label className="block flex-1 min-w-48 space-y-1 text-sm font-bold">Buscar por número de pedido, cliente o teléfono<input value={query} onChange={(event) => { const next = new URLSearchParams(params); next.delete('bandeja'); if (event.target.value) next.set('q', event.target.value); else next.delete('q'); setParams(next, { replace: true }); }} className={inputClass} /></label>

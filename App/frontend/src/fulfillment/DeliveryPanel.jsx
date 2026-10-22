@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { MapPin, Phone, Navigation } from 'lucide-react';
+import { can, canVisit } from '../auth/permissions';
 import { useAuth } from '../auth/AuthContext';
 import { useData } from '../shared/store/DataContext';
 import { apiFetch } from '../shared/api/http';
 import { createOrderCommands } from './orderCommands';
-import { dateTime, isStaff, money } from './orderModel';
+import { dateTime, money } from './orderModel';
 import { buttonClass, Reason, DataError } from './operationUi';
 import OrderDetail from './OrderDetail';
 import WhatsAppAttentionNotice from './WhatsAppAttentionNotice';
@@ -62,7 +63,7 @@ export default function DeliveryPanel() {
   };
   return <main className="space-y-6 max-w-4xl mx-auto p-4 sm:p-6 min-h-screen bg-monu-cream text-monu-text">
     <WhatsAppAttentionNotice />
-    <div className="flex flex-wrap justify-between items-start gap-3"><div><h1 className="text-3xl font-extrabold font-heading text-monu-dark">Reparto</h1><p>Viajes y envíos asignados en el sistema.</p></div><div className="flex flex-wrap gap-2">{isStaff(user?.backendRole) && <Link to="/dashboard/orders" className={buttonClass}>Volver a pedidos</Link>}<button type="button" onClick={() => { void logout(); }} className={buttonClass}>Cerrar sesión</button></div></div>
+    <div className="flex flex-wrap justify-between items-start gap-3"><div><h1 className="text-3xl font-extrabold font-heading text-monu-dark">Reparto</h1><p>Viajes y envíos asignados en el sistema.</p></div><div className="flex flex-wrap gap-2">{canVisit(user, '/dashboard/orders') && <Link to="/dashboard/orders" className={buttonClass}>Volver a pedidos</Link>}<button type="button" onClick={() => { void logout(); }} className={buttonClass}>Cerrar sesión</button></div></div>
     <button type="button" disabled={busy} onClick={() => { void refresh(); }} className={buttonClass}>{busy ? 'Procesando...' : 'Actualizar viajes'}</button>
     <DataError message={error || state.ordersError} />
     {feedback && <p role="status" className="font-bold text-monu-green">{feedback}</p>}
@@ -71,8 +72,8 @@ export default function DeliveryPanel() {
     {trips?.map((trip) => <section key={trip.id} aria-labelledby={`trip-${trip.id}`} className="bg-white rounded-2xl border border-monu-green/20 p-4 sm:p-5 space-y-4">
       <h2 id={`trip-${trip.id}`} className="text-xl font-extrabold text-monu-dark">Viaje de {trip.repartidor_nombre}</h2>
       <p className="text-sm">{trip.estado === 'PLANIFICADO' ? 'Asignado, todavía en el local' : 'En ruta'} · Creado: {dateTime(trip.creado_en)} · Salida: {dateTime(trip.salida_en)}</p>
-      {trip.estado === 'PLANIFICADO' && <StartTrip trip={trip} run={run} busy={busy} />}
-      <div className="space-y-4">{trip.envios.map((shipment) => <Shipment key={`${shipment.id}:${shipment.estado}`} trip={trip} shipment={shipment} run={run} busy={busy} onDetail={isStaff(user?.backendRole) ? () => setSelected(shipment.pedido_id) : null} />)}</div>
+      {can(user, 'delivery.operar') && trip.estado === 'PLANIFICADO' && <StartTrip trip={trip} run={run} busy={busy} />}
+      <div className="space-y-4">{trip.envios.map((shipment) => <Shipment key={`${shipment.id}:${shipment.estado}`} trip={trip} shipment={shipment} run={run} busy={busy || !can(user, 'delivery.operar')} onDetail={can(user, 'pedidos.ver') ? () => setSelected(shipment.pedido_id) : null} />)}</div>
     </section>)}
     {selected && <OrderDetail key={selected} id={selected} onClose={({ changed }) => { setSelected(null); if (changed) void refresh(); }} />}
   </main>;

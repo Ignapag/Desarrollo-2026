@@ -2,6 +2,7 @@
 import { Link } from 'react-router-dom';
 import { AlertTriangle, CalendarDays, CalendarRange, RefreshCw, ShoppingBag } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { can, canVisit } from '../auth/permissions';
 import { useAuth } from '../auth/AuthContext';
 import { apiFetch } from '../shared/api/http';
 import { periodoPanel, unidadesPorDia } from './datosPanel';
@@ -11,14 +12,15 @@ const moneda = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'AR
 const hora = new Intl.DateTimeFormat('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour: '2-digit', minute: '2-digit' });
 const tarjeta = 'bg-monu-bone rounded-2xl p-6 shadow-sm border border-monu-green/10 min-w-0';
 
-function useReportes(rol) {
+function useReportes(user) {
+  const rol = user?.backendRole;
   const [datos, setDatos] = useState(null);
   const [error, setError] = useState('');
   const [cargando, setCargando] = useState(true);
   const [intento, setIntento] = useState(0);
 
   useEffect(() => {
-    if (!['ADMINISTRADOR', 'DUENIO'].includes(rol)) return undefined;
+    if (!can(user, 'reportes.ver')) return undefined;
     let activo = true;
     let pendiente = false;
     let ultimoInicio = 0;
@@ -64,15 +66,15 @@ function useReportes(rol) {
       window.removeEventListener('focus', refrescar);
       document.removeEventListener('visibilitychange', refrescar);
     };
-  }, [rol, intento]);
+  }, [user, rol, intento]);
 
   return { datos: datos?.rol === rol ? datos : null, error, cargando, recargar: () => setIntento((anterior) => anterior + 1) };
 }
 
 export default function ControlPanel() {
   const { user } = useAuth();
-  const habilitado = ['ADMINISTRADOR', 'DUENIO'].includes(user?.backendRole);
-  const { datos, error, cargando, recargar } = useReportes(user?.backendRole);
+  const habilitado = can(user, 'reportes.ver');
+  const { datos, error, cargando, recargar } = useReportes(user);
   const resumen = datos?.resumen;
   const ranking = resumen?.ranking_productos.slice(0, 5) || [];
   const stats = resumen ? [
@@ -102,8 +104,8 @@ export default function ControlPanel() {
           <h2 className="font-bold text-lg text-monu-dark">Todo listo para trabajar</h2>
           <p className="mt-2 text-monu-text/70">Consultá los pedidos y la cocina. Las métricas están disponibles para administración y el dueño.</p>
           <div className="mt-4 flex flex-wrap gap-3">
-            <Link to="/dashboard/orders" className="min-h-11 inline-flex items-center rounded-xl bg-monu-green px-4 font-bold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-monu-green">Ver pedidos</Link>
-            <Link to="/dashboard/kitchen" className="min-h-11 inline-flex items-center rounded-xl border border-monu-green/20 px-4 font-bold text-monu-dark focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-monu-green">Ir a cocina</Link>
+            <AllowedLink to="/dashboard/orders" className="min-h-11 inline-flex items-center rounded-xl bg-monu-green px-4 font-bold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-monu-green">Ver pedidos</AllowedLink>
+            <AllowedLink to="/dashboard/kitchen" className="min-h-11 inline-flex items-center rounded-xl border border-monu-green/20 px-4 font-bold text-monu-dark focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-monu-green">Ir a cocina</AllowedLink>
           </div>
         </section>
       ) : (
@@ -132,7 +134,7 @@ export default function ControlPanel() {
           {resumen && (
             <>
               <p className="text-sm text-monu-text/70">Pedidos confirmados, sin cancelados. Semana desde el lunes y mes calendario. Los gráficos abarcan los últimos 7 días, incluido hoy.</p>
-              {user.backendRole === 'DUENIO' && (
+              {can(user, 'reportes.financieros') && resumen.ingreso_neto_confirmado != null && (
                 <section className={tarjeta}>
                   <h2 className="text-sm font-bold text-monu-text/70">Ingreso neto confirmado · Últimos 7 días</h2>
                   <p className="mt-2 text-3xl font-extrabold text-monu-dark">{moneda.format(Number(resumen.ingreso_neto_confirmado))}</p>
@@ -185,5 +187,10 @@ export default function ControlPanel() {
 }
 
 function EstadoVacio({ texto }) {
-  return <div className="min-h-64 flex flex-col items-center justify-center text-center gap-4"><ShoppingBag aria-hidden="true" className="h-9 w-9 text-monu-green/60" /><p className="max-w-xs text-monu-text/70">{texto}</p><Link to="/dashboard/orders" className="min-h-11 inline-flex items-center font-bold text-monu-green underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-monu-green">Ver pedidos</Link></div>;
+  return <div className="min-h-64 flex flex-col items-center justify-center text-center gap-4"><ShoppingBag aria-hidden="true" className="h-9 w-9 text-monu-green/60" /><p className="max-w-xs text-monu-text/70">{texto}</p><AllowedLink to="/dashboard/orders" className="min-h-11 inline-flex items-center font-bold text-monu-green underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-monu-green">Ver pedidos</AllowedLink></div>;
+}
+
+function AllowedLink({ to, children, ...props }) {
+  const { user } = useAuth();
+  return canVisit(user, to) ? <Link to={to} {...props}>{children}</Link> : null;
 }

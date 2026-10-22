@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { can } from '../auth/permissions';
 import { useAuth } from '../auth/AuthContext';
 import { useData } from '../shared/store/DataContext';
 import { apiFetch } from '../shared/api/http';
 import { createOrderCommands } from './orderCommands';
-import { addressLabel, dateTime, isStaff, money, stateLabel } from './orderModel';
+import { addressLabel, dateTime, money, stateLabel } from './orderModel';
 import { buttonClass, DataError } from './operationUi';
 import { EditOperation, StateOperation } from './OrderOperationForms';
 import OrderDelivery from './OrderDelivery';
@@ -104,12 +105,12 @@ export default function OrderDetail({ id, onClose, requireFresh = false }) {
           {order.observaciones && <><dt className="font-bold">Nota</dt><dd className="whitespace-pre-wrap break-words">{order.observaciones}</dd></>}
         </dl>
         <ul className="space-y-2">{order.items.map((item) => <li key={item.id} className="text-sm font-bold">{item.cantidad} × {item.nombre_producto}{item.aclaraciones ? ` · ${item.aclaraciones}` : ''}</li>)}</ul>
-        {isStaff(user?.backendRole) && <div key={`${order.id}:${order.version}:${order.envio?.viaje_id}:${order.envio?.estado}:${order.envio?.estado_viaje}`} className="space-y-6 border-t border-monu-green/20 pt-5">
-          <StateOperation order={order} role={user.backendRole} commands={commands} run={run} busy={busy || stale} />
-          <OrderDelivery order={order} role={user.backendRole} commands={commands} run={run} busy={busy || stale} />
+        {user && <div key={`${order.id}:${order.version}:${order.envio?.viaje_id}:${order.envio?.estado}:${order.envio?.estado_viaje}`} className="space-y-6 border-t border-monu-green/20 pt-5">
+          {(can(user, 'pedidos.cambiar_estado') || can(user, 'pedidos.recuperar')) && <StateOperation can={(key) => can(user, key)} order={order} role={user.backendRole} commands={commands} run={run} busy={busy || stale} />}
+          {(can(user, 'delivery.planificar') || can(user, 'delivery.operar') || can(user, 'delivery.corregir')) && <OrderDelivery can={(key) => can(user, key)} order={order} role={user.backendRole} commands={commands} run={run} busy={busy || stale} />}
         </div>}
-        {isStaff(user?.backendRole) && <OrderPayments key={user.id} order={order} userId={user.id} commands={commands} run={run} busy={busy || stale} />}
-        {isStaff(user?.backendRole) && <EditOperation key={`edit:${order.id}:${order.version}`} order={order} role={user.backendRole} commands={commands} run={run} busy={busy || stale} />}
+        {can(user, 'pagos.ver') && <OrderPayments can={(key) => can(user, key)} key={user.id} order={order} userId={user.id} commands={commands} run={run} busy={busy || stale} />}
+        {can(user, 'pedidos.editar') && <EditOperation can={(key) => can(user, key)} key={`edit:${order.id}:${order.version}`} order={order} role={user.backendRole} commands={commands} run={run} busy={busy || stale} />}
         <details className="space-y-3 border-t border-monu-green/20 pt-3"><summary className="cursor-pointer min-h-11 flex items-center font-bold text-monu-green">Historial y detalles</summary>
           <dl className="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-[max-content_1fr]">{[['creado_en', 'Creado'], ['confirmado_en', 'Confirmado'], ['preparacion_en', 'Preparación'], ['listo_en', 'Listo'], ['entregado_en', 'Entregado'], ['cancelado_en', 'Cancelado']].filter(([key]) => order[key]).map(([key, label]) => <div className="contents" key={key}><dt className="font-bold">{label}</dt><dd>{dateTime(order[key])}</dd></div>)}</dl>
           <ol className="space-y-3">{order.historial.map((event) => <li key={event.id} className="border-l-2 border-monu-green/30 pl-3 text-sm space-y-1"><p className="font-bold">{stateLabel(event.estado_anterior)} → {stateLabel(event.estado_nuevo)}</p><p>{dateTime(event.creado_en)} · {event.actor || 'Sistema'}</p><p className="break-words">{event.observacion || 'Cambio de estado'}</p>{event.tratamiento_stock && <p>Stock: {({ CONSERVAR: 'consumo conservado', RECONSUMIR: 'nuevo consumo', MERMA: 'merma declarada', RESERVA_DEVUELTA: 'reserva devuelta' })[event.tratamiento_stock] || event.tratamiento_stock}</p>}</li>)}</ol>

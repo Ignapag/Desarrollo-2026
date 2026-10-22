@@ -1,4 +1,5 @@
 ﻿import { Outlet, NavLink, useSearchParams } from 'react-router-dom';
+import { canVisit } from '../auth/permissions';
 import { useAuth } from '../auth/AuthContext';
 import { preloadPage } from '../shared/pageLoaders';
 import WhatsAppAttentionNotice from '../fulfillment/WhatsAppAttentionNotice';
@@ -41,7 +42,7 @@ export default function DashboardLayout() {
     { to: '/dashboard/inventory', icon: Package, label: 'Inventario' },
     { to: '/dashboard/analytics', icon: BarChart2, label: 'Reportes' },
     { to: '/dashboard/access', icon: ShieldCheck, label: 'Control de Acceso' },
-  ];
+  ].filter((item) => canVisit(user, item.to));
 
   return (
     <div className="min-h-screen bg-monu-cream font-sans flex text-monu-text">
@@ -84,11 +85,13 @@ export default function DashboardLayout() {
       </aside>
 
       {/* Main Content Wrapper */}
-      <div className="flex-1 flex flex-col md:ml-64 min-h-screen">
+      <div className="flex-1 min-w-0 flex flex-col md:ml-64 min-h-screen">
         {/* Header Mobile & Search */}
         <header className="bg-white border-b border-monu-green/10 h-16 flex items-center justify-between px-4 sticky top-0 z-10 shadow-sm">
           <div className="flex items-center gap-3 md:hidden">
             <button 
+              aria-label="Abrir navegación"
+              aria-expanded={isMobileMenuOpen}
               onClick={() => setIsMobileMenuOpen(true)}
               className="p-2 -ml-2 text-monu-text hover:bg-monu-cream rounded-lg"
             >
@@ -121,14 +124,14 @@ export default function DashboardLayout() {
               </div>
               <div className="hidden sm:block">
                 <p className="text-sm font-bold text-monu-dark">{user?.name}</p>
-                <p className="text-xs text-monu-text/60 capitalize">{user?.role}</p>
+                <p className="text-xs text-monu-text/60 capitalize">{user?.backendRole}</p>
               </div>
             </div>
           </div>
         </header>
 
         {/* Main Content Area */}
-        <main className="flex-1 p-4 md:p-8 bg-monu-cream/20">
+        <main className="flex-1 min-w-0 p-4 md:p-8 bg-monu-cream/20">
           <WhatsAppAttentionNotice />
           <Suspense fallback={<p role="status" className="text-sm py-4">Abriendo sección...</p>}><Outlet /></Suspense>
         </main>
@@ -143,13 +146,14 @@ export default function DashboardLayout() {
       )}
 
       {/* Mobile Sidebar */}
-      <aside className={`fixed inset-y-0 left-0 w-64 bg-monu-bone shadow-2xl z-50 transform transition-transform duration-300 md:hidden flex flex-col ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      <aside inert={!isMobileMenuOpen} className={`fixed inset-y-0 left-0 w-64 bg-monu-bone shadow-2xl z-50 transform transition-transform duration-300 md:hidden flex flex-col ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="p-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img src="/favicon.png" className="w-8 h-8 object-contain" alt="Logo" />
             <span className="text-lg font-extrabold font-heading text-monu-dark">Monu Burger</span>
           </div>
         </div>
+        <button type="button" onClick={() => setIsMobileMenuOpen(false)} className="min-h-11 mx-4 mb-3 rounded-xl border border-monu-green/20">Cerrar navegación</button>
         <nav className="flex-1 px-4 space-y-1 overflow-y-auto">
           {navItems.map((item) => (
             <NavLink

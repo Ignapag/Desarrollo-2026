@@ -1,6 +1,7 @@
 ﻿import { createContext, useContext, useReducer, useEffect } from 'react';
 
 import { useState, useCallback, useRef, useLayoutEffect, useMemo } from 'react';
+import { can } from '../../auth/permissions';
 import { useAuth } from '../../auth/AuthContext';
 import { apiFetch } from '../api/http';
 import { portal } from '../portal';
@@ -197,7 +198,7 @@ export function DataProvider({ children }) {
   }, [user]);
 
   const refreshOrders = useCallback((signal, force = false) => {
-    if (!user || userRef.current !== user) return Promise.resolve();
+    if (!user || (!can(user, 'pedidos.ver') && user.backendRole !== 'CLIENTE') || userRef.current !== user) return Promise.resolve();
     if (!force && ordersRequestRef.current?.owner === user && !ordersRequestRef.current.signal?.aborted) return ordersRequestRef.current.request;
     const token = freshnessRef.current.read();
     const request = apiFetch(ordersPath({ activos: true }), { signal })
@@ -243,7 +244,7 @@ export function DataProvider({ children }) {
   }, [user]);
 
   const refreshInventory = useCallback((signal, force = false) => {
-    if (user?.role !== 'admin' || userRef.current !== user) return Promise.resolve();
+    if (!can(user, 'stock.ver') || userRef.current !== user) return Promise.resolve();
     if (!force && inventoryRequest.current?.owner === user && !inventoryRequest.current.signal?.aborted) return inventoryRequest.current.promise;
     if (!force && Date.now() - inventoryLoadedAt.current < 30000) return Promise.resolve();
     if (!inventoryLoadedAt.current) dispatch({ type: 'INVENTORY_LOADING' });
@@ -271,7 +272,7 @@ export function DataProvider({ children }) {
   }, [user]);
 
   const getCustomers = useCallback((path, signal, force = false) => {
-    if (!['EMPLEADO', 'ADMINISTRADOR', 'DUENIO'].includes(user?.backendRole) || userRef.current !== user) return Promise.reject(new Error('No tenés acceso a clientes.'));
+    if (!can(user, 'clientes.ver') || userRef.current !== user) return Promise.reject(new Error('No tenés acceso a clientes.'));
     const previous = customerCache.current.get(path);
     if (!force && previous?.owner === user) {
       if (previous.promise && !previous.signal?.aborted) return previous.promise;

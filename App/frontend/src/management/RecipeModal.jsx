@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { apiFetch } from '../shared/api/http';
 import { useData } from '../shared/store/DataContext';
+import { can } from '../auth/permissions';
 import { useAuth } from '../auth/AuthContext';
 import { buttonClass, DataError } from '../fulfillment/operationUi';
 import RecipeEditor from './RecipeEditor';
@@ -10,7 +11,7 @@ import { recipeFromApi, serializeRecipe } from './recipeModel';
 export default function RecipeModal({ product, onClose }) {
   const { state, updateRecipe } = useData();
   const { user } = useAuth();
-  const canEdit = ['ADMINISTRADOR', 'DUENIO'].includes(user?.backendRole);
+  const canEdit = can(user, 'productos.gestionar');
   const dialog = useRef(null);
   const busy = useRef(false);
   const mounted = useRef(true);

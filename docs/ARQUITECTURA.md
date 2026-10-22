@@ -166,8 +166,10 @@ Vite reenvía `/api` a `http://127.0.0.1:8000` en desarrollo.
 ## Flujos y límites de confianza
 
 1. **Sesión:** `auth/AuthContext.jsx` usa la API de usuarios. El backend valida
-   bcrypt/JWT y fija la cookie HttpOnly. Los roles de navegación se normalizan
-   en frontend; la autorización definitiva vive en las dependencias de cada router.
+   bcrypt/JWT y fija la cookie HttpOnly. El token identifica al usuario; cada petición
+   autenticada consulta su estado, rol y permisos vigentes. Las dependencias de cada
+   router autorizan por capacidad y el frontend adapta navegación y acciones con esa
+   matriz. [Control de acceso](CONTROL_ACCESO.md) define versiones, auditoría y revocación.
    `/register` y `/recover-password` redirigen a login; no hay vistas ni endpoints
    de autorregistro o recuperación.
 2. **Pedido:** presentación valida formato y rol; `ServicioPedidos` valida cliente,
@@ -228,6 +230,31 @@ Vite reenvía `/api` a `http://127.0.0.1:8000` en desarrollo.
    comandos en [chat web de demostración](WHATSAPP_DESARROLLO.md#chat-web-de-demostración).
 
 ## Datos y configuración
+
+Reportes y Analítica (`management/Analytics.jsx`) consulta `/api/reportes/dashboard`
+y `/api/reportes/ventas?agrupacion=DIA` con fechas inclusivas; inicia en los últimos
+30 días de Argentina. Requiere `reportes.ver`. Solo con `reportes.financieros`
+consulta además `/api/reportes/rentabilidad` y muestra importes y cobros. La API de
+rentabilidad exige ambos permisos; Administrador conserva los privilegios de la
+política vigente. No hay endpoints nuevos ni cambios de esquema para esta pantalla.
+
+El gráfico agrega **unidades**, con tabla diaria; muestra solo días con ventas.
+El ranking es el del dashboard para todo el rango. `cantidad_pedidos` cuenta pedidos
+distintos por producto y día; se suma por producto, nunca entre productos. La variante
+financiera de ventas no devuelve ese conteo y la pantalla lo omite. Los conteos de
+pedidos de hoy/semana/mes del dashboard no representan el filtro y no se muestran aquí.
+Los importes vendidos suman subtotales de ítems a precios históricos, sin envío ni
+propinas. Los cobros netos usan la fecha de conciliación: cobros menos devoluciones,
+sin propinas, incluso si no hay ventas confirmadas en esas fechas. La rentabilidad
+es estimada con costos actuales de insumos, no ganancia histórica exacta; costo cero
+no distingue un costo genuino de uno sin cargar. No se estima un total de pedidos
+únicos ni se reemplazan valores ausentes por importes ficticios.
+
+Al editar fechas se retiran los resultados hasta aplicar un rango válido. Cada lote
+de reportes se publica completo o muestra error con reintento. No se conservan
+resultados visibles tras fallar o iniciar otra consulta. El efecto cancela y descarta
+respuestas anteriores; también vincula los datos al objeto de sesión vigente para
+evitar reutilizarlos entre usuarios del mismo rol o tras cambios de permisos.
 
 El directorio de Clientes consulta `GET /api/reportes/clientes`, con búsqueda y
 paginación. Solo empleados, administradores y dueños pueden acceder. Agrupa por

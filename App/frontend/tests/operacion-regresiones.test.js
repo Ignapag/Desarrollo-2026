@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { act, createElement, useLayoutEffect, useState } from 'react';
-import { createServer } from 'vite';
+import { createTestServer as createServer } from './vite-test-server.js';
 import react from '@vitejs/plugin-react';
 import { installMinimalDom, elements, reactProps, deferred } from './minimal-dom.js';
 
@@ -25,7 +25,7 @@ before(async () => {
   ({ createRoot } = await import('react-dom/client'));
   server = await createServer({ configFile: false, plugins: [
     { name: 'auth-regresiones', enforce: 'pre', load(id) {
-      if (id.replaceAll('\\', '/').endsWith('/src/auth/AuthContext.jsx')) return `const user = {id: 1, role: 'admin', backendRole: 'EMPLEADO'}; export const useAuth = () => ({user});`;
+      if (id.replaceAll('\\', '/').endsWith('/src/auth/AuthContext.jsx')) return `const user = {id: 1, role: 'admin', backendRole: 'EMPLEADO', permisos: ['pedidos.ver','pedidos.editar','pedidos.cambiar_estado','pagos.ver','pagos.registrar','pagos.conciliar','delivery.planificar','whatsapp.ver','whatsapp.gestionar']}; export const useAuth = () => ({user});`;
       return null;
     } }, react(),
   ], server: { middlewareMode: true, hmr: false, ws: false }, optimizeDeps: { noDiscovery: true }, appType: 'custom', logLevel: 'silent' });

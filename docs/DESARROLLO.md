@@ -141,8 +141,12 @@ El lint ejecuta oxlint; build genera `dist/` con Vite. No hay script `npm test`
 ni suite de navegador en el manifiesto actual. Un build exitoso no prueba login,
 pagos ni apariencia. La deuda heredada se registra en [DEUDA_TECNICA.md](DEUDA_TECNICA.md).
 `test:portales` verifica rutas mediante renderizado React y el proxy con HTTP local,
-sin base de datos. `test:panel` cubre métricas, clientes reales, cargas compartidas,
+sin base de datos. `test:panel` cubre métricas, reportes por fechas, clientes reales, cargas compartidas,
 sondeo condicionado y respuestas tardías de catálogo/stock frente a escrituras.
+Analítica agrega pruebas de validación y aplicación de filtros, vacío, errores con
+reintento, separación de permisos financieros y respuestas atrasadas de otros períodos
+o sesiones. `tests/vite-test-server.js` asigna una caché por proceso/servidor bajo
+`node_modules/.vite-tests`; mantenerla separada de la caché del Vite de desarrollo.
 `test:operacion` cubre comandos HTTP, reintentos financieros,
 versiones, frescura y renderizado de formularios operativos; no reemplaza una
 prueba interactiva en navegador. Para las variantes `build:clientes` y `build:personal`, la

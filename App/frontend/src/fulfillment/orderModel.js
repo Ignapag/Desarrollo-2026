@@ -9,7 +9,7 @@ export const isPrivileged = (role) => ['ADMINISTRADOR', 'DUENIO'].includes(role)
 export const isClosed = (order) => ['ENTREGADO', 'CANCELADO'].includes(order.estado);
 export const hasAssignment = (order) => Boolean(order.envio?.viaje_id && order.envio?.repartidor_id
   && ['PLANIFICADO', 'EN_RUTA'].includes(order.envio?.estado_viaje));
-export const canEditOperation = (order, role) => isStaff(role)
+export const canEditOperation = (order, role, can = null) => (can ? can('pedidos.editar') : isStaff(role))
   && ['PENDIENTE', 'CONFIRMADO', 'EN_PREPARACION', 'LISTO'].includes(order.estado) && !hasAssignment(order);
 
 export function addressLabel(address) {
@@ -39,8 +39,8 @@ export function ageMinutes(value, now = Date.now()) {
 }
 
 // Solo ofrece comandos compatibles con el estado físico conocido. La API vuelve a validarlos.
-export function stateCommands(order, role) {
-  if (!isStaff(role) || hasAssignment(order)) return [];
+export function stateCommands(order, role, can = null) {
+  if ((can ? !can('pedidos.cambiar_estado') && !can('pedidos.recuperar') : !isStaff(role)) || hasAssignment(order)) return [];
   const commands = [];
   const add = (estado, label, extra = {}) => commands.push({ estado, label, ...extra });
   if (order.estado === 'PENDIENTE') add('CONFIRMADO', 'Confirmar pedido');
@@ -56,7 +56,7 @@ export function stateCommands(order, role) {
       correccion: cooked, ...(cooked ? { tratamiento_stock: 'MERMA' } : {}),
     });
   }
-  if (isClosed(order) && isPrivileged(role)) {
+  if (isClosed(order) && (can ? can('pedidos.recuperar') : isPrivileged(role))) {
     add('EN_PREPARACION', 'Reabrir y consumir insumos nuevamente', { correccion: true, tratamiento_stock: 'RECONSUMIR' });
     if (order.estado === 'ENTREGADO' && !(order.tipo_entrega === 'DELIVERY' && order.envio?.viaje_id)) add('LISTO', 'Corregir entrega a listo (conservar insumos)', { correccion: true, tratamiento_stock: 'CONSERVAR' });
   }

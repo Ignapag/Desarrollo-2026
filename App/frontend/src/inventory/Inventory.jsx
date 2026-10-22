@@ -1,4 +1,6 @@
-﻿import { useData } from '../shared/store/DataContext';
+﻿import { can } from '../auth/permissions';
+import { useAuth } from '../auth/AuthContext';
+import { useData } from '../shared/store/DataContext';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { AlertTriangle, CheckCircle, Package, X, Plus } from 'lucide-react';
@@ -6,6 +8,7 @@ import { useEffect, useState } from 'react';
 import { DataError } from '../fulfillment/operationUi';
 
 export default function Inventory() {
+  const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const { state, createIngredient, replenishIngredient, refreshInventory } = useData();
   const { inventory } = state;
@@ -65,7 +68,7 @@ export default function Inventory() {
           <h1 className="text-3xl font-extrabold font-heading text-monu-dark mb-1">Inventario</h1>
           <p className="text-monu-text/70">Control de stock de ingredientes y materia prima.</p>
         </div>
-        <button 
+        <button disabled={!can(user, 'stock.gestionar')}
           onClick={() => setIsModalOpen(true)}
           className="bg-monu-dark hover:bg-black text-white px-4 py-2 rounded-xl font-bold transition flex items-center gap-2 text-sm"
         >
@@ -100,7 +103,7 @@ export default function Inventory() {
                     <td className="p-4">
                       <div className="flex items-center gap-3">
                         <span className="font-extrabold min-w-[30px] text-center">{item.stock}</span>
-                        <button 
+                        <button disabled={!can(user, 'stock.reponer')}
                           onClick={() => updateStock(item.id)}
                           className="p-1 bg-green-50 text-green-700 rounded-md hover:bg-green-100 transition"
                           title="Sumar 1"
