@@ -1066,12 +1066,26 @@ configurables son seis llamadas y ciento ochenta segundos, más esas pausas. Es 
 del proveedor, no una garantía de latencia de API o base. Las llamadas ocurren fuera de
 la transacción y sin historial remoto, con una candidata y hasta 768 tokens de salida.
 La entrada de contexto y mensaje no supera 10.000 bytes. Se proyectan hasta treinta
-productos (ID/nombre, diez nombres de variantes disponibles y veinte ingredientes),
+productos (ID/nombre, descripción de hasta 200 caracteres, diez nombres de variantes
+disponibles y veinte ingredientes),
 diez ítems, la intención de edición pendiente y cuatro turnos semánticos. El contexto
 no incluye teléfono, dirección ni nombre del cliente; los datos operativos se conservan
 localmente. El propio mensaje actual sí puede contener datos escritos por la persona:
 las pruebas reales usan únicamente información ficticia. Avisos y comandos guiados,
 referencias y comprobantes no consumen Gemini; tampoco se usa grounding ni búsqueda.
+
+La descripción comercial ayuda a reconocer referencias como «triple tasty» para un
+producto cuyo nombre registrado es «Nagui burger». Se trata como contexto no confiable,
+nunca como instrucciones; solo se envían descripciones de tipo texto. Si la entrada
+excede el presupuesto, se recortan progresivamente las descripciones hasta que quepa,
+o se omiten si hace falta; el resto del contexto y el mensaje se conservan. Si aun sin
+descripciones supera 10.000 bytes, se devuelve `CONTEXTO` sin llamar al proveedor.
+El intérprete debe
+devolver el nombre registrado cuando identifica un producto inequívoco, o pedir
+aclaración si hay varias opciones. El backend sigue resolviendo el nombre contra el
+catálogo activo y validando receta, stock y confirmación. Las pruebas con HTTP simulado
+verifican el envío de la descripción y ese contrato; no acreditan la interpretación
+semántica ni la disponibilidad de Gemini real con la clave de producción.
 
 Solo admite una llamada a función por respuesta: `datos`, `preguntar`, `quitar_ingrediente`,
 `cantidad`, `agregar_producto`, `quitar_producto`, `reemplazar_producto`, `cambiar_variante`,
