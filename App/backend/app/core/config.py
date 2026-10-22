@@ -73,7 +73,6 @@ class Settings(BaseSettings):
     ] = Field(default_factory=lambda: ["gemini-3.1-flash-lite", "gemini-3.6-flash"])
     gemini_max_intentos: int = Field(default=3, ge=1, le=3)
     gemini_timeout: float = Field(default=15, gt=0, le=30)
-    gemini_tiempo_total: float = Field(default=20, gt=0, le=45)
     # El modo público exige además la autorización explícita del dueño de la base.
     chat_demo_habilitado: bool = False
     chat_demo_bd_compartida_autorizada: bool = False
