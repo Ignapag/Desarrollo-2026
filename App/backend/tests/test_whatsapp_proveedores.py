@@ -15,6 +15,8 @@ from pydantic import ValidationError
 
 from app.core.config import Settings
 from app.errores import ReglaDeNegocio
+from app.modules.whatsapp.application.edicion_conversacional import resolver_items
+from app.modules.whatsapp.application.servicio_bot import ServicioBot
 from app.modules.whatsapp.infrastructure import proveedores
 from app.modules.whatsapp.presentation import dependencias
 
@@ -179,6 +181,112 @@ async def test_gemini_solo_pide_una_accion_y_omite_contexto_personal(http):
     assert "Doble" in contexto_enviado
     for privado in ("5492215550000", "Dirección privada", "Cliente", "Privado"):
         assert privado not in contexto_enviado
+
+
+async def test_descripcion_del_catalogo_llega_desde_servicio_hasta_gemini(http):
+    llamadas, respuestas = http
+    producto = {
+        'id': 99, 'nombre': 'Nagui burger', 'descripcion': 'Triple tasty de Nagi',
+        'variantes': [], 'ingredientes_quitables': ['Lechuga', 'Tomate'],
+    }
+
+    class Repo:
+        async def ingredientes_items(self, items): return []
+        async def memoria(self, *args): return []
+
+    class Productos:
+        async def listar(self, **kwargs): return [producto]
+
+    bot = ServicioBot(Repo(), None, productos=Productos())
+    borrador = {
+        'pedido_id': None, 'estado': 'BORRADOR', 'items': [], 'contexto_chat': {},
+        'tipo_entrega': 'RETIRO', 'metodo_pago': 'EFECTIVO', 'telefono': 'privado',
+        'referencia_hash': 'privado', 'version': 1,
+    }
+    contexto = await bot._contexto(borrador)
+    assert contexto['catalogo'][0]['descripcion'] == 'Triple tasty de Nagi'
+    respuestas.append(respuesta_funcion('agregar_producto', {
+        'producto': 'Nagui burger', 'cantidad': 1, 'aclaraciones': 'Sin lechuga',
+    }))
+    accion = await proveedores.GeminiInterpretador('ficticia', 'modelo').interpretar(
+        'pueden agregarme una triple tasty sin lechuga porfa', contexto,
+    )
+    enviado = json.loads(json.loads(llamadas[0][0].data)['contents'][0]['parts'][0]['text'])
+    assert enviado['contexto']['catalogo'][0]['descripcion'] == 'Triple tasty de Nagi'
+    assert 'privado' not in json.dumps(enviado)
+    resultado = await resolver_items(
+        bot, borrador, {'id': 'ficticio'}, {'items': [], 'version': 1}, accion,
+    )
+    assert not isinstance(resultado, str)
+    assert resultado[0] == [{
+        'producto_id': 99, 'cantidad': 1, 'variante': None, 'aclaraciones': 'Sin lechuga',
+    }]
+
+
+@pytest.mark.parametrize('descripcion', ['x' * 500, '\U0001f354' * 500], ids=['texto', 'unicode'])
+async def test_descripcion_larga_se_acota_en_la_peticion(http, descripcion):
+    llamadas, respuestas = http
+    respuestas.append(respuesta_funcion('consulta', {}))
+    await proveedores.GeminiInterpretador('ficticia', 'modelo').interpretar('hola', {
+        'catalogo': [{'id': 99, 'nombre': 'Nagui burger', 'descripcion': descripcion}],
+    })
+    enviado = json.loads(json.loads(llamadas[0][0].data)['contents'][0]['parts'][0]['text'])
+    assert enviado['contexto']['catalogo'][0]['descripcion'] == descripcion[:200]
+
+
+@pytest.mark.parametrize('descripcion', ['x' * 200, '\U0001f354' * 200], ids=['texto', 'unicode'])
+async def test_catalogo_treinta_productos_ajusta_descripciones_al_presupuesto(http, descripcion):
+    llamadas, respuestas = http
+    respuestas.append(respuesta_funcion('consulta', {}))
+    catalogo = [{
+        'id': n, 'nombre': f'Burger {n}', 'descripcion': descripcion,
+        'variantes': ['Simple', 'Doble', 'Triple'],
+        'ingredientes': ['Pan', 'Carne', 'Cheddar', 'Lechuga', 'Tomate', 'Cebolla'],
+    } for n in range(1, 31)]
+    resultado = await proveedores.GeminiInterpretador('ficticia', 'modelo').interpretar(
+        'quiero agregar una burger', {'catalogo': catalogo},
+    )
+    assert resultado == {'accion': 'consulta', 'argumentos': {}}
+    entrada = json.loads(llamadas[0][0].data)['contents'][0]['parts'][0]['text']
+    assert len(entrada.encode('utf-8')) <= 10000
+    enviados = json.loads(entrada)['contexto']['catalogo']
+    assert len(enviados) == 30
+    for original, enviado in zip(catalogo, enviados, strict=True):
+        assert {k: enviado[k] for k in ('id', 'nombre', 'variantes', 'ingredientes')} == {
+            k: original[k] for k in ('id', 'nombre', 'variantes', 'ingredientes')
+        }
+        assert enviado['descripcion'] and descripcion.startswith(enviado['descripcion'])
+        assert original['descripcion'] == descripcion
+
+
+@pytest.mark.parametrize('descripcion', [None, 123, {'telefono': 'privado'}, ['privado']])
+def test_descripcion_ausente_o_invalida_no_se_convierte_en_texto(descripcion):
+    contexto = proveedores._contexto_acotado({
+        'catalogo': [{'id': 99, 'nombre': 'Nagui burger', 'descripcion': descripcion}],
+    })
+    assert 'descripcion' not in contexto['catalogo'][0]
+    assert 'privado' not in json.dumps(contexto)
+
+
+async def test_descripcion_compartida_no_autoriza_elegir_un_producto_ambiguo():
+    class Productos:
+        async def listar(self, **kwargs):
+            return [
+                {'id': 99, 'nombre': 'Nagui burger', 'descripcion': 'Triple tasty'},
+                {'id': 100, 'nombre': 'Otra burger', 'descripcion': 'Triple tasty'},
+            ]
+
+    bot = ServicioBot(None, None, productos=Productos())
+    b = {'contexto_chat': {}, 'version': 1}
+    pedido = {'items': [], 'version': 1}
+    resultado = await resolver_items(bot, b, {'id': 'ficticio'}, pedido, {
+        'accion': 'agregar_producto', 'argumentos': {
+            'producto': 'triple tasty', 'cantidad': 1, 'aclaraciones': 'Sin lechuga',
+        },
+    })
+    assert isinstance(resultado, str) and 'Nagui burger' in resultado and 'Otra burger' in resultado
+    assert pedido['items'] == []
+    assert b['contexto_chat']['edicion']['argumentos']['aclaraciones'] == 'Sin lechuga'
 
 
 @pytest.mark.parametrize(

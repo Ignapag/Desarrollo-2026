@@ -389,7 +389,8 @@ class ServicioBot:
             "operacion": operacion,
             "items": contexto_items,
             "catalogo": [
-                {"id": p["id"], "nombre": p["nombre"], "variantes": p.get("variantes") or [],
+                {"id": p["id"], "nombre": p["nombre"], "descripcion": p.get("descripcion"),
+                 "variantes": p.get("variantes") or [],
                  "ingredientes": p.get("ingredientes_quitables") or []}
                 for p in (await catalogo(self))[:30]
             ],
