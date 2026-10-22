@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { act, createElement, useLayoutEffect, useState } from 'react';
-import { createServer } from 'vite';
+import { createTestServer as createServer } from './vite-test-server.js';
 import react from '@vitejs/plugin-react';
 import { installMinimalDom, elements, reactProps, deferred } from './minimal-dom.js';
 
@@ -21,7 +21,7 @@ before(async () => {
   dom = installMinimalDom();
   ({ createRoot } = await import('react-dom/client'));
   server = await createServer({ configFile: false, plugins: [{ name: 'auth-background', enforce: 'pre', load(id) {
-    if (id.replaceAll('\\', '/').endsWith('/src/auth/AuthContext.jsx')) return "let user={id:1,role:'admin',backendRole:'EMPLEADO'}; export const setUser=(value)=>{user=value}; export const useAuth=()=>({user});";
+    if (id.replaceAll('\\', '/').endsWith('/src/auth/AuthContext.jsx')) return "let user={id:1,role:'admin',backendRole:'EMPLEADO',permisos:['pedidos.ver','pedidos.cambiar_estado','clientes.ver','stock.ver','stock.gestionar','stock.reponer','productos.gestionar','pagos.ver','pagos.registrar','pagos.conciliar','reportes.ver']}; export const setUser=(value)=>{user=value}; export const useAuth=()=>({user});";
     return null;
   } }, react()], server: { middlewareMode: true, hmr: false, ws: false }, optimizeDeps: { noDiscovery: true }, appType: 'custom', logLevel: 'silent' });
   ({ DataProvider, useData } = await server.ssrLoadModule('/src/shared/store/DataContext.jsx'));
@@ -169,8 +169,8 @@ test('las operaciones de otra sesión no publican resultados ni mensajes sobre l
   await act(async () => data.startOrderOperation({ id: 17, number: 88,
     optimisticOrder: { ...order, estado: 'EN_PREPARACION' }, operation: () => writing.promise }));
   assert.equal(data.state.orders[0].estado, 'EN_PREPARACION');
-  setUser({ id: 2, role: 'admin', backendRole: 'EMPLEADO' });
-  t.after(() => setUser({ id: 1, role: 'admin', backendRole: 'EMPLEADO' }));
+  setUser({ id: 2, role: 'admin', backendRole: 'EMPLEADO', permisos: ['pedidos.ver','pedidos.editar','pedidos.cambiar_estado','pagos.ver','pagos.registrar','pagos.conciliar','delivery.planificar'] });
+  t.after(() => setUser({ id: 1, role: 'admin', backendRole: 'EMPLEADO', permisos: ['pedidos.ver','pedidos.editar','pedidos.cambiar_estado','pagos.ver','pagos.registrar','pagos.conciliar','delivery.planificar'] }));
   await act(async () => container.rerender());
   assert.equal(data.orderOperations.length, 0);
   assert.equal(data.state.ordersStatus, 'ready');
@@ -243,8 +243,8 @@ test('una transferencia de la sesión anterior no inicia otra llamada con la ses
   function Screen() { const [open, setOpen] = useState(true); return open ? createElement(OrderDetail, { id: 17, onClose: () => setOpen(false) }) : null; }
   const container = await mount(t, createElement(Screen));
   await act(async () => { void reactProps(elements(container, (node) => node.localName === 'form')[0]).onSubmit({ preventDefault() {} }); });
-  setUser({ id: 3, role: 'admin', backendRole: 'EMPLEADO' });
-  t.after(() => setUser({ id: 1, role: 'admin', backendRole: 'EMPLEADO' }));
+  setUser({ id: 3, role: 'admin', backendRole: 'EMPLEADO', permisos: ['pedidos.ver','pedidos.editar','pedidos.cambiar_estado','pagos.ver','pagos.registrar','pagos.conciliar','delivery.planificar'] });
+  t.after(() => setUser({ id: 1, role: 'admin', backendRole: 'EMPLEADO', permisos: ['pedidos.ver','pedidos.editar','pedidos.cambiar_estado','pagos.ver','pagos.registrar','pagos.conciliar','delivery.planificar'] }));
   await act(async () => container.rerender());
   await act(async () => { writing.resolve(response({ id: 55, estado: 'PENDIENTE' })); });
   assert.equal(calls, 1);
@@ -326,7 +326,7 @@ test('una respuesta antigua no borra el UUID al volver a entrar con la misma cue
   await act(async () => { void reactProps(elements(container, (node) => node.localName === 'form')[0]).onSubmit({ preventDefault() {} }); });
   const attempt = storage.get('monu-payment:1:17');
   assert.ok(attempt);
-  setUser({ id: 1, role: 'admin', backendRole: 'EMPLEADO' });
+  setUser({ id: 1, role: 'admin', backendRole: 'EMPLEADO', permisos: ['pedidos.ver','pedidos.editar','pedidos.cambiar_estado','pagos.ver','pagos.registrar','pagos.conciliar','delivery.planificar'] });
   await act(async () => container.rerender());
   await act(async () => { writing.resolve(response({ pago: { id: 55 }, pedido: { ...order, neto_cobrado: '12000', saldo_pendiente: '0' } })); });
   assert.equal(storage.get('monu-payment:1:17'), attempt);

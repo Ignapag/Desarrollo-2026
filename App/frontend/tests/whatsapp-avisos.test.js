@@ -16,7 +16,7 @@ let setTestUser;
 let tick;
 const previousFetch = globalThis.fetch;
 const response = (body) => ({ ok: true, status: 200, json: async () => body });
-const staff = () => ({ id: 1, backendRole: 'EMPLEADO', role: 'admin' });
+const staff = () => ({ id: 1, backendRole: 'EMPLEADO', role: 'admin', permisos: ['pedidos.ver','whatsapp.ver','whatsapp.gestionar','whatsapp.ver_notificaciones','whatsapp.gestionar_notificaciones'] });
 
 before(async () => {
   dom = installMinimalDom();
@@ -126,14 +126,17 @@ test('el aviso abre y enfoca su sección y permite volver a abrir la misma ruta'
   document.body.appendChild(container);
   const root = createRoot(container);
   t.after(async () => { await act(async () => root.unmount()); document.body.removeChild(container); });
+  setTestUser(staff());
   await act(async () => root.render(createElement(Inbox, { section: 'comprobantes', requestKey: 'primero' })));
   assert.equal(document.activeElement.textContent, 'Comprobantes');
   const toggle = elements(container, (node) => node.localName === 'button' && node.textContent === 'Bandeja de WhatsApp')[0];
   await act(async () => reactProps(toggle).onClick());
   assert.equal(reactProps(toggle)['aria-expanded'], false);
+  setTestUser(staff());
   await act(async () => root.render(createElement(Inbox, { section: 'comprobantes', requestKey: 'segundo' })));
   assert.equal(reactProps(toggle)['aria-expanded'], true);
   assert.equal(calls, 2);
+  setTestUser(staff());
   await act(async () => root.render(createElement(Inbox, { section: 'atenciones', requestKey: 'tercero' })));
   assert.equal(document.activeElement.textContent, 'Conversaciones que requieren atención');
 });
@@ -144,6 +147,7 @@ test('un comprobante sin compra abre revisión manual sin botón para acreditar 
   document.body.appendChild(container);
   const root = createRoot(container);
   t.after(async () => { await act(async () => root.unmount()); document.body.removeChild(container); });
+  setTestUser(staff());
   await act(async () => root.render(createElement(Inbox, { section: 'comprobantes', requestKey: 'recibo-general' })));
   assert.match(container.textContent, /Comprobante sin pedido vinculado/);
   assert.match(container.textContent, /Descargar comprobante/);
@@ -167,4 +171,45 @@ test('buscar pedidos después de abrir un aviso no reactiva la navegación ni ro
   assert.equal(new URLSearchParams(query).has('bandeja'), false);
   assert.equal(new URLSearchParams(query).get('q'), 'Ana');
   assert.equal(document.activeElement, input);
+});
+
+test('avisos no consulta bandeja si sólo posee permisos de notificaciones', async (t) => {
+  const calls = [];
+  globalThis.fetch = async (path) => { calls.push(path); return response({ comprobantes_pendientes: 1, atenciones_pendientes: 1 }); };
+  const container = await mount(t, { ...staff(), permisos: ['whatsapp.ver_notificaciones'] });
+  assert.deepEqual(calls, []);
+  assert.equal(container.textContent, '');
+});
+
+for (const kind of ['comprobantes', 'cambios']) {
+  test(`bandeja ${kind} bloquea aprobación sin permisos compuestos y conserva lectura`, async (t) => {
+    const record = kind === 'comprobantes' ? { id: 92, estado: 'PENDIENTE', pedido_id: 1, numero: 1, total: '1000' } : { id: 93, estado: 'PENDIENTE_EMPLEADO', pedido_id: 1, numero: 1, anterior: { total: '1000' }, posterior: { total: '1000' } };
+    const calls = [];
+    setTestUser({ ...staff(), permisos: ['whatsapp.ver', 'whatsapp.gestionar'] });
+    globalThis.fetch = async (path, options = {}) => { calls.push({ path, method: options.method }); return response({ comprobantes: [], cambios: [], atenciones: [], salidas: [], [kind]: [record] }); };
+    const container = document.createElement('div'); document.body.appendChild(container);
+    const root = createRoot(container);
+    t.after(async () => { await act(async () => root.unmount()); document.body.removeChild(container); });
+    await act(async () => root.render(createElement(Inbox, { section: 'comprobantes', requestKey: kind })));
+    const approve = elements(container, (node) => node.localName === 'button' && node.getAttribute('value') === 'aprobar')[0];
+    assert.ok(approve); assert.equal(approve.disabled, true);
+    const reason = elements(container, (node) => node.localName === 'textarea')[0];
+    await act(async () => reactProps(reason).onChange({ target: { value: 'Verificado' } }));
+    const check = elements(container, (node) => node.localName === 'input' && node.getAttribute('type') === 'checkbox')[0];
+    if (check) await act(async () => reactProps(check).onChange({ target: { checked: true } }));
+    await act(async () => reactProps(elements(container, (node) => node.localName === 'form')[0]).onSubmit({ preventDefault() {}, nativeEvent: { submitter: { value: 'aprobar' } } }));
+    assert.equal(calls.some((call) => call.method === 'POST'), false);
+    assert.equal(approve.disabled, true);
+  });
+}
+
+test('bandeja sin gestionar sólo permite leer las conversaciones', async (t) => {
+  setTestUser({ ...staff(), permisos: ['whatsapp.ver'] });
+  globalThis.fetch = async () => response({ comprobantes: [], cambios: [], atenciones: [{ id: 49, motivo: 'OTRO', telefono: '5492215550000', mensaje: 'Consulta', productos: [], mensajes: [], respuestas: [] }], salidas: [] });
+  const container = document.createElement('div'); document.body.appendChild(container);
+  const root = createRoot(container);
+  t.after(async () => { await act(async () => root.unmount()); document.body.removeChild(container); });
+  await act(async () => root.render(createElement(Inbox, { section: 'atenciones', requestKey: 'lectura' })));
+  assert.match(container.textContent, /Consulta/);
+  assert.doesNotMatch(container.textContent, /Encolar respuesta|Marcar como resuelta/);
 });

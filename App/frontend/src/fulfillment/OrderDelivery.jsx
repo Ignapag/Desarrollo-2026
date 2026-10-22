@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { hasAssignment, isPrivileged, dateTime } from './orderModel';
 import { buttonClass, inputClass, Field, Reason, DataError } from './operationUi';
 
-export default function OrderDelivery({ order, role, commands, run, busy }) {
+export default function OrderDelivery({ order, role, commands, run, busy, can = null }) {
   const [riders, setRiders] = useState(null);
   const [error, setError] = useState('');
   const [rider, setRider] = useState('');
@@ -14,9 +14,9 @@ export default function OrderDelivery({ order, role, commands, run, busy }) {
   const assigned = hasAssignment(order);
   const shipment = order.envio;
   const beforeDeparture = assigned && shipment.estado === 'ASIGNADO' && shipment.estado_viaje === 'PLANIFICADO' && !shipment.salida_en;
-  const canAssign = order.tipo_entrega === 'DELIVERY' && order.estado === 'LISTO' && !assigned;
+  const canAssign = (!can || can('delivery.planificar')) && order.tipo_entrega === 'DELIVERY' && order.estado === 'LISTO' && !assigned;
   useEffect(() => {
-    if (!beforeDeparture && !canAssign) return undefined;
+    if ((!beforeDeparture && !canAssign) || (can && !can('delivery.planificar'))) return undefined;
     const controller = new AbortController();
     commands.riders(controller.signal).then((data) => { if (!controller.signal.aborted) { setRiders(data); setError(''); } }).catch((failure) => { if (!controller.signal.aborted) setError(failure.message); });
     return () => controller.abort();
@@ -31,10 +31,10 @@ export default function OrderDelivery({ order, role, commands, run, busy }) {
   if (order.tipo_entrega !== 'DELIVERY') return null;
   const actions = [];
   if (canAssign) actions.push(['asignar', 'Asignar repartidor']);
-  if (beforeDeparture) actions.push(['desasignar', 'Desasignar antes de salir'], ['reasignar', 'Cambiar repartidor antes de salir']);
-  if (assigned && shipment.estado === 'EN_CAMINO') actions.push(['fallo', 'Registrar problema de entrega']);
-  if (assigned && shipment.estado === 'FALLIDO') actions.push(['regreso', 'Confirmar regreso físico al local']);
-  if (shipment?.viaje_id && shipment.estado === 'ENTREGADO' && order.estado === 'ENTREGADO' && isPrivileged(role)) actions.push(['corregir-entrega', 'Corregir entrega errónea con regreso real']);
+  if (beforeDeparture && (!can || can('delivery.planificar'))) actions.push(['desasignar', 'Desasignar antes de salir'], ['reasignar', 'Cambiar repartidor antes de salir']);
+  if ((!can || can('delivery.operar')) && assigned && shipment.estado === 'EN_CAMINO') actions.push(['fallo', 'Registrar problema de entrega']);
+  if ((!can || can('delivery.planificar')) && assigned && shipment.estado === 'FALLIDO') actions.push(['regreso', 'Confirmar regreso físico al local']);
+  if (shipment?.viaje_id && shipment.estado === 'ENTREGADO' && order.estado === 'ENTREGADO' && (can ? can('delivery.corregir') : isPrivileged(role))) actions.push(['corregir-entrega', 'Corregir entrega errónea con regreso real']);
   const selectedAction = action || actions[0]?.[0] || '';
   const actionLabel = actions.find(([id]) => id === selectedAction)?.[1];
   const needsRider = ['asignar', 'reasignar'].includes(selectedAction);

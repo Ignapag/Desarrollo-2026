@@ -1,15 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { FileCheck2, Headset, ArrowRight } from 'lucide-react';
+import { can } from '../auth/permissions';
 import { useAuth } from '../auth/AuthContext';
 import { apiFetch } from '../shared/api/http';
 
-const staffRoles = ['EMPLEADO', 'ADMINISTRADOR', 'DUENIO'];
 const linkClass = 'min-h-11 inline-flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold text-monu-green hover:bg-monu-green/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-monu-green';
 
 export default function WhatsAppAttentionNotice() {
   const { user } = useAuth();
-  const enabled = staffRoles.includes(user?.backendRole);
+  const enabled = can(user, 'whatsapp.ver');
   const [snapshot, setSnapshot] = useState(null);
   const retryRef = useRef(null);
 
@@ -61,12 +61,12 @@ export default function WhatsAppAttentionNotice() {
         {receipts > 0 && <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-monu-dark">
           <FileCheck2 aria-hidden="true" className="h-5 w-5 shrink-0 text-amber-800" />
           <div className="min-w-0 flex-1"><p className="font-extrabold">Comprobante por verificar</p><p className="text-sm">{receipts === 1 ? 'Hay un comprobante pendiente de revisión.' : `Hay ${receipts} comprobantes pendientes de revisión.`}</p></div>
-          <Link to="/dashboard/orders?bandeja=comprobantes" className={linkClass}>Revisar <ArrowRight aria-hidden="true" className="h-4 w-4" /></Link>
+          {can(user, 'pedidos.ver') && <Link to="/dashboard/orders?bandeja=comprobantes" className={linkClass}>Revisar <ArrowRight aria-hidden="true" className="h-4 w-4" /></Link>}
         </div>}
         {attention > 0 && <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-monu-green/25 bg-monu-bone px-4 py-3 text-monu-dark">
           <Headset aria-hidden="true" className="h-5 w-5 shrink-0 text-monu-green" />
           <div className="min-w-0 flex-1"><p className="font-extrabold">Se necesita un empleado</p><p className="text-sm">{attention === 1 ? 'Hay una solicitud de atención pendiente.' : `Hay ${attention} solicitudes de atención pendientes.`}</p></div>
-          <Link to="/dashboard/orders?bandeja=atenciones" className={linkClass}>Atender <ArrowRight aria-hidden="true" className="h-4 w-4" /></Link>
+          {can(user, 'pedidos.ver') && <Link to="/dashboard/orders?bandeja=atenciones" className={linkClass}>Atender <ArrowRight aria-hidden="true" className="h-4 w-4" /></Link>}
         </div>}
       </div>
       {current?.error && <div role="status" className="flex flex-wrap items-center gap-2 text-sm text-monu-dark"><p>No se pudieron actualizar los avisos.{current.data ? ' Se conserva la última consulta.' : ''}</p><button type="button" onClick={() => { void retryRef.current?.(); }} className={linkClass}>Reintentar</button></div>}

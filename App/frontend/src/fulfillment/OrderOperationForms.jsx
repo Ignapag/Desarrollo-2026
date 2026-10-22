@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { canEditOperation, stateCommands } from './orderModel';
 import { buttonClass, inputClass, Field, Reason } from './operationUi';
 
-export function EditOperation({ order, role, commands, run, busy }) {
+export function EditOperation({ order, role, commands, run, busy, can = null }) {
   const [delivery, setDelivery] = useState(order.tipo_entrega);
   const [payment, setPayment] = useState(order.metodo_pago_acordado);
   const [address, setAddress] = useState(order.direccion || { calle: '', numero: '', localidad: '', referencia: '' });
@@ -18,7 +18,7 @@ export function EditOperation({ order, role, commands, run, busy }) {
     changes.direccion_nueva = Object.fromEntries(addressFields.map((key) => [key, address[key]?.trim() || (key === 'referencia' ? null : '')]));
   }
   const hasChanges = Object.keys(changes).length > 0;
-  if (!canEditOperation(order, role)) return null;
+  if (!canEditOperation(order, role, can)) return null;
   const submit = (event) => {
     event.preventDefault();
     if (busy || !hasChanges) return;
@@ -40,8 +40,8 @@ export function EditOperation({ order, role, commands, run, busy }) {
   </details>;
 }
 
-export function StateOperation({ order, role, commands, run, busy }) {
-  const options = stateCommands(order, role);
+export function StateOperation({ order, role, commands, run, busy, can = null }) {
+  const options = stateCommands(order, role, can).filter(() => !can || (can('pedidos.cambiar_estado') && (!['ENTREGADO', 'CANCELADO'].includes(order.estado) || can('pedidos.recuperar'))));
   const [reason, setReason] = useState('');
   const [confirming, setConfirming] = useState(null);
   if (!options.length) return null;

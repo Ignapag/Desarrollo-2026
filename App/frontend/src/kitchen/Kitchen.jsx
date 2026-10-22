@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Clock, CheckCircle } from 'lucide-react';
+import { useAuth } from '../auth/AuthContext';
+import { can } from '../auth/permissions';
 import { useData } from '../shared/store/DataContext';
 import { ageMinutes, dateTime } from '../fulfillment/orderModel';
 import { createOrderCommands } from '../fulfillment/orderCommands';
@@ -9,6 +11,7 @@ import OrderDetail from '../fulfillment/OrderDetail';
 const commands = createOrderCommands(apiFetch);
 
 export default function Kitchen() {
+  const { user } = useAuth();
   const { state, startOrderOperation, orderOperationPending, refreshOrders, watchOrders } = useData();
   useEffect(() => watchOrders?.(), [watchOrders]);
   const [now, setNow] = useState(() => Date.now());
@@ -30,7 +33,7 @@ export default function Kitchen() {
         <div className="p-4 bg-monu-dark text-white space-y-2"><h2 className="font-extrabold text-xl">Pedido #{order.number}</h2><p className="flex items-center gap-2 text-sm"><Clock aria-hidden="true" className="w-4 h-4" />{order.estado === 'CONFIRMADO' ? 'Confirmado: pendiente de iniciar cocina' : 'En preparación'} · {age == null ? 'Sin fecha registrada' : `${age} min`}</p><p className="text-sm">{dateTime(order.preparacion_en || order.confirmado_en)}</p></div>
         <div className="p-5 space-y-4"><p className="font-bold">{order.tipo_entrega === 'RETIRO' ? 'Retiro en local' : 'Delivery'}</p><ul className="space-y-3 font-bold">{order.items.map((item, index) => <li key={index} className="border-b border-monu-green/10 pb-2 break-words">{item}</li>)}</ul>{order.observaciones && <p className="text-sm break-words">{order.observaciones}</p>}
           <button type="button" disabled={orderOperationPending(order.id)} onClick={() => setSelected(order.id)} className={`${buttonClass} w-full`}>Detalle y acciones</button>
-          {order.estado === 'EN_PREPARACION' && <button type="button" disabled={orderOperationPending(order.id)} onClick={() => { markReady(order); }} className={`${buttonClass} w-full bg-monu-green text-white flex gap-2 items-center justify-center`}><CheckCircle aria-hidden="true" className="w-5 h-5" />{order.tipo_entrega === 'RETIRO' ? 'Listo para retirar' : 'Listo para reparto'}</button>}
+          {can(user, 'pedidos.cambiar_estado') && order.estado === 'EN_PREPARACION' && <button type="button" disabled={orderOperationPending(order.id)} onClick={() => { markReady(order); }} className={`${buttonClass} w-full bg-monu-green text-white flex gap-2 items-center justify-center`}><CheckCircle aria-hidden="true" className="w-5 h-5" />{order.tipo_entrega === 'RETIRO' ? 'Listo para retirar' : 'Listo para reparto'}</button>}
         </div>
       </article>; })}
     </div>

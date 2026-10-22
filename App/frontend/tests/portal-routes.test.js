@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { createElement } from 'react';
 import { renderToPipeableStream, renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
-import { createServer } from 'vite';
+import { createTestServer as createServer } from './vite-test-server.js';
 
 test('el checkout completa el pais para WhatsApp y conserva el mismo celular', async (t) => {
   const servidor = await createServer({

@@ -15,6 +15,7 @@ el estado de su fecha y pueden describir trabajo que ya cambió.
 | [Alcance de WhatsApp](WHATSAPP_ALCANCE.md) | Flujo acordado de recepción de pedidos, IA, modificaciones y revisión humana de transferencias; integración directa sin n8n. |
 | [Desarrollo de WhatsApp](WHATSAPP_DESARROLLO.md) | Chat web de demo, simulación reproducible, contratos, worker, revisión humana y recursos Meta/Gemini. |
 | [Operación de pedidos](OPERACION_PEDIDOS.md) | Cobros, cocina, reparto y correcciones sin perder el pedido ni su historial. |
+| [Control de acceso](CONTROL_ACCESO.md) | Usuarios reales, roles, matrices por acción y revocación de permisos en sesiones abiertas. |
 | [Deuda técnica](DEUDA_TECNICA.md) | Limitaciones conocidas; no es autorización para corregirlas todas. |
 | [Guía del equipo](GUIA_EQUIPO.md) | Responsabilidad sobre la base compartida y colaboración con Git. |
 | [DER](DER.md) | Diagrama generado del esquema SQL. |

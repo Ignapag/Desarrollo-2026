@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
-import { useAuth } from './auth/AuthContext';
+import ProtectedRoute from './auth/ProtectedRoute';
+import { STAFF_ROLES } from './auth/permissions';
 import { portal } from './shared/portal';
 import { pageLoaders } from './shared/pageLoaders';
 
@@ -23,20 +24,6 @@ const Kitchen = lazy(pageLoaders['/dashboard/kitchen']);
 const Catalog = lazy(pageLoaders['/dashboard/catalog']);
 const Inventory = lazy(pageLoaders['/dashboard/inventory']);
 
-function ProtectedRoute({ children, allowedRoles }) {
-  const { user, loading } = useAuth();
-  if (loading) return <div className="min-h-screen bg-monu-cream" aria-busy="true" />;
-  
-  if (!user) return <Navigate to="/login" replace />;
-  if (allowedRoles && !allowedRoles.includes(user.role)) {
-    // If not authorized, send them to their role's default page
-    if (user.role === 'admin') return <Navigate to="/dashboard" replace />;
-    if (user.role === 'repartidor') return <Navigate to="/delivery" replace />;
-    return <Navigate to="/menu" replace />;
-  }
-  
-  return children;
-}
 
 function App() {
   return (
@@ -53,19 +40,19 @@ function App() {
           <Route path="/menu" element={<Menu />} />
         </Route>}
 
-        {portal.personal && <Route element={<ProtectedRoute allowedRoles={['admin']}><DashboardLayout /></ProtectedRoute>}>
-          <Route path="/dashboard" element={<ControlPanel />} />
-          <Route path="/dashboard/orders" element={<Orders />} />
-          <Route path="/dashboard/kitchen" element={<Kitchen />} />
-          <Route path="/dashboard/catalog" element={<Catalog />} />
-          <Route path="/dashboard/customers" element={<Customers />} />
-          <Route path="/dashboard/inventory" element={<Inventory />} />
-          <Route path="/dashboard/analytics" element={<Analytics />} />
-          <Route path="/dashboard/access" element={<AccessControl />} />
+        {portal.personal && <Route element={<ProtectedRoute allowedRoles={[...STAFF_ROLES, 'REPARTIDOR']}><DashboardLayout /></ProtectedRoute>}>
+          <Route path="/dashboard" element={<ProtectedRoute path="/dashboard"><ControlPanel /></ProtectedRoute>} />
+          <Route path="/dashboard/orders" element={<ProtectedRoute path="/dashboard/orders"><Orders /></ProtectedRoute>} />
+          <Route path="/dashboard/kitchen" element={<ProtectedRoute path="/dashboard/kitchen"><Kitchen /></ProtectedRoute>} />
+          <Route path="/dashboard/catalog" element={<ProtectedRoute path="/dashboard/catalog"><Catalog /></ProtectedRoute>} />
+          <Route path="/dashboard/customers" element={<ProtectedRoute path="/dashboard/customers"><Customers /></ProtectedRoute>} />
+          <Route path="/dashboard/inventory" element={<ProtectedRoute path="/dashboard/inventory"><Inventory /></ProtectedRoute>} />
+          <Route path="/dashboard/analytics" element={<ProtectedRoute path="/dashboard/analytics"><Analytics /></ProtectedRoute>} />
+          <Route path="/dashboard/access" element={<ProtectedRoute path="/dashboard/access"><AccessControl /></ProtectedRoute>} />
         </Route>}
 
         {portal.personal && <Route path="/delivery" element={
-          <ProtectedRoute allowedRoles={['repartidor', 'admin']}>
+          <ProtectedRoute allowedRoles={['REPARTIDOR', ...STAFF_ROLES]} path="/delivery">
             <DeliveryPanel />
           </ProtectedRoute>
         } />}

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { act, createElement, useLayoutEffect } from 'react';
 import { MemoryRouter } from 'react-router-dom';
-import { createServer } from 'vite';
+import { createTestServer as createServer } from './vite-test-server.js';
 import react from '@vitejs/plugin-react';
 import { installMinimalDom, elements, reactProps, deferred } from './minimal-dom.js';
 
@@ -22,7 +22,7 @@ before(async () => {
   dom = installMinimalDom();
   ({ createRoot } = await import('react-dom/client'));
   server = await createServer({ configFile: false, plugins: [{ name: 'sesion-clientes', enforce: 'pre', load(id) {
-    if (id.replaceAll('\\', '/').endsWith('/src/auth/AuthContext.jsx')) return "let user={id:1,role:'admin',backendRole:'EMPLEADO'}; export const setTestUser=(value)=>{user=value}; export const useAuth=()=>({user});";
+    if (id.replaceAll('\\', '/').endsWith('/src/auth/AuthContext.jsx')) return "let user={id:1,role:'admin',backendRole:'EMPLEADO',permisos:['pedidos.ver','pedidos.cambiar_estado','clientes.ver','stock.ver','stock.gestionar','stock.reponer','productos.gestionar','pagos.ver','pagos.registrar','pagos.conciliar','reportes.ver']}; export const setTestUser=(value)=>{user=value}; export const useAuth=()=>({user});";
     return null;
   } }, react()], server: { middlewareMode: true, hmr: false, ws: false }, optimizeDeps: { noDiscovery: true }, appType: 'custom', logLevel: 'silent' });
   ({ DataProvider, useData } = await server.ssrLoadModule('/src/shared/store/DataContext.jsx'));

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { MessageCircle, ChevronDown, RefreshCw, Download, Phone, ExternalLink } from 'lucide-react';
+import { useAuth } from '../auth/AuthContext';
+import { can } from '../auth/permissions';
 import { apiFetch } from '../shared/api/http';
 import { useData } from '../shared/store/DataContext';
 
@@ -66,6 +68,8 @@ function ChangeDetails({ anterior, posterior }) {
 }
 
 function ReviewCard({ record, kind, onReviewed, onReviewFailed }) {
+  const { user } = useAuth();
+  const manage = can(user, 'whatsapp.gestionar');
   const [reason, setReason] = useState('');
   const [verified, setVerified] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -81,13 +85,13 @@ function ReviewCard({ record, kind, onReviewed, onReviewFailed }) {
   const priceChanged = !isReceipt && record.anterior?.total != null && record.posterior?.total != null
     && Number(record.anterior.total) !== Number(record.posterior.total);
   const cardId = `whatsapp-${kind}-${record.id}`;
-  const approvalBlocked = isReceipt
-    ? !verified || !hasReceiptTotal
-    : !hasChangeTotal || (priceChanged && !financialAccepted);
+  const approvalBlocked = !manage || (isReceipt
+    ? !can(user, 'pagos.registrar') || !can(user, 'pagos.conciliar') || !verified || !hasReceiptTotal
+    : !can(user, 'pedidos.editar') || !hasChangeTotal || (priceChanged && !financialAccepted));
 
   const review = async (event) => {
     event.preventDefault();
-    if (submittingRef.current) return;
+    if (submittingRef.current || !manage) return;
     const decision = event.nativeEvent.submitter?.value;
     if (!['aprobar', 'rechazar'].includes(decision)) return;
     const approve = decision === 'aprobar';
@@ -177,7 +181,7 @@ function ReviewCard({ record, kind, onReviewed, onReviewFailed }) {
           )}
           <div className="flex flex-wrap gap-3">
             <button type="submit" value="aprobar" disabled={busy || approvalBlocked} className={`${actionClass} bg-monu-green text-white hover:bg-monu-green/90`}>{busy ? 'Guardando revisión...' : 'Aprobar revisión'}</button>
-            <button type="submit" value="rechazar" disabled={busy} className={`${actionClass} border border-red-300 text-red-800 hover:bg-red-50`}>Rechazar</button>
+            <button type="submit" value="rechazar" disabled={busy || !manage} className={`${actionClass} border border-red-300 text-red-800 hover:bg-red-50`}>Rechazar</button>
           </div>
         </form>
       ) : record.motivo && <p className="text-sm text-monu-text break-words">Motivo registrado: {record.motivo}</p>}
@@ -220,7 +224,7 @@ function AttentionForm({ id, label, help, maxLength, submitLabel, busyLabel, onS
 
   const submit = async (event) => {
     event.preventDefault();
-    if (submittingRef.current) return;
+    if (submittingRef.current || !manage) return;
     if (!value.trim()) {
       setError('Completá este campo antes de continuar.');
       fieldRef.current?.focus();
@@ -254,6 +258,8 @@ function AttentionForm({ id, label, help, maxLength, submitLabel, busyLabel, onS
 }
 
 function AttentionCard({ record, onChanged }) {
+  const { user } = useAuth();
+  const manage = can(user, 'whatsapp.gestionar');
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState('');
   const requestIdRef = useRef(newRequestId());
@@ -345,13 +351,13 @@ function AttentionCard({ record, onChanged }) {
           </ul>
         ) : <p className="text-sm text-monu-text">Todavía no se respondió desde la bandeja.</p>}
       </div>
-      <AttentionForm id={`${cardId}-respuesta`} label="Responder por WhatsApp" help="Se agrega a la cola de salida; el estado de envío aparece en esta tarjeta al actualizar." maxLength={1000} submitLabel="Encolar respuesta" busyLabel="Encolando..." onSubmit={reply} />
-      <AttentionForm id={`${cardId}-resolucion`} label="Cómo se resolvió (obligatorio para cerrar)" help="Registra tu decisión; no envía mensajes al cliente." maxLength={500} submitLabel="Marcar como resuelta" busyLabel="Guardando..." onSubmit={resolve} />
+      {manage && <AttentionForm id={`${cardId}-respuesta`} label="Responder por WhatsApp" help="Se agrega a la cola de salida; el estado de envío aparece en esta tarjeta al actualizar." maxLength={1000} submitLabel="Encolar respuesta" busyLabel="Encolando..." onSubmit={reply} />}
+      {manage && <AttentionForm id={`${cardId}-resolucion`} label="Cómo se resolvió (obligatorio para cerrar)" help="Registra tu decisión; no envía mensajes al cliente." maxLength={500} submitLabel="Marcar como resuelta" busyLabel="Guardando..." onSubmit={resolve} />}
     </article>
   );
 }
 
-export default function WhatsAppInbox({ section, requestKey }) {
+function InboxContent({ section, requestKey }) {
   const { refreshData } = useData();
   const [expansion, setExpansion] = useState({ requestKey: null, expanded: false });
   const requestedSection = ['comprobantes', 'atenciones'].includes(section);
@@ -479,4 +485,9 @@ export default function WhatsAppInbox({ section, requestKey }) {
       )}
     </section>
   );
+}
+
+export default function WhatsAppInbox(props) {
+  const { user } = useAuth();
+  return can(user, 'whatsapp.ver') ? <InboxContent {...props} /> : null;
 }
