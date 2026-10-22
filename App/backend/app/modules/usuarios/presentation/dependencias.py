@@ -11,9 +11,11 @@ from app.core.config import settings
 from app.core.dependencias import UoW
 from app.core.seguridad import TokenInvalido, decodificar_token
 from app.errores import NoAutenticado, SinPermiso
+from app.modules.usuarios.application.servicio_acceso import ServicioAcceso
 from app.modules.usuarios.application.servicio_auth import ServicioAuth
 from app.modules.usuarios.application.servicio_usuarios import ServicioUsuarios
 from app.modules.usuarios.domain.entidades import ROLES_PERSONAL_INTERNO, ClaimsSesion, Rol
+from app.modules.usuarios.infrastructure.acceso_sql import RepositorioAccesoSQL
 from app.modules.usuarios.infrastructure.repositorio_sql import RepositorioUsuariosSQL
 
 
@@ -46,7 +48,34 @@ def usuario_actual(request: Request) -> ClaimsSesion:
         raise NoAutenticado("La sesion vencio o no es valida") from exc
 
 
-Sesion = Annotated[ClaimsSesion, Depends(usuario_actual)]
+TokenSesion = Annotated[ClaimsSesion, Depends(usuario_actual)]
+
+
+def obtener_servicio_acceso(uow: UoW) -> ServicioAcceso:
+    return ServicioAcceso(RepositorioAccesoSQL(uow))
+
+
+ServicioAccesoDep = Annotated[ServicioAcceso, Depends(obtener_servicio_acceso)]
+
+
+async def sesion_vigente(token: TokenSesion, acceso: ServicioAccesoDep) -> ClaimsSesion:
+    return await acceso.sesion(token)
+
+
+Sesion = Annotated[ClaimsSesion, Depends(sesion_vigente)]
+
+
+def requiere_permiso(modulo: str, accion: str, *, cliente: bool = False):
+    permiso = f"{modulo}.{accion}"
+
+    def guardia(sesion: Sesion) -> ClaimsSesion:
+        if cliente and sesion.rol == Rol.CLIENTE:
+            return sesion
+        if sesion.rol == Rol.CLIENTE or not sesion.puede(permiso):
+            raise SinPermiso("No tenés permiso para realizar esta operación")
+        return sesion
+
+    return guardia
 
 
 def requiere_rol(*roles: Rol) -> Callable[[ClaimsSesion], ClaimsSesion]:

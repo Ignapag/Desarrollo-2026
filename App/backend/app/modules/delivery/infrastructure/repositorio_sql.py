@@ -96,6 +96,7 @@ class RepositorioDeliverySQL:
             JOIN usuario u ON u.id = r.usuario_id
             WHERE r.estado = 'DISPONIBLE'
               AND u.estado = 'ACTIVO'
+              AND u.rol = 'REPARTIDOR'
               AND NOT EXISTS (
                   SELECT 1 FROM viaje v
                   WHERE v.repartidor_id = r.usuario_id
@@ -105,6 +106,17 @@ class RepositorioDeliverySQL:
             """
             + (" FOR UPDATE OF r SKIP LOCKED" if bloquear else "")
         )
+        if bloquear:
+            # El JOIN usuario puede provenir del snapshot anterior a esperar el perfil.
+            # Gestion de cuentas toma el mismo lock antes de modificar estado o rol.
+            ids_bloqueados = {fila["usuario_id"] for fila in filas}
+            if not ids_bloqueados:
+                return []
+            return [
+                repartidor
+                for repartidor in await self.repartidores_disponibles()
+                if repartidor.repartidor_id in ids_bloqueados
+            ]
         return [
             RepartidorDisponible(
                 repartidor_id=f["usuario_id"],

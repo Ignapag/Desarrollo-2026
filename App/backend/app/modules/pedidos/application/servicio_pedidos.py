@@ -427,6 +427,8 @@ class ServicioPedidos:
         rol: str | None = None,
         correccion: bool = False,
         tratamiento_stock: str | None = None,
+        permitir_correccion: bool | None = None,
+        permitir_recuperacion: bool | None = None,
     ) -> dict:
         pedido = await self.repo.obtener(pedido_id, bloquear=True)
         if pedido is None:
@@ -436,7 +438,10 @@ class ServicioPedidos:
         if correccion:
             if not motivo or not motivo.strip() or version_esperada is None:
                 raise DatosInvalidos("La correccion requiere motivo y version esperada")
-            if rol not in {"EMPLEADO", "ADMINISTRADOR", "DUENIO"}:
+            if not (
+                rol in {"EMPLEADO", "ADMINISTRADOR", "DUENIO"}
+                if permitir_correccion is None else permitir_correccion
+            ):
                 raise ReglaDeNegocio("La correccion requiere personal autorizado")
         cerrado = actual in {EstadoPedido.CANCELADO, EstadoPedido.ENTREGADO}
         recuperacion = correccion and cerrado
@@ -470,7 +475,10 @@ class ServicioPedidos:
             and pedido.get("tipo_entrega") == "RETIRO"
         )
         if recuperacion:
-            if rol not in {"ADMINISTRADOR", "DUENIO"}:
+            if not (
+                rol in {"ADMINISTRADOR", "DUENIO"}
+                if permitir_recuperacion is None else permitir_recuperacion
+            ):
                 raise ReglaDeNegocio("Solo administracion puede recuperar pedidos cerrados")
             if not (
                 nuevo == EstadoPedido.EN_PREPARACION

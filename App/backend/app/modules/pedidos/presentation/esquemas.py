@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.modules.pedidos.domain.entidades import EstadoPedido
+from app.modules.usuarios.domain.entidades import ClaimsSesion, Rol
 
 
 class ItemPedidoEntrada(BaseModel):
@@ -73,6 +74,13 @@ class ItemPedidoSalida(BaseModel):
 
 
 class PedidoSalida(BaseModel):
+    @classmethod
+    def para_sesion(cls, fila: dict, sesion: ClaimsSesion) -> "PedidoSalida":
+        salida = cls(**fila)
+        if sesion.rol != Rol.CLIENTE and not sesion.puede("pagos.ver"):
+            salida.pagos = []
+        return salida
+
     id: int
     numero: int
     cliente_id: int

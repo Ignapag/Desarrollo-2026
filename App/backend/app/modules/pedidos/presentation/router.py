@@ -14,23 +14,28 @@ from app.modules.pedidos.presentation.esquemas import (
     PedidoSalida,
 )
 from app.modules.usuarios.domain.entidades import ClaimsSesion, Rol
-from app.modules.usuarios.presentation.dependencias import Sesion, requiere_rol
+from app.modules.usuarios.presentation.dependencias import requiere_permiso
+
+PermisoPedidosCrear = Annotated[
+    ClaimsSesion, Depends(requiere_permiso("pedidos", "crear", cliente=True))
+]
+PermisoPedidosVer = Annotated[
+    ClaimsSesion, Depends(requiere_permiso("pedidos", "ver", cliente=True))
+]
+PermisoPedidosEditar = Annotated[ClaimsSesion, Depends(requiere_permiso("pedidos", "editar"))]
+PermisoPedidosCambiarEstado = Annotated[
+    ClaimsSesion, Depends(requiere_permiso("pedidos", "cambiar_estado"))
+]
 
 router = APIRouter(prefix="/api/pedidos", tags=["pedidos"])
-SesionPedidos = Annotated[
-    ClaimsSesion,
-    Depends(requiere_rol(Rol.ADMINISTRADOR, Rol.DUENIO, Rol.EMPLEADO, Rol.CLIENTE)),
-]
-GestionPedidos = Annotated[
-    ClaimsSesion,
-    Depends(requiere_rol(Rol.ADMINISTRADOR, Rol.DUENIO, Rol.EMPLEADO)),
-]
 
 
 @router.post("", response_model=PedidoSalida, status_code=status.HTTP_201_CREATED)
 async def crear_pedido(
-    datos: PedidoCrear, sesion: SesionPedidos, servicio: ServicioPedidosDep
+    datos: PedidoCrear, sesion: PermisoPedidosCrear, servicio: ServicioPedidosDep
 ) -> PedidoSalida:
+    if sesion.rol == Rol.REPARTIDOR:
+        raise SinPermiso("El repartidor solo puede operar pedidos de sus viajes")
     cliente_id = (
         await servicio.cliente_para_usuario(sesion.usuario_id)
         if sesion.rol == Rol.CLIENTE
@@ -49,12 +54,12 @@ async def crear_pedido(
         items=[ItemNuevoPedido(**item.model_dump()) for item in datos.items],
         metodo_pago_acordado=datos.metodo_pago_acordado,
     )
-    return PedidoSalida(**fila)
+    return PedidoSalida.para_sesion(fila, sesion)
 
 
 @router.get("", response_model=list[PedidoSalida])
 async def listar_pedidos(
-    sesion: Sesion,
+    sesion: PermisoPedidosVer,
     servicio: ServicioPedidosDep,
     q: str | None = None,
     estado: str | None = None,
@@ -72,12 +77,12 @@ async def listar_pedidos(
     filas = await servicio.listar(
         cliente_id=cliente_id, repartidor_id=repartidor_id, q=q, estado=estado, activos=activos
     )
-    return [PedidoSalida(**fila) for fila in filas]
+    return [PedidoSalida.para_sesion(fila, sesion) for fila in filas]
 
 
 @router.get("/{pedido_id}", response_model=PedidoSalida)
 async def detalle_pedido(
-    pedido_id: int, sesion: Sesion, servicio: ServicioPedidosDep
+    pedido_id: int, sesion: PermisoPedidosVer, servicio: ServicioPedidosDep
 ) -> PedidoSalida:
     cliente_id = (
         await servicio.cliente_para_usuario(sesion.usuario_id)
@@ -89,16 +94,18 @@ async def detalle_pedido(
         cliente_id=cliente_id,
         repartidor_id=sesion.usuario_id if sesion.rol == Rol.REPARTIDOR else None,
     )
-    return PedidoSalida(**fila)
+    return PedidoSalida.para_sesion(fila, sesion)
 
 
 @router.patch("/{pedido_id}/operacion", response_model=PedidoSalida)
 async def editar_operacion(
     pedido_id: int,
     datos: EditarOperacionEntrada,
-    sesion: GestionPedidos,
+    sesion: PermisoPedidosEditar,
     servicio: ServicioPedidosDep,
 ) -> PedidoSalida:
+    if sesion.rol == Rol.REPARTIDOR:
+        await servicio.detalle(pedido_id, repartidor_id=sesion.usuario_id)
     cambios = datos.model_dump(exclude_unset=True, exclude={"motivo", "version_esperada"})
     if any(
         cambios.get(campo) is None
@@ -113,16 +120,18 @@ async def editar_operacion(
         version_esperada=datos.version_esperada,
         rol=sesion.rol,
     )
-    return PedidoSalida(**fila)
+    return PedidoSalida.para_sesion(fila, sesion)
 
 
 @router.patch("/{pedido_id}/estado", response_model=PedidoSalida)
 async def cambiar_estado(
     pedido_id: int,
     datos: CambiarEstadoEntrada,
-    sesion: GestionPedidos,
+    sesion: PermisoPedidosCambiarEstado,
     servicio: ServicioPedidosDep,
 ) -> PedidoSalida:
+    if sesion.rol == Rol.REPARTIDOR:
+        await servicio.detalle(pedido_id, repartidor_id=sesion.usuario_id)
     fila = await servicio.cambiar_estado(
         pedido_id,
         datos.estado,
@@ -132,6 +141,8 @@ async def cambiar_estado(
         estado_esperado=datos.estado_esperado,
         correccion=datos.correccion,
         tratamiento_stock=datos.tratamiento_stock,
+        permitir_correccion=sesion.puede("pedidos.cambiar_estado"),
+        permitir_recuperacion=sesion.puede("pedidos.recuperar"),
         rol=sesion.rol,
     )
-    return PedidoSalida(**fila)
+    return PedidoSalida.para_sesion(fila, sesion)

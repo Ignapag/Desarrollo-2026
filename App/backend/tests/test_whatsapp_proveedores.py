@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import io
 import json
+from copy import copy
 from urllib.error import HTTPError, URLError
 
 import pytest
@@ -43,7 +44,7 @@ def http(monkeypatch):
     respuestas = []
 
     def abrir(solicitud, *, timeout):
-        llamadas.append((solicitud, timeout))
+        llamadas.append((copy(solicitud), timeout))
         respuesta = respuestas.pop(0)
         if isinstance(respuesta, Exception):
             raise respuesta
@@ -549,6 +550,40 @@ async def test_gemini_no_usa_alternativo_pago_ni_reintenta_permisos(http):
     ).interpretar("hola", {})
     assert resultado["causa_proveedor"] == "PERMISOS"
     assert len(llamadas) == 1
+
+
+async def test_gemini_por_defecto_recupera_con_segundo_respaldo(http, monkeypatch):
+    llamadas, respuestas = http
+    respuestas.extend([
+        HTTPError("https://ficticio.test", 503, "privado", {}, None),
+        TimeoutError("privado"),
+        respuesta_funcion("consulta", {}),
+    ])
+    monkeypatch.setattr(dependencias, "settings", Settings(
+        _env_file=None, gemini_modo="real", gemini_api_key="ficticia",
+    ))
+
+    resultado = await dependencias.interpretador().interpretar("hola", {})
+
+    assert resultado == {"accion": "consulta", "argumentos": {}}
+    assert [solicitud.full_url.rsplit("/", 1)[-1] for solicitud, _ in llamadas] == [
+        "gemini-3.5-flash-lite:generateContent",
+        "gemini-3.1-flash-lite:generateContent",
+        "gemini-3.6-flash:generateContent",
+    ]
+
+
+async def test_gemini_dos_respaldos_agotados_no_generan_cuarta_llamada(http):
+    llamadas, respuestas = http
+    respuestas.extend([HTTPError("https://ficticio.test", 429, "privado", {}, None)] * 3)
+    resultado = await proveedores.GeminiInterpretador(
+        "ficticia", "gemini-3.5-flash-lite",
+        modelos_alternativos=["gemini-3.1-flash-lite", "gemini-3.6-flash"],
+        max_intentos=3,
+    ).interpretar("hola", {})
+    assert resultado["causa_proveedor"] == "CUOTA"
+    assert len(llamadas) == 3
+    assert not respuestas
 
 
 async def test_gemini_agota_todos_los_modelos_sin_superar_presupuesto(http):

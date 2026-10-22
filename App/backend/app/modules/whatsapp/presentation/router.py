@@ -10,8 +10,8 @@ from app.core.config import settings
 from app.core.db import UnidadDeTrabajo, conexion
 from app.core.dependencias import UoW
 from app.errores import DatosInvalidos, NoEncontrado, SinPermiso
-from app.modules.usuarios.domain.entidades import ClaimsSesion, Rol
-from app.modules.usuarios.presentation.dependencias import requiere_rol
+from app.modules.usuarios.domain.entidades import ClaimsSesion
+from app.modules.usuarios.presentation.dependencias import requiere_permiso
 from app.modules.whatsapp.infrastructure.cola import ColaWhatsAppSQL
 from app.modules.whatsapp.infrastructure.proveedores import validar_firma
 from app.modules.whatsapp.presentation.dependencias import (
@@ -28,10 +28,37 @@ from app.modules.whatsapp.presentation.esquemas import (
     RevisionEntrada,
 )
 
-router = APIRouter(prefix="/api/whatsapp", tags=["WhatsApp"])
-Empleado = Annotated[
-    ClaimsSesion, Depends(requiere_rol(Rol.EMPLEADO, Rol.ADMINISTRADOR, Rol.DUENIO))
+PermisoWhatsappGestionar = Annotated[
+    ClaimsSesion, Depends(requiere_permiso("whatsapp", "gestionar"))
 ]
+PermisoWhatsappVer = Annotated[ClaimsSesion, Depends(requiere_permiso("whatsapp", "ver"))]
+
+
+def autorizar_revision_comprobante(
+    datos: RevisionEntrada,
+    personal: PermisoWhatsappGestionar,
+) -> ClaimsSesion:
+    if datos.aprobar and not (
+        personal.puede("pagos.registrar") and personal.puede("pagos.conciliar")
+    ):
+        raise SinPermiso("Aprobar el comprobante requiere registrar y conciliar pagos")
+    return personal
+
+
+def autorizar_revision_cambio(
+    datos: RevisionEntrada,
+    personal: PermisoWhatsappGestionar,
+) -> ClaimsSesion:
+    if datos.aprobar and not personal.puede("pedidos.editar"):
+        raise SinPermiso("Aprobar el cambio requiere permiso para editar pedidos")
+    return personal
+
+
+RevisionComprobante = Annotated[ClaimsSesion, Depends(autorizar_revision_comprobante)]
+RevisionCambio = Annotated[ClaimsSesion, Depends(autorizar_revision_cambio)]
+
+
+router = APIRouter(prefix="/api/whatsapp", tags=["WhatsApp"])
 
 
 @router.post("/borradores", status_code=201)
@@ -40,7 +67,9 @@ async def crear_borrador(datos: BorradorEntrada, servicio: ServicioBotDep):
 
 
 @router.post("/simular", status_code=202)
-async def simular(datos: MensajeSimulado, personal: Empleado, servicio: ServicioBotDep):
+async def simular(
+    datos: MensajeSimulado, personal: PermisoWhatsappGestionar, servicio: ServicioBotDep
+):
     if settings.es_produccion or settings.whatsapp_modo != "simulado":
         raise SinPermiso("La simulación solo está habilitada en desarrollo simulado")
     await servicio.recibir(datos.id, datos.telefono, datos.texto, datos.media_id)
@@ -48,19 +77,22 @@ async def simular(datos: MensajeSimulado, personal: Empleado, servicio: Servicio
 
 
 @router.get("/bandeja")
-async def bandeja(personal: Empleado, uow: UoW):
+async def bandeja(personal: PermisoWhatsappVer, uow: UoW):
     return await ColaWhatsAppSQL(uow).bandeja()
 
 
 @router.get("/avisos", response_model=AvisosSalida)
-async def avisos(personal: Empleado, uow: UoW, response: Response):
+async def avisos(personal: PermisoWhatsappVer, uow: UoW, response: Response):
     response.headers["Cache-Control"] = "private, no-store"
     return await ColaWhatsAppSQL(uow).avisos()
 
 
 @router.post("/comprobantes/{comprobante_id}/revision")
 async def revisar(
-    comprobante_id: int, datos: RevisionEntrada, personal: Empleado, servicio: ServicioBotDep
+    comprobante_id: int,
+    datos: RevisionEntrada,
+    personal: RevisionComprobante,
+    servicio: ServicioBotDep,
 ):
     return await servicio.revisar_comprobante(
         comprobante_id,
@@ -72,7 +104,7 @@ async def revisar(
 
 
 @router.get("/comprobantes/{comprobante_id}/archivo")
-async def archivo(comprobante_id: int, personal: Empleado):
+async def archivo(comprobante_id: int, personal: PermisoWhatsappVer):
     async with conexion() as conn:
         fila = await UnidadDeTrabajo(conn).uno(
             "SELECT media_id FROM whatsapp_comprobante WHERE id=%s", (comprobante_id,)
@@ -83,12 +115,13 @@ async def archivo(comprobante_id: int, personal: Empleado):
 
 
 @router.get("/atenciones/{atencion_id}/archivo")
-async def archivo_atencion(atencion_id: int, personal: Empleado):
+async def archivo_atencion(atencion_id: int, personal: PermisoWhatsappVer):
     async with conexion() as conn:
         fila = await UnidadDeTrabajo(conn).uno(
             """SELECT e.media_id FROM whatsapp_atencion a
             JOIN whatsapp_entrada e ON e.id=a.entrada_id
-            WHERE a.id=%s AND a.motivo='COMPROBANTE'""", (atencion_id,)
+            WHERE a.id=%s AND a.motivo='COMPROBANTE'""",
+            (atencion_id,),
         )
     if not fila or not fila["media_id"]:
         raise NoEncontrado("El comprobante no existe")
@@ -100,7 +133,8 @@ async def _adjunto(media_id: str):
         # Sólo se llega desde rutas con guarda de personal, nunca por una URL pública.
         async with conexion() as conn:
             archivo = await UnidadDeTrabajo(conn).uno(
-                "SELECT contenido,mime FROM chat_demo_archivo WHERE media_id=%s", (media_id,),
+                "SELECT contenido,mime FROM chat_demo_archivo WHERE media_id=%s",
+                (media_id,),
             )
         if not archivo:
             raise NoEncontrado("El comprobante no existe")
@@ -122,7 +156,10 @@ async def _adjunto(media_id: str):
 
 @router.post("/cambios/{cambio_id}/revision")
 async def revisar_cambio(
-    cambio_id: int, datos: RevisionEntrada, personal: Empleado, servicio: ServicioBotDep
+    cambio_id: int,
+    datos: RevisionEntrada,
+    personal: RevisionCambio,
+    servicio: ServicioBotDep,
 ):
     return await servicio.revisar_cambio(
         cambio_id,
@@ -138,7 +175,7 @@ async def revisar_cambio(
 async def responder_atencion(
     atencion_id: int,
     datos: RespuestaAtencionEntrada,
-    personal: Empleado,
+    personal: PermisoWhatsappGestionar,
     servicio: ServicioBotDep,
 ):
     # 202: queda en la outbox; el estado de envío real se consulta en la bandeja.
@@ -151,7 +188,7 @@ async def responder_atencion(
 async def resolver_atencion(
     atencion_id: int,
     datos: ResolucionAtencionEntrada,
-    personal: Empleado,
+    personal: PermisoWhatsappGestionar,
     servicio: ServicioBotDep,
 ):
     return await servicio.resolver_atencion(atencion_id, personal.usuario_id, datos.resolucion)
@@ -204,7 +241,8 @@ async def webhook(request: Request):
             for valor in eventos:
                 nombres = {
                     contacto["wa_id"]: contacto.get("profile", {}).get("name")
-                    for contacto in valor.get("contacts", []) if contacto.get("wa_id")
+                    for contacto in valor.get("contacts", [])
+                    if contacto.get("wa_id")
                 }
                 for m in valor.get("messages", []):
                     tipo = m.get("type")
@@ -217,7 +255,10 @@ async def webhook(request: Request):
                     else:
                         texto = "atención humana"
                     await servicio.recibir(
-                        m["id"], m["from"], texto, media,
+                        m["id"],
+                        m["from"],
+                        texto,
+                        media,
                         nombre_remitente=nombres.get(m["from"]),
                     )
                 for estado in valor.get("statuses", []):

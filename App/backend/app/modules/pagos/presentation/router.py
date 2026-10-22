@@ -7,6 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, status
 
 from app.core.dependencias import IpCliente
+from app.errores import SinPermiso
 from app.modules.pagos.presentation.dependencias import ServicioConciliacionDep, ServicioPagosDep
 from app.modules.pagos.presentation.esquemas import (
     AnularPagoEntrada,
@@ -24,17 +25,14 @@ from app.modules.pagos.presentation.esquemas import (
 from app.modules.pedidos.presentation.dependencias import ServicioPedidosDep
 from app.modules.pedidos.presentation.esquemas import PedidoSalida
 from app.modules.usuarios.domain.entidades import ClaimsSesion, Rol
-from app.modules.usuarios.presentation.dependencias import requiere_rol
+from app.modules.usuarios.presentation.dependencias import requiere_permiso
+
+PermisoPagosRegistrar = Annotated[ClaimsSesion, Depends(requiere_permiso("pagos", "registrar"))]
+PermisoPagosVer = Annotated[ClaimsSesion, Depends(requiere_permiso("pagos", "ver", cliente=True))]
+PermisoPagosConciliar = Annotated[ClaimsSesion, Depends(requiere_permiso("pagos", "conciliar"))]
+PermisoPagosCorregir = Annotated[ClaimsSesion, Depends(requiere_permiso("pagos", "corregir"))]
 
 router = APIRouter(prefix="/api/pagos", tags=["pagos"])
-SesionPagos = Annotated[
-    ClaimsSesion,
-    Depends(requiere_rol(Rol.CLIENTE, Rol.EMPLEADO, Rol.ADMINISTRADOR, Rol.DUENIO)),
-]
-PersonalPagos = Annotated[
-    ClaimsSesion,
-    Depends(requiere_rol(Rol.EMPLEADO, Rol.ADMINISTRADOR, Rol.DUENIO)),
-]
 
 
 @router.post(
@@ -45,7 +43,7 @@ PersonalPagos = Annotated[
 )
 async def registrar_pago_efectivo(
     datos: RegistrarPagoEfectivoEntrada,
-    sesion: PersonalPagos,
+    sesion: PermisoPagosRegistrar,
     servicio: ServicioPagosDep,
     pedidos: ServicioPedidosDep,
     incluir_pedido: bool = False,
@@ -58,6 +56,8 @@ async def registrar_pago_efectivo(
     - Registra dinero sin cambiar el estado físico del pedido.
     - Registra el evento en auditoría con la IP del cliente.
     """
+    if datos.conciliar_inmediato and not sesion.puede("pagos.conciliar"):
+        raise SinPermiso("Conciliar el cobro requiere permiso de conciliacion")
     resultado = await servicio.registrar_pago_efectivo(
         pedido_id=datos.pedido_id,
         monto_recibido=datos.monto_recibido,
@@ -70,7 +70,7 @@ async def registrar_pago_efectivo(
     )
     salida = ResultadoCobroEfectivoSalida.desde_dominio(resultado)
     if incluir_pedido:
-        salida.pedido = PedidoSalida(**await pedidos.detalle(datos.pedido_id))
+        salida.pedido = PedidoSalida.para_sesion(await pedidos.detalle(datos.pedido_id), sesion)
     return salida
 
 
@@ -82,7 +82,7 @@ async def registrar_pago_efectivo(
 )
 async def registrar_transferencia(
     datos: RegistrarTransferenciaEntrada,
-    sesion: PersonalPagos,
+    sesion: PermisoPagosRegistrar,
     servicio: ServicioPagosDep,
     conciliacion: ServicioConciliacionDep,
     pedidos: ServicioPedidosDep,
@@ -90,6 +90,8 @@ async def registrar_transferencia(
     confirmar_ingreso: bool = False,
     ip: IpCliente = None,
 ) -> PagoOperacionSalida:
+    if confirmar_ingreso and not sesion.puede("pagos.conciliar"):
+        raise SinPermiso("Confirmar el ingreso requiere permiso de conciliacion")
     pago = await servicio.registrar_transferencia(
         pedido_id=datos.pedido_id,
         monto=datos.monto,
@@ -108,7 +110,7 @@ async def registrar_transferencia(
         )
     salida = PagoOperacionSalida.desde_dominio(pago)
     if incluir_pedido:
-        salida.pedido = PedidoSalida(**await pedidos.detalle(pago.pedido_id))
+        salida.pedido = PedidoSalida.para_sesion(await pedidos.detalle(pago.pedido_id), sesion)
     return salida
 
 
@@ -119,7 +121,7 @@ async def registrar_transferencia(
 )
 async def estado_financiero_pedido(
     pedido_id: int,
-    sesion: SesionPagos,
+    sesion: PermisoPagosVer,
     servicio: ServicioPagosDep,
 ) -> EstadoFinancieroPedidoSalida:
     """Retorna el balance de pagos, saldo pendiente, detalle de pagos y si el pedido \
@@ -138,7 +140,7 @@ está saldado."""
 )
 async def listar_pagos_pedido(
     pedido_id: int,
-    sesion: SesionPagos,
+    sesion: PermisoPagosVer,
     servicio: ServicioPagosDep,
 ) -> list[PagoSalida]:
     """Retorna el historial completo de pagos y egresos/devoluciones asociados a un pedido."""
@@ -155,7 +157,7 @@ async def listar_pagos_pedido(
     summary="Listar pagos pendientes de conciliación",
 )
 async def listar_pendientes_conciliacion(
-    _sesion: PersonalPagos,
+    _sesion: PermisoPagosConciliar,
     servicio: ServicioConciliacionDep,
 ) -> list[PagoSalida]:
     """Recupera la lista de cobros que aún se encuentran pendientes de acreditación o arqueo."""
@@ -170,7 +172,7 @@ async def listar_pendientes_conciliacion(
 )
 async def conciliar_lote(
     datos: ConciliarLoteEntrada,
-    sesion: PersonalPagos,
+    sesion: PermisoPagosConciliar,
     servicio: ServicioConciliacionDep,
     ip: IpCliente = None,
 ) -> ResultadoConciliacionLoteSalida:
@@ -191,7 +193,7 @@ async def conciliar_lote(
 )
 async def registrar_devolucion(
     datos: RegistrarDevolucionEntrada,
-    sesion: PersonalPagos,
+    sesion: PermisoPagosCorregir,
     servicio: ServicioConciliacionDep,
     pedidos: ServicioPedidosDep,
     incluir_pedido: bool = False,
@@ -215,7 +217,9 @@ async def registrar_devolucion(
     )
     salida = PagoOperacionSalida.desde_dominio(devolucion)
     if incluir_pedido:
-        salida.pedido = PedidoSalida(**await pedidos.detalle(devolucion.pedido_id))
+        salida.pedido = PedidoSalida.para_sesion(
+            await pedidos.detalle(devolucion.pedido_id), sesion
+        )
     return salida
 
 
@@ -226,7 +230,7 @@ async def registrar_devolucion(
 )
 async def obtener_pago(
     pago_id: int,
-    sesion: SesionPagos,
+    sesion: PermisoPagosVer,
     servicio: ServicioPagosDep,
 ) -> PagoSalida:
     """Obtiene los datos de un pago registrado por su identificador primario."""
@@ -244,7 +248,7 @@ async def obtener_pago(
 )
 async def conciliar_pago(
     pago_id: int,
-    sesion: PersonalPagos,
+    sesion: PermisoPagosConciliar,
     servicio: ServicioConciliacionDep,
     pedidos: ServicioPedidosDep,
     incluir_pedido: bool = False,
@@ -265,7 +269,7 @@ async def conciliar_pago(
     )
     salida = PagoOperacionSalida.desde_dominio(pago)
     if incluir_pedido:
-        salida.pedido = PedidoSalida(**await pedidos.detalle(pago.pedido_id))
+        salida.pedido = PedidoSalida.para_sesion(await pedidos.detalle(pago.pedido_id), sesion)
     return salida
 
 
@@ -277,7 +281,7 @@ async def conciliar_pago(
 async def anular_pago(
     pago_id: int,
     datos: AnularPagoEntrada,
-    sesion: PersonalPagos,
+    sesion: PermisoPagosCorregir,
     servicio: ServicioConciliacionDep,
     ip: IpCliente = None,
 ) -> PagoSalida:

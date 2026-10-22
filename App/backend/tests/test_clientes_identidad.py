@@ -15,7 +15,7 @@ from app.modules.pedidos.application.servicio_pedidos import ServicioPedidos
 from app.modules.pedidos.infrastructure.repositorio_sql import RepositorioPedidosSQL
 from app.modules.pedidos.presentation.dependencias import obtener_servicio_pedidos
 from app.modules.usuarios.domain.entidades import ClaimsSesion, Rol
-from app.modules.usuarios.presentation.dependencias import usuario_actual
+from app.modules.usuarios.presentation.dependencias import sesion_vigente
 from app.modules.whatsapp.infrastructure.cola import ColaWhatsAppSQL
 
 
@@ -57,7 +57,7 @@ async def test_usuario_y_cliente_con_ids_distintos_se_resuelven_explicitamente(u
         "INSERT INTO pedido (cliente_id, tipo_entrega) VALUES (%s, 'RETIRO') RETURNING id",
         (cliente_id,),
     )
-    app.dependency_overrides[usuario_actual] = lambda: ClaimsSesion(
+    app.dependency_overrides[sesion_vigente] = lambda: ClaimsSesion(
         usuario_id, Rol.CLIENTE, "cuenta"
     )
     app.dependency_overrides[obtener_servicio_pedidos] = lambda: servicio
@@ -69,7 +69,7 @@ async def test_usuario_y_cliente_con_ids_distintos_se_resuelven_explicitamente(u
         assert respuesta.status_code == 200
         assert [pedido["id"] for pedido in respuesta.json()] == [pedido_id]
     finally:
-        app.dependency_overrides.pop(usuario_actual, None)
+        app.dependency_overrides.pop(sesion_vigente, None)
         app.dependency_overrides.pop(obtener_servicio_pedidos, None)
     await uow.ejecutar("UPDATE usuario SET estado='INACTIVO' WHERE id=%s", (usuario_id,))
     assert not await repo.cliente_valido(cliente_id)
@@ -85,7 +85,7 @@ async def test_usuario_sin_cliente_comercial_no_se_convierte_en_historial_global
 
 @pytest.mark.asyncio
 async def test_repartidor_no_crea_pedido_ni_cambia_estado_manualmente():
-    app.dependency_overrides[usuario_actual] = lambda: ClaimsSesion(1, Rol.REPARTIDOR, "reparto")
+    app.dependency_overrides[sesion_vigente] = lambda: ClaimsSesion(1, Rol.REPARTIDOR, "reparto")
     try:
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"
@@ -99,7 +99,7 @@ async def test_repartidor_no_crea_pedido_ni_cambia_estado_manualmente():
             )
             assert respuesta.status_code == 403
     finally:
-        app.dependency_overrides.pop(usuario_actual, None)
+        app.dependency_overrides.pop(sesion_vigente, None)
 
 
 @pytest.mark.asyncio
@@ -318,7 +318,7 @@ async def test_repartidor_consulta_solo_envios_pendientes_de_su_viaje_activo(uow
         (cliente_id,),
     )
     servicio = ServicioPedidos(RepositorioPedidosSQL(uow), None)
-    app.dependency_overrides[usuario_actual] = lambda: ClaimsSesion(
+    app.dependency_overrides[sesion_vigente] = lambda: ClaimsSesion(
         propio, Rol.REPARTIDOR, "repartidor"
     )
     app.dependency_overrides[obtener_servicio_pedidos] = lambda: servicio
@@ -331,7 +331,7 @@ async def test_repartidor_consulta_solo_envios_pendientes_de_su_viaje_activo(uow
         assert [p["id"] for p in respuesta.json()] == [pedidos[1]]
         assert sin_envio not in [p["id"] for p in respuesta.json()]
     finally:
-        app.dependency_overrides.pop(usuario_actual, None)
+        app.dependency_overrides.pop(sesion_vigente, None)
         app.dependency_overrides.pop(obtener_servicio_pedidos, None)
     assert await servicio.listar(cliente_id=cliente_id + 1000000, repartidor_id=propio) == []
     await uow.ejecutar("UPDATE viaje SET estado='FINALIZADO' WHERE repartidor_id=%s", (propio,))

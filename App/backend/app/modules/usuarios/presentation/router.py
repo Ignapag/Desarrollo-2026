@@ -13,20 +13,23 @@ rechaza sin gastar una conexion a la base (ver docs/GUIA_EQUIPO.md, seccion 7).
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Annotated
 
-from fastapi import APIRouter, Query, Response
+from fastapi import APIRouter, Depends, Query, Response
 
 from app.core import auditoria
 from app.core.config import settings
 from app.core.dependencias import IpCliente, UoW
 from app.errores import NoEncontrado
 from app.modules.usuarios.application.servicio_usuarios import FiltrosUsuario
+from app.modules.usuarios.domain.entidades import ClaimsSesion
 from app.modules.usuarios.presentation.dependencias import (
-    AdministradorODuenio,
+    ServicioAccesoDep,
     ServicioAuthDep,
     ServicioUsuariosDep,
     Sesion,
     SoloAdministrador,
+    requiere_permiso,
 )
 from app.modules.usuarios.presentation.esquemas import (
     AsignarRolEntrada,
@@ -39,6 +42,7 @@ from app.modules.usuarios.presentation.esquemas import (
 )
 
 router = APIRouter(tags=["usuarios"])
+VerAuditoria = Annotated[ClaimsSesion, Depends(requiere_permiso("auditoria", "ver"))]
 
 
 def _samesite_cookie() -> str:
@@ -50,9 +54,11 @@ def _samesite_cookie() -> str:
 
 @router.post("/api/auth/login", response_model=SesionSalida)
 async def iniciar_sesion(
-    datos: LoginEntrada, respuesta: Response, ip: IpCliente, servicio: ServicioAuthDep
+    datos: LoginEntrada, respuesta: Response, ip: IpCliente,
+    servicio: ServicioAuthDep, acceso: ServicioAccesoDep,
 ) -> SesionSalida:
     sesion = await servicio.iniciar_sesion(username=datos.username, password=datos.password, ip=ip)
+    vigente = await acceso.sesion(ClaimsSesion(sesion.usuario_id, sesion.rol, sesion.username))
     respuesta.set_cookie(
         key=settings.cookie_sesion,
         value=sesion.token,
@@ -68,6 +74,7 @@ async def iniciar_sesion(
         apellido=sesion.apellido,
         username=sesion.username,
         rol=sesion.rol.value,
+        permisos=sorted(vigente.permisos),
     )
 
 
@@ -92,6 +99,7 @@ async def quien_soy(sesion: Sesion, servicio: ServicioUsuariosDep) -> SesionSali
         apellido=usuario["apellido"],
         username=usuario["username"],
         rol=usuario["rol"],
+        permisos=sorted(sesion.permisos or ()),
     )
 
 
@@ -164,7 +172,7 @@ async def asignar_rol(
 
 @router.get("/api/auditoria", response_model=list[EventoAuditoriaSalida])
 async def consultar_auditoria(
-    _sesion: AdministradorODuenio,
+    _sesion: VerAuditoria,
     uow: UoW,
     desde: datetime | None = None,
     hasta: datetime | None = None,
@@ -187,7 +195,7 @@ async def consultar_auditoria(
 
 @router.get("/api/auditoria/{evento_id}", response_model=EventoAuditoriaSalida)
 async def detalle_auditoria(
-    evento_id: int, _sesion: AdministradorODuenio, uow: UoW
+    evento_id: int, _sesion: VerAuditoria, uow: UoW
 ) -> EventoAuditoriaSalida:
     evento = await auditoria.obtener(uow, evento_id)
     if evento is None:
