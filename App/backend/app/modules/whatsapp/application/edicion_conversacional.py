@@ -139,6 +139,18 @@ async def catalogo(bot):
     return await bot.productos.listar(solo_activos=True)
 
 
+def _coincide_descripcion(producto, buscado):
+    """Referencia literal de al menos dos palabras significativas; sin inferir sinónimos."""
+    descripcion = producto.get("descripcion")
+    if not isinstance(descripcion, str):
+        return False
+    palabras = re.findall(r"\w+", buscado)
+    genericas = {"de", "del", "la", "las", "el", "los", "un", "una", "con", "sin", "y"}
+    if len([p for p in palabras if p not in genericas]) < 2:
+        return False
+    return bool(re.search(r"(?<!\w)" + re.escape(buscado) + r"(?!\w)", normalizar(descripcion)))
+
+
 def _guardar_pendiente(b, accion, argumentos, entrada, foto, campo):
     chat = dict(b.get("contexto_chat") or {})
     anterior = chat.get("edicion") or {}
@@ -345,6 +357,8 @@ async def resolver_items(bot, b, entrada, pedido, accion, *, permitir_vacio=Fals
                 coincidencias = [
                     p for p in productos if buscado and buscado in normalizar(p["nombre"])
                 ]
+            if not coincidencias:
+                coincidencias = [p for p in productos if _coincide_descripcion(p, buscado)]
             if len(coincidencias) == 1:
                 producto = coincidencias[0]
             elif coincidencias:

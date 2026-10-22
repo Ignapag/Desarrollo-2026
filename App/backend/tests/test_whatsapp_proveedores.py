@@ -183,7 +183,8 @@ async def test_gemini_solo_pide_una_accion_y_omite_contexto_personal(http):
         assert privado not in contexto_enviado
 
 
-async def test_descripcion_del_catalogo_llega_desde_servicio_hasta_gemini(http):
+@pytest.mark.parametrize('referencia_modelo', ['Nagui burger', 'triple tasty'])
+async def test_descripcion_del_catalogo_llega_desde_servicio_hasta_gemini(http, referencia_modelo):
     llamadas, respuestas = http
     producto = {
         'id': 99, 'nombre': 'Nagui burger', 'descripcion': 'Triple tasty de Nagi',
@@ -206,7 +207,7 @@ async def test_descripcion_del_catalogo_llega_desde_servicio_hasta_gemini(http):
     contexto = await bot._contexto(borrador)
     assert contexto['catalogo'][0]['descripcion'] == 'Triple tasty de Nagi'
     respuestas.append(respuesta_funcion('agregar_producto', {
-        'producto': 'Nagui burger', 'cantidad': 1, 'aclaraciones': 'Sin lechuga',
+        'producto': referencia_modelo, 'cantidad': 1, 'aclaraciones': 'Sin lechuga',
     }))
     accion = await proveedores.GeminiInterpretador('ficticia', 'modelo').interpretar(
         'pueden agregarme una triple tasty sin lechuga porfa', contexto,
