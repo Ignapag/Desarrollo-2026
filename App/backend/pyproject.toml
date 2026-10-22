@@ -1,7 +1,7 @@
 [project]
 name = "monu-burger-backend"
 version = "0.1.0"
-description = "API del Sistema de Gestion para Monu Burger - Seminario Integrador 2026"
+description = "API del Sistema de Gestion para Monu Burger - Desarrollo 2026"
 requires-python = ">=3.12"
 
 [tool.pytest.ini_options]

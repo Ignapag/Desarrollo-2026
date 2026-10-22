@@ -1,8 +1,8 @@
 # Guía de trabajo con la base de datos
 
-Grupo 19 · Seminario Integrador 2026 · Sistema de Gestión Monu Burger
+Grupo 19 · Desarrollo 2026 · Sistema de Gestión Monu Burger
 
-Esta guía es para los seis integrantes. La base de datos es **una sola,
+Esta guía es para los cuatro integrantes. La base de datos es **una sola,
 compartida en la nube**, y da soporte a todos los módulos del sistema.
 
 Antes de integrar código, leer también [ARQUITECTURA.md](ARQUITECTURA.md):
@@ -52,7 +52,7 @@ el `sslmode` y si tu IP necesita estar habilitada en el panel del proveedor.
 
 ## 2. Qué NO hacer nunca
 
-La base es compartida: lo que rompas, lo rompés para los seis.
+La base es compartida: lo que rompas afecta a todo el equipo.
 
 | No hacer | Por qué |
 |----------|---------|
@@ -89,8 +89,8 @@ Cada uno clona el repositorio en su máquina y trabaja **en su propia rama**.
 Lo que cada uno hace se integra a `main` por Pull Request.
 
 ```bash
-git clone https://github.com/Ignapag/Proyecto---Seminario-Integrador-2026.git
-cd Proyecto---Seminario-Integrador-2026
+git clone https://github.com/Ignapag/Desarrollo-2026.git
+cd Desarrollo-2026
 git checkout -b TuNombre       # la primera vez
 ```
 
@@ -171,7 +171,7 @@ Esta es la diferencia importante. Git te protege de pisar el trabajo de otro:
 podés equivocarte en tu rama sin afectar a nadie, y siempre se puede volver
 atrás.
 
-**La base compartida no.** Si alguien borra una tabla, la borró para los seis
+**La base compartida no.** Si alguien borra una tabla, la borró para todo el equipo
 en ese instante. No hay rama, no hay revisión previa, no hay `git revert`. Por
 eso valen las reglas de la sección 2, y por eso el script bloquea `--reset`
 contra la base remota. Si necesitás romper cosas para probar, levantá un

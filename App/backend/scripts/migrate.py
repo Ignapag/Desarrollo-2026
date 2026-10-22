@@ -124,7 +124,7 @@ def es_base_local() -> bool:
     """True si el DSN apunta a esta maquina.
 
     El grupo comparte una unica base en la nube: un --reset contra ella
-    borraria el trabajo de los seis. Por eso la operacion destructiva solo
+    borraria el trabajo de todo el equipo. Por eso la operacion destructiva solo
     se permite en local, salvo que se pida explicitamente lo contrario.
     """
     host = settings.dsn_visible.split("/")[0].split(":")[0].lower()

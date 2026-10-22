@@ -4,9 +4,8 @@ Tareas asignadas a mí en el plan por responsable del proyecto
 **Sistema de Gestión Monu Burger**. Son 18 y están en el orden en que hay que
 hacerlas.
 
-> La columna "Trabaja junto con" aparecía cortada en el margen derecho del
-> original: donde decía "Juan Ignaci…" se completó como **Juan Ignacio
-> Martínez**. Conviene verificarlo.
+> Plan adaptado para Desarrollo 2026. Se conservan las fechas y estados del
+> registro original; las colaboraciones de relevamiento se indican por equipo.
 
 ---
 
@@ -15,8 +14,8 @@ hacerlas.
 Lo que falta de mi parte, en orden de dependencia:
 
 - [ ] **13. Control de Avance — Septiembre**
-- [ ] **14. Pruebas funcionales por módulo** — con José Joaquín Santoro, Emilio B. Rivero, Juan Ignacio Martínez
-- [ ] **15. Pruebas de integración end-to-end** — con José Joaquín Santoro, Emilio B. Rivero, Juan Ignacio Martínez
+- [ ] **14. Pruebas funcionales por módulo** — con José Joaquín Santoro y el equipo de pruebas
+- [ ] **15. Pruebas de integración end-to-end** — con José Joaquín Santoro y el equipo de pruebas
 - [ ] **16. Pruebas de rendimiento** — con José Joaquín Santoro
   Referencia: RNF-01 exige respuesta < 2 s en condiciones normales.
 - [ ] **17. Corrección de defectos y regresión** — con José Joaquín Santoro
@@ -45,9 +44,9 @@ Lo que falta de mi parte, en orden de dependencia:
   27 pruebas en `App/backend/tests/test_integridad_bd.py`, todas pasan.
 
 - [x] **1. Planificación**
-- [x] **2. Análisis de requerimientos** — con Emilio B. Rivero, Juan Ignacio Martínez
+- [x] **2. Análisis de requerimientos** — con el equipo de relevamiento
   Entrevista estructurada con un socio; 14 RF y 10 RNF identificados.
-- [x] **3. Documentación del relevamiento y alcance** — con Emilio B. Rivero, Juan Ignacio Martínez
+- [x] **3. Documentación del relevamiento y alcance** — con el equipo de relevamiento
   Entregado en la Actividad N°2 (reentrega).
 - [x] **4. Control de Avance — Junio**
 - [x] **5. Diseño del modelo de datos (DER)**
@@ -61,15 +60,16 @@ Lo que falta de mi parte, en orden de dependencia:
 
 ---
 
-## Transcripción completa del plan
+## Plan de tareas
 
-Tal como figura en el cronograma original.
+Fechas y duración del cronograma original, con las colaboraciones adaptadas
+para esta documentación de Desarrollo 2026.
 
 | # | Tarea | Módulo / Fase | Inicio | Fin | Duración | Trabaja junto con |
 |---|-------|---------------|--------|-----|----------|-------------------|
 | 1 | Planificación | Gestión del Proyecto | 16/3/26 | 25/3/26 | 8 días | — |
-| 2 | Análisis de requerimientos | Relevamiento | 1/4/26 | 7/4/26 | 5 días | Emilio B. Rivero, Juan Ignacio Martínez |
-| 3 | Documentación del relevamiento y alcance | Relevamiento | 8/4/26 | 14/4/26 | 5 días | Emilio B. Rivero, Juan Ignacio Martínez |
+| 2 | Análisis de requerimientos | Relevamiento | 1/4/26 | 7/4/26 | 5 días | Equipo de relevamiento |
+| 3 | Documentación del relevamiento y alcance | Relevamiento | 8/4/26 | 14/4/26 | 5 días | Equipo de relevamiento |
 | 4 | Control de Avance - Junio | Seguimiento y Control | 1/6/26 | 2/6/26 | 2 días | — |
 | 5 | Diseño del modelo de datos (DER) | Base de Datos | 3/6/26 | 9/6/26 | 5 días | — |
 | 6 | Implementación de esquema y tablas | Base de Datos | 10/6/26 | 16/6/26 | 5 días | — |
@@ -80,8 +80,8 @@ Tal como figura en el cronograma original.
 | 11 | Pruebas de asignación | Asignación de Repartidores | 13/7/26 | 15/7/26 | 3 días | — |
 | 12 | Control de Avance - Agosto | Seguimiento y Control | 3/8/26 | 4/8/26 | 2 días | — |
 | 13 | Control de Avance - Septiembre | Seguimiento y Control | 1/9/26 | 2/9/26 | 2 días | — |
-| 14 | Pruebas funcionales por módulo | Pruebas e Integración | 14/9/26 | 21/9/26 | 6 días | José Joaquín Santoro, Emilio B. Rivero, Juan Ignacio Martínez |
-| 15 | Pruebas de integración end-to-end | Pruebas e Integración | 22/9/26 | 28/9/26 | 5 días | José Joaquín Santoro, Emilio B. Rivero, Juan Ignacio Martínez |
+| 14 | Pruebas funcionales por módulo | Pruebas e Integración | 14/9/26 | 21/9/26 | 6 días | José Joaquín Santoro y equipo de pruebas |
+| 15 | Pruebas de integración end-to-end | Pruebas e Integración | 22/9/26 | 28/9/26 | 5 días | José Joaquín Santoro y equipo de pruebas |
 | 16 | Pruebas de rendimiento | Pruebas e Integración | 29/9/26 | 1/10/26 | 3 días | José Joaquín Santoro |
 | 17 | Corrección de defectos y regresión | Pruebas e Integración | 2/10/26 | 6/10/26 | 3 días | José Joaquín Santoro |
 | 18 | Cierre del Proyecto | Gestión del Proyecto | 7/10/26 | 19/10/26 | 8,38 días | José Joaquín Santoro |

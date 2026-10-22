@@ -1,6 +1,6 @@
 # Monu Burger: instrucciones para agentes
 
-Sistema de gestión de una hamburguesería, Grupo 19 del Seminario Integrador 2026.
+Sistema de gestión de una hamburguesería, Grupo 19 de Desarrollo 2026.
 Monolito modular: React/Vite en `App/frontend`, Python/FastAPI en `App/backend`
 y PostgreSQL con SQL directo en `App/db`. Respondé en español.
 

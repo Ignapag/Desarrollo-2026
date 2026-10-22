@@ -1,6 +1,6 @@
 # Backend y base de datos
 
-Parte del **Sistema de Gestión Monu Burger** — Grupo 19, Seminario Integrador 2026.
+Parte del **Sistema de Gestión Monu Burger** — Grupo 19, Desarrollo 2026.
 
 Contiene la base de datos centralizada del sistema y la API que la consume.
 El frontend vive en [`App/frontend/`](../frontend).

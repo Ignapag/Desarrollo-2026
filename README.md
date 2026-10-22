@@ -1,8 +1,8 @@
-# Sistema de Gestión — Monu Burger
+# Desarrollo 2026 — Monu Burger
 
-![CI](https://github.com/Ignapag/Proyecto---Seminario-Integrador-2026/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/Ignapag/Desarrollo-2026/actions/workflows/ci.yml/badge.svg)
 
-**Grupo 19** · Seminario Integrador 2026 · Habilitación Profesional
+**Desarrollo 2026** · Grupo 19 · Sistema de Gestión Monu Burger
 
 Sistema integral de gestión para **Monu Burger**, una hamburguesería de
 Ensenada, La Plata, que hoy opera sus ventas manualmente por WhatsApp e
@@ -41,7 +41,7 @@ docs/                   documentación técnica
 ├── CAMBIOS_DER.md      correcciones aplicadas al DER de la Actividad N°2
 └── TAREAS_IGNACIO.md   plan de tareas por responsable
 
-documentos/             entregables y documentación del proyecto
+documentos/             entregables históricos del proyecto
 ├── Actividad-02-Relevamiento-y-Alcance.pdf
 ├── Actividad-02-Relevamiento-y-Alcance-Reentrega.pdf
 ├── Informe-FODA.pdf
@@ -66,8 +66,8 @@ la base compartida, el flujo de Git y dónde debe integrarse cada capacidad sin
 crear proyectos o puntos de composición duplicados.
 
 ```bash
-git clone https://github.com/Ignapag/Proyecto---Seminario-Integrador-2026.git
-cd Proyecto---Seminario-Integrador-2026
+git clone https://github.com/Ignapag/Desarrollo-2026.git
+cd Desarrollo-2026
 git checkout -b TuNombre
 ```
 

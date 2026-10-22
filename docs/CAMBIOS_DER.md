@@ -4,7 +4,7 @@ Registro de todo lo incorporado al proyecto y de las correcciones aplicadas al
 modelo de datos respecto del diagrama entidad-relación entregado en
 `Stack_Tecnologico_Monu_Burger.pdf`.
 
-Última actualización: 01/09/2026 · Grupo 19 · Seminario Integrador 2026
+Última actualización técnica: 01/09/2026 · Grupo 19 · Desarrollo 2026
 
 ---
 
@@ -102,13 +102,13 @@ Cada módulo respeta las cuatro capas del stack declarado:
 | `005_pagos_y_caja.sql` | `cierre_caja`, `pago`, triggers de inmutabilidad |
 | `006_notificaciones.sql` | `notificacion_plantilla`, `notificacion`, vista `notificacion_latencia` |
 
-El seed carga los 6 integrantes del grupo como usuarios, 2 repartidores, 1
+El seed carga los 4 integrantes del grupo, 2 usuarios de demostración, 2 repartidores, 1
 cliente, las 3 zonas de reparto relevadas, 10 ingredientes con sus días de
 reposición reales (papas los miércoles; carne y pan martes, jueves y sábados),
 6 productos con receta y opcionales, y las 4 plantillas del bot.
 
 **Contraseña de todos los usuarios de desarrollo: `Monu2026!`**
-(`admin` / `ipagotto` / `jsantoro` / `erivero` / `jmartinez` / `nleguizamon` /
+(`admin` / `ipagotto` / `jsantoro` / `demo1` / `demo2` / `nleguizamon` /
 `taramburu` / `mdelivery` / `ldelivery` / `acliente`)
 
 ### Módulos de otros integrantes

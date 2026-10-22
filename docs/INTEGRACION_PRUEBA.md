@@ -16,19 +16,23 @@ Cada rama se incorporó con `git merge --no-ff` y sin modificar `main` ni las ra
 7. `feature/caja-generacion-resumen`.
 8. `feature/caja-aprobacion-bloqueo`.
 9. `feature/conciliacion-pagos`.
-10. `Juan` — frontend y flujo de pedidos.
-11. `Emilio` — frontend elegido como base visual ante superposiciones, según lo acordado.
+10. `feature/carrito-checkout` — frontend y flujo de pedidos.
+11. `feature/interfaz-operativa` — frontend elegido como base visual ante superposiciones, según lo acordado.
 
 No se generaron merges vacíos para `Ignacio`, `Nicolas`, `backend`, `develop` y `frontend`: al momento de integrar no tenían commits exclusivos respecto de `main` o apuntaban al mismo historial.
 
-Antes de los merges se detectó que `Emilio` estaba 10 commits detrás de `main` y `Juan` 9 commits detrás; se informó esta desactualización. `Tomas`, `Jose` y las ramas `feature/*` estaban solamente un commit detrás.
+Los nombres de las dos ramas de frontend se muestran con sus nombres actuales
+en Desarrollo 2026. Antes de los merges, la rama de interfaz operativa estaba
+10 commits detrás de `main` y la de carrito y checkout, 9; se informó esta
+desactualización. `Tomas`, `Jose` y las ramas de pagos estaban solamente un
+commit detrás.
 
 ## Conflictos resueltos
 
 - `app/core/dependencias.py` y `app/main.py`: se conservó una sola composición de aplicación, el descubrimiento automático de routers y las dependencias de sesión/roles. Las dependencias de negocio se movieron a la capa `presentation` de cada módulo.
 - Configuración: se unificaron JWT, cookies HttpOnly, CORS y Mercado Pago; `.env.example` documenta las variables necesarias sin incluir secretos.
 - Pagos/caja: se restauraron tanto la factoría del servicio de caja como `ServicioConciliacionDep`, que ramas distintas habían agregado/eliminado.
-- Frontend `Juan`/`Emilio`: para los archivos visuales compartidos (`App.jsx`, estilos, bootstrap de React, `package.json` y configuración de PostCSS) prevaleció Emilio. Se conservaron componentes y tipos exclusivos de Juan y luego se conectaron ambos conjuntos a la API integrada.
+- Frontend: para los archivos visuales compartidos (`App.jsx`, estilos, bootstrap de React, `package.json` y configuración de PostCSS) prevaleció la rama de interfaz operativa. Se conservaron componentes y tipos exclusivos de la rama de carrito y checkout y luego se conectaron ambos conjuntos a la API integrada.
 - Los archivos compartidos se resolvieron sumando routers, dependencias y configuración; no se aplicó `ours`/`theirs` sobre módulos completos.
 
 ## Base de datos y SQL

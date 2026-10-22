@@ -56,7 +56,7 @@ app = FastAPI(
     title=settings.app_nombre,
     version="0.1.0",
     description=(
-        "Sistema de Gestion para Monu Burger - Seminario Integrador 2026, Grupo 19."
+        "Sistema de Gestion para Monu Burger - Desarrollo 2026, Grupo 19."
     ),
     lifespan=ciclo_de_vida,
 )
