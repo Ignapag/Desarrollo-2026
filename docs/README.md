@@ -23,7 +23,8 @@ el estado de su fecha y pueden describir trabajo que ya cambió.
 | [Integración de ramas](INTEGRACION_PRUEBA.md) | Informe histórico de integración; sus resultados no prueban el estado actual. |
 | [Tareas de Ignacio](TAREAS_IGNACIO.md) | Plan histórico por responsable; contrastar con la implementación. |
 
-Los entregables académicos viven en [`documentos/`](../documentos/).
+El stack tecnológico y las dos versiones del relevamiento y alcance viven en
+[`documentos/`](../documentos/).
 No es necesario leerlos completos para un cambio localizado.
 
 ## Mantenimiento

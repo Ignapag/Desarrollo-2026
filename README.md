@@ -41,14 +41,10 @@ docs/                   documentación técnica
 ├── CAMBIOS_DER.md      correcciones aplicadas al DER de la Actividad N°2
 └── TAREAS_IGNACIO.md   plan de tareas por responsable
 
-documentos/             entregables históricos del proyecto
+documentos/             stack tecnológico y alcance del proyecto
 ├── Actividad-02-Relevamiento-y-Alcance.pdf
 ├── Actividad-02-Relevamiento-y-Alcance-Reentrega.pdf
-├── Informe-FODA.pdf
-├── Stack-Tecnologico.pdf
-├── Cronograma.pdf · Cronograma-Replanificado.mpp / .xml
-├── Diagrama-PERT.pdf
-└── Proyecto-Desarrollo-2026-Grupo-19.pdf
+└── Stack-Tecnologico.pdf
 
 AGENTS.md               instrucciones comunes; también hay guías por área
 CLAUDE.md               entrada a las mismas reglas desde Claude
