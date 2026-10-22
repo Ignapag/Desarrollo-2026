@@ -1083,7 +1083,18 @@ descripciones supera 10.000 bytes, se devuelve `CONTEXTO` sin llamar al proveedo
 El intérprete debe
 devolver el nombre registrado cuando identifica un producto inequívoco, o pedir
 aclaración si hay varias opciones. El backend sigue resolviendo el nombre contra el
-catálogo activo y validando receta, stock y confirmación. Las pruebas con HTTP simulado
+catálogo activo y validando receta, stock y confirmación. Si el intérprete devuelve
+la referencia comercial original, se prioriza la coincidencia por nombre exacto y
+luego parcial. Solo si no hay coincidencias por nombre, se busca la frase literal en
+la descripción, respetando límites de palabra, sin distinguir mayúsculas ni acentos.
+La referencia debe tener al menos dos palabras significativas: se ignoran artículos y
+conectores comunes como «de», «del», «con», «sin» e «y». No se infieren sinónimos
+ni se aceptan fragmentos de palabras.
+Una coincidencia única permite preparar la propuesta; varias muestran solamente sus
+candidatos y conservan cantidad y personalización hasta la elección. La selección no
+escribe el pedido: se mantiene la validación de stock y, si cambia el importe,
+se exige confirmación.
+Las pruebas con HTTP simulado
 verifican el envío de la descripción y ese contrato; no acreditan la interpretación
 semántica ni la disponibilidad de Gemini real con la clave de producción.
 

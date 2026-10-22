@@ -236,6 +236,36 @@ async def test_producto_ambiguo_conserva_eleccion_al_aclarar_variante(uow):
     assert (await s.repo.pedido(pid))["items"][-1]["producto_id"] == crispy["id"]
 
 
+async def test_referencia_comercial_propone_y_confirma_alta_sin_perder_personalizacion(uow):
+    s, pid = await crear_pedido_bot(uow)
+    anterior = await s.repo.pedido(pid)
+    original = anterior['items'][0]
+    await uow.ejecutar(
+        "UPDATE producto SET nombre='Nagui burger',descripcion='Triple tasty de Nagi' WHERE id=%s",
+        (original['producto_id'],),
+    )
+    movimientos = await uow.valor('SELECT count(*) FROM movimiento_stock')
+    respuesta = await enviar(
+        s, 'alias-comercial', 'quiero agregar una triple tasty sin tomate', 'agregar_producto',
+        {'producto': 'triple tasty', 'cantidad': 1, 'variante': original['variante'],
+         'aclaraciones': 'Sin tomate'},
+    )
+    assert 'Nagui burger' in respuesta and 'confirmar' in respuesta
+    assert await s.repo.pedido(pid) == anterior
+    assert await uow.valor('SELECT count(*) FROM movimiento_stock') == movimientos
+    guardado = await enviar(s, 'alias-confirmar', 'confirmar')
+    assert 'Cambio guardado' in guardado
+    actual = await s.repo.pedido(pid)
+    assert len(actual['items']) == 2
+    assert actual['items'][0] == original
+    assert actual['items'][1]['producto_id'] == original['producto_id']
+    assert actual['items'][1]['cantidad'] == 1
+    assert actual['items'][1]['aclaraciones'].casefold() == 'sin tomate'
+    assert actual['total'] > anterior['total']
+    assert await s.procesar('alias-confirmar', {}) == guardado
+    assert len((await s.repo.pedido(pid))['items']) == 2
+
+
 async def test_elegir_variante_ya_vigente_conserva_precio_y_snapshot(uow):
     s, pid = await crear_pedido_bot(uow)
     original = (await s.repo.pedido(pid))["items"][0]
