@@ -55,9 +55,11 @@ _ACCIONES_PLAN = (
     "personalizar", "cantidad", "quitar_ingrediente", "datos",
 )
 _HTTP_TRANSITORIOS = {500, 502, 503, 504}
-# Tokens estándar con nivel gratuito y function calling, verificado 20/10/2026.
+# Tokens estándar con nivel gratuito y function calling, verificado 22/10/2026.
 # La cuota efectiva depende del proyecto; esto no activa ni comprueba facturación.
-_MODELOS_ALTERNATIVOS_GRATUITOS = {"gemini-3.5-flash-lite", "gemini-3.1-flash-lite"}
+_MODELOS_ALTERNATIVOS_GRATUITOS = {
+    "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.6-flash",
+}
 _ERRORES_PROVEEDOR = (
     OSError,
     http.client.HTTPException,

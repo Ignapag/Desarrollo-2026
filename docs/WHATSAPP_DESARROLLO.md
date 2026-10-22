@@ -283,7 +283,7 @@ ni IA ejecutada en la petición HTTP. También se puede ejecutar el worker con
   el límite de texto de 2000 caracteres, contexto de 10.000 bytes, cuatro turnos
   semánticos y salida de hasta 768 tokens del adaptador Gemini. Cada entrada tiene como
   máximo dos interpretaciones por cambios concurrentes; cada una permite por defecto
-  dos intentos HTTP en veinte segundos, hasta cuatro llamadas/cuarenta segundos de
+  tres intentos HTTP en veinte segundos, hasta seis llamadas/cuarenta segundos de
   espera de IA por entrada. Los límites son configurables y la demora de API/base
   no está incluida en ese presupuesto del proveedor. Los avisos, adjuntos y comandos
   deterministas no consumen IA.
@@ -870,8 +870,8 @@ repositorio, `VITE_*`, capturas o logs. Variables del backend:
 | `GEMINI_MODO` | `simulado` por defecto; `real` para interpretar con Gemini. |
 | `GEMINI_API_KEY` | `<CLAVE_DE_GOOGLE_AI_STUDIO>`. |
 | `GEMINI_MODELO` | `gemini-3.5-flash-lite` por defecto; un valor explícito prevalece. |
-| `GEMINI_MODELOS_ALTERNATIVOS` | Lista JSON vacía por defecto; ejemplo `["gemini-3.1-flash-lite"]`. Solo admite 3.5/3.1 Flash-Lite verificados con nivel gratuito. |
-| `GEMINI_MAX_INTENTOS` | `2` por interpretación, entre 1 y 3; presupuesto compartido entre modelos. |
+| `GEMINI_MODELOS_ALTERNATIVOS` | `["gemini-3.1-flash-lite","gemini-3.6-flash"]` por defecto, en ese orden; `[]` desactiva respaldos. Solo admite 3.5/3.1 Flash-Lite y 3.6 Flash, con nivel gratuito verificado. |
+| `GEMINI_MAX_INTENTOS` | `3` por interpretación, entre 1 y 3; presupuesto compartido entre modelos. |
 | `GEMINI_TIMEOUT` | `15` segundos de timeout HTTP por intento; mayor que 0 y hasta 30. |
 | `GEMINI_TIEMPO_TOTAL` | `20` segundos por interpretación, mayor que 0 y hasta 45; incluye intentos y pausas. |
 
@@ -1013,18 +1013,29 @@ El modelo predeterminado es `gemini-3.5-flash-lite`, estable y compatible con
 llamadas a funciones y salidas estructuradas. La documentación oficial consultada
 el 20 de octubre de 2026 publica tokens estándar de entrada y salida gratuitos
 sujetos a cuota; también confirma `gemini-3.1-flash-lite` como modelo estable con
-funciones y nivel gratuito. El nivel gratuito puede usar contenido
+funciones y nivel gratuito. El 22 de octubre se verificó además `gemini-3.6-flash`,
+estable, con llamadas a funciones y tokens estándar gratuitos sujetos a cuota;
+se incorpora como segundo respaldo. El nivel gratuito puede usar contenido
 para mejorar productos: las pruebas académicas usan datos ficticios.
 
 Un `GEMINI_MODELO` explícito conserva la elección del entorno. El cambio del
 valor predeterminado no reemplaza variables ya guardadas en Render ni garantiza
-disponibilidad o cuota. `GEMINI_MODELOS_ALTERNATIVOS=[]` mantiene desactivado el
-fallback. Configurar `["gemini-3.1-flash-lite"]` permite probarlo ante un fallo recuperable;
-la lista acepta únicamente los dos Flash-Lite verificados. No activa facturación,
+disponibilidad o cuota. Por defecto, el backend usa la cadena
+`gemini-3.5-flash-lite` → `gemini-3.1-flash-lite` → `gemini-3.6-flash`.
+`GEMINI_MODELOS_ALTERNATIVOS=[]` desactiva los respaldos. Una lista explícita
+reemplaza la predeterminada y solo acepta los tres modelos verificados. No activa facturación,
 contrata servicios ni aumenta cuotas. **El adaptador no administra ni verifica el nivel
 de facturación del proyecto**: usar un modelo con nivel gratuito disponible no garantiza
 costo cero si la clave pertenece a un proyecto ya facturado. No se cambió ese nivel en
 esta sesión.
+
+Para activar ambos respaldos en un despliegue existente, configurar
+`GEMINI_MODELOS_ALTERNATIVOS=["gemini-3.1-flash-lite","gemini-3.6-flash"]` y
+`GEMINI_MAX_INTENTOS=3`, y reiniciar con la nueva versión. Valores anteriores
+guardados en Render, como `[]` o `2`, prevalecen sobre los nuevos predeterminados.
+La disponibilidad gratuita y la cuota efectiva se comprueban en el proyecto de AI Studio;
+la verificación de documentación y las pruebas con HTTP simulado no acreditan una
+llamada real al tercer modelo ni su activación remota.
 
 Si el modelo configurado devuelve HTTP 503 o `TimeoutError`, revisar disponibilidad
 antes de atribuirlo a falta de contexto. Se puede configurar
@@ -1032,7 +1043,7 @@ antes de atribuirlo a falta de contexto. Se puede configurar
 admite las herramientas del bot. Verificar la respuesta real y las cuotas del
 proyecto: que otro modelo responda no garantiza disponibilidad permanente.
 
-Cada `interpretar` tiene por defecto **dos intentos y veinte segundos totales**,
+El intérprete construido por el backend tiene por defecto **tres intentos y veinte segundos totales**,
 compartidos entre modelos; cada llamada HTTP tiene timeout de hasta quince segundos,
 reducido al tiempo restante. Para HTTP 500/502/503/504 usa una pausa inicial de 250 ms
 y puede repetir el mismo modelo o pasar al alternativo configurado. Cuota HTTP 429,
@@ -1040,8 +1051,11 @@ modelo HTTP 404 y timeout solo pasan a otro modelo si fue configurado; no repite
 mismo modelo agotado. Credenciales, permisos y salidas inválidas no se reintentan.
 Al vencer el plazo global se devuelve un fallo controlado sin iniciar otra llamada;
 cancelar la espera no garantiza cancelar el socket de urllib que ya corre en un thread.
+Agregar un respaldo no reserva tiempo para él: si los anteriores consumen el presupuesto,
+no se realiza el tercer intento. Las configuraciones de uno o dos intentos también
+pueden impedir recorrer la cadena completa.
 
-El worker puede reinterpretar una vez ante un cambio concurrente: máximo cuatro
+El worker puede reinterpretar una vez ante un cambio concurrente: máximo seis
 llamadas y cuarenta segundos de espera de IA por entrada con los valores por defecto.
 Con los máximos configurables son seis llamadas y noventa segundos. Es un presupuesto
 del proveedor, no una garantía de latencia de API o base. Las llamadas ocurren fuera de
@@ -1079,6 +1093,7 @@ El contenido de comprobantes no se envía al interpretador.
 
 Fuentes oficiales: [modelo](https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite),
 [modelo alternativo](https://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-lite),
+[segundo respaldo](https://ai.google.dev/gemini-api/docs/models/gemini-3.6-flash),
 [precios](https://ai.google.dev/gemini-api/docs/pricing),
 [límites por proyecto](https://ai.google.dev/gemini-api/docs/rate-limits),
 [retiros](https://ai.google.dev/gemini-api/docs/deprecations),
