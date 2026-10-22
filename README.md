@@ -48,7 +48,7 @@ documentos/             entregables históricos del proyecto
 ├── Stack-Tecnologico.pdf
 ├── Cronograma.pdf · Cronograma-Replanificado.mpp / .xml
 ├── Diagrama-PERT.pdf
-└── Proyecto-Seminario-2026-Grupo-19.pdf
+└── Proyecto-Desarrollo-2026-Grupo-19.pdf
 
 AGENTS.md               instrucciones comunes; también hay guías por área
 CLAUDE.md               entrada a las mismas reglas desde Claude
