@@ -283,8 +283,9 @@ ni IA ejecutada en la petición HTTP. También se puede ejecutar el worker con
   el límite de texto de 2000 caracteres, contexto de 10.000 bytes, cuatro turnos
   semánticos y salida de hasta 768 tokens del adaptador Gemini. Cada entrada tiene como
   máximo dos interpretaciones por cambios concurrentes; cada una permite por defecto
-  tres intentos HTTP en veinte segundos, hasta seis llamadas/cuarenta segundos de
-  espera de IA por entrada. Los límites son configurables y la demora de API/base
+  tres intentos HTTP con quince segundos independientes para cada uno, hasta seis
+  llamadas/noventa segundos de espera de IA por entrada si hay reinterpretación.
+  Los límites son configurables y la demora de API/base
   no está incluida en ese presupuesto del proveedor. Los avisos, adjuntos y comandos
   deterministas no consumen IA.
 - El historial devuelve los últimos 200 mensajes y 20 borradores de la sesión;
@@ -873,7 +874,7 @@ repositorio, `VITE_*`, capturas o logs. Variables del backend:
 | `GEMINI_MODELOS_ALTERNATIVOS` | `["gemini-3.1-flash-lite","gemini-3.6-flash"]` por defecto, en ese orden; `[]` desactiva respaldos. Solo admite 3.5/3.1 Flash-Lite y 3.6 Flash, con nivel gratuito verificado. |
 | `GEMINI_MAX_INTENTOS` | `3` por interpretación, entre 1 y 3; presupuesto compartido entre modelos. |
 | `GEMINI_TIMEOUT` | `15` segundos de timeout HTTP por intento; mayor que 0 y hasta 30. |
-| `GEMINI_TIEMPO_TOTAL` | `20` segundos por interpretación, mayor que 0 y hasta 45; incluye intentos y pausas. |
+| `GEMINI_TIEMPO_TOTAL` | Retirado: un valor heredado se ignora y no recorta los plazos de los respaldos. |
 
 Para Meta: crear/configurar la aplicación y WhatsApp Business Platform, obtener
 el número de prueba y su phone-number-ID, y autorizar/verificar al destinatario
@@ -1043,21 +1044,25 @@ antes de atribuirlo a falta de contexto. Se puede configurar
 admite las herramientas del bot. Verificar la respuesta real y las cuotas del
 proyecto: que otro modelo responda no garantiza disponibilidad permanente.
 
-El intérprete construido por el backend tiene por defecto **tres intentos y veinte segundos totales**,
-compartidos entre modelos; cada llamada HTTP tiene timeout de hasta quince segundos,
-reducido al tiempo restante. Para HTTP 500/502/503/504 usa una pausa inicial de 250 ms
-y puede repetir el mismo modelo o pasar al alternativo configurado. Cuota HTTP 429,
-modelo HTTP 404 y timeout solo pasan a otro modelo si fue configurado; no repiten el
-mismo modelo agotado. Credenciales, permisos y salidas inválidas no se reintentan.
-Al vencer el plazo global se devuelve un fallo controlado sin iniciar otra llamada;
-cancelar la espera no garantiza cancelar el socket de urllib que ya corre en un thread.
-Agregar un respaldo no reserva tiempo para él: si los anteriores consumen el presupuesto,
-no se realiza el tercer intento. Las configuraciones de uno o dos intentos también
-pueden impedir recorrer la cadena completa.
+El intérprete construido por el backend tiene por defecto **tres intentos con quince
+segundos independientes por intento**. Al vencer uno se prueba el siguiente modelo
+configurado con su plazo completo. El plazo incluye la lectura y el diagnóstico HTTP;
+`GEMINI_TIEMPO_TOTAL` fue retirado y se ignora si permanece en el entorno de Render.
+Para HTTP 500/502/503/504 se pasa al alternativo; si no quedan alternativos se puede
+repetir el último modelo con pausas de 250 y 500 ms, dentro del máximo de intentos.
+Cuota HTTP 429, modelo HTTP 404, timeout, errores de conexión y salidas inválidas solo
+pasan a otro modelo configurado; nunca se ejecuta una salida inválida. Credenciales,
+permisos y solicitudes HTTP no recuperables cortan la cadena. Al agotarla se devuelve
+un fallo controlado; no hay reintentos infinitos ni garantía de respuesta del proveedor.
+Las configuraciones de uno o dos intentos pueden impedir recorrer la cadena completa.
+Cancelar la espera no garantiza cancelar el socket de urllib que ya corre en un thread:
+su resultado tardío se descarta y cada intento usa su propio Request inmutable respecto
+de los intentos siguientes. Una cancelación del worker se propaga sin abrir un respaldo.
 
 El worker puede reinterpretar una vez ante un cambio concurrente: máximo seis
-llamadas y cuarenta segundos de espera de IA por entrada con los valores por defecto.
-Con los máximos configurables son seis llamadas y noventa segundos. Es un presupuesto
+llamadas y noventa segundos de espera de IA por entrada con los valores por defecto
+(más hasta 1,5 segundos de pausas si se repite el mismo modelo). Con los máximos
+configurables son seis llamadas y ciento ochenta segundos, más esas pausas. Es un presupuesto
 del proveedor, no una garantía de latencia de API o base. Las llamadas ocurren fuera de
 la transacción y sin historial remoto, con una candidata y hasta 768 tokens de salida.
 La entrada de contexto y mensaje no supera 10.000 bytes. Se proyectan hasta treinta
@@ -1083,8 +1088,12 @@ Un fallo devuelve `humano`, `motivo: "PROVEEDOR"` y `causa_proveedor` de un conj
 `CONTEXTO` indica que la entrada acotada todavía excede el presupuesto; no demuestra
 por sí sola que falte información. Un pedido incompleto se aclara en el backend;
 una operación no implementada no se soluciona cambiando de modelo. Los logs de
-`whatsapp_interpretacion_error` incluyen únicamente causa segura, HTTP, clase e intento,
-nunca clave, URL con credencial, cuerpo del proveedor ni texto del cliente. El bot
+`whatsapp_interpretacion_intento` registran referencia aleatoria, modelo, intento y plazo.
+`whatsapp_interpretacion_resultado` registra además duración en milisegundos y causa
+(`OK` al responder correctamente), HTTP y clase cuando hay error. La referencia vincula
+los respaldos y el error final `whatsapp_interpretacion_error` de una interpretación;
+no identifica al cliente ni la sesión. Nunca se registran clave, URL con credencial,
+cuerpo del proveedor ni texto del cliente. El bot
 registra una atención `PROVEEDOR` recuperable y conserva contexto y pedido para
 continuar por la gramática guiada o con personal.
 Un texto de más de 2000 caracteres devuelve

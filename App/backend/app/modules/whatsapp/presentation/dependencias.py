@@ -40,7 +40,6 @@ def interpretador(modo=None):
             timeout=settings.gemini_timeout,
             modelos_alternativos=settings.gemini_modelos_alternativos,
             max_intentos=settings.gemini_max_intentos,
-            tiempo_total=settings.gemini_tiempo_total,
         )
     return SimuladoInterpretador()
 

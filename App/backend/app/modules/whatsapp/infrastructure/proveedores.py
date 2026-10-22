@@ -1,7 +1,7 @@
 """Adaptadores de interpretación y transporte; no ejecutan reglas del pedido.
 
-Gemini usa generateContent con herramientas declaradas, intentos y tiempo total
-acotados, sin ejecución automática. El contexto omite datos del cliente. El texto del turno
+Gemini usa generateContent con herramientas declaradas e intentos con plazos
+independientes, sin ejecución automática. El contexto omite datos del cliente. El texto del turno
 puede contener datos personales: en la demostración se usan datos ficticios.
 WhatsApp envía texto dentro de la ventana de atención de 24 horas; los avisos
 fuera de ella requieren plantillas aprobadas, no implementadas aquí. Un ID de
@@ -159,9 +159,9 @@ def _humano() -> dict:
     return {"accion": "humano", "argumentos": {}}
 
 
-def _fallo(causa: str = "RESPUESTA_INVALIDA") -> dict:
+def _fallo(causa: str = "RESPUESTA_INVALIDA", *, referencia: str = "sin-intento") -> dict:
     """Error, cuota o salida inválida del proveedor: deriva sin aplicar cambios."""
-    _log.warning("whatsapp_interpretacion_error causa=%s", causa)
+    _log.warning("whatsapp_interpretacion_error causa=%s referencia=%s", causa, referencia)
     return {
         "accion": "humano", "argumentos": {}, "motivo": "PROVEEDOR",
         "causa_proveedor": causa,
@@ -509,24 +509,65 @@ def _contexto_acotado(contexto: dict) -> dict:
     return resultado
 
 
+async def _consultar_gemini(solicitud: Request, timeout: float, diagnostico: dict):
+    """El plazo exterior incluye la lectura del diagnóstico HTTP, sin revelar su cuerpo."""
+    try:
+        return await asyncio.to_thread(_leer_json, solicitud, timeout), None, None, None
+    except HTTPError as error:
+        # Conservar el estado ya recibido aunque venza la lectura de su cuerpo.
+        diagnostico["http"] = error.code
+        if error.code in {401, 403}:
+            error.close()
+            causa = "CREDENCIALES" if error.code == 401 else "PERMISOS"
+            return None, causa, error.code, "HTTPError"
+        causa = await asyncio.to_thread(_causa_http_gemini, error)
+        return None, causa, error.code, "HTTPError"
+
+
+def _validar_respuesta_gemini(respuesta: dict, texto: str) -> dict | str:
+    """Devuelve una intención válida o una causa cerrada; nunca aplica operaciones."""
+    try:
+        candidatos = respuesta["candidates"]
+        if not isinstance(candidatos, list) or len(candidatos) != 1:
+            return "RESPUESTA_INVALIDA"
+        candidato = candidatos[0]
+        if candidato.get("finishReason") == "MAX_TOKENS":
+            return "TRUNCADA"
+        if candidato.get("finishReason", "STOP") != "STOP":
+            return "RESPUESTA_INVALIDA"
+        partes = candidato["content"]["parts"]
+        llamadas = [p["functionCall"] for p in partes if "functionCall" in p]
+        if len(llamadas) != 1:
+            return "HERRAMIENTA"
+        accion, argumentos = llamadas[0]["name"], llamadas[0].get("args", {})
+        if not isinstance(accion, str) or accion not in _ESQUEMAS:
+            return "HERRAMIENTA"
+        if not _argumentos_validos(accion, argumentos):
+            return "ARGUMENTOS"
+        if accion == "confirmar" and _normalizar(texto).strip(" .!¡") not in _CONFIRMACIONES:
+            return "ARGUMENTOS"
+        return {"accion": accion, "argumentos": argumentos}
+    except _ERRORES_PROVEEDOR:
+        return "RESPUESTA_INVALIDA"
+
+
 class GeminiInterpretador:
-    """Interpreta sin ejecutar tools; presupuesto compartido entre modelos e intentos."""
+    """Interpreta sin ejecutar tools; cada intento tiene su propio plazo acotado."""
 
     def __init__(
         self, api_key: str, modelo: str, timeout: float = 15, *,
         modelos_alternativos: list[str] | tuple[str, ...] = (),
-        max_intentos: int = 2, tiempo_total: float = 20,
+        max_intentos: int = 2,
     ):
         if set(modelos_alternativos) - _MODELOS_ALTERNATIVOS_GRATUITOS:
             raise ValueError("Modelo alternativo sin nivel gratuito verificado")
-        if not 1 <= max_intentos <= 3 or not 0 < timeout <= 30 or not 0 < tiempo_total <= 45:
+        if not 1 <= max_intentos <= 3 or not 0 < timeout <= 30:
             raise ValueError("Presupuesto Gemini inválido")
         self._api_key = api_key
         self._modelo = modelo
         self._timeout = timeout
         self._modelos = list(dict.fromkeys([modelo, *modelos_alternativos]))
         self._max_intentos = max_intentos
-        self._tiempo_total = tiempo_total
 
     async def interpretar(self, texto: str, contexto: dict) -> dict:
         if isinstance(texto, str) and len(texto) > LIMITE_INTERPRETACION:
@@ -639,82 +680,67 @@ class GeminiInterpretador:
                 },
                 {"x-goog-api-key": self._api_key},
             )
-            limite = time.monotonic() + self._tiempo_total
+            referencia = uuid4().hex[:12]
             indice_modelo = 0
             causa = "TRANSITORIO"
             for intento in range(self._max_intentos):
-                restante = limite - time.monotonic()
-                if restante <= 0:
-                    return _fallo("TIMEOUT")
                 modelo = self._modelos[indice_modelo]
-                solicitud.full_url = (
+                # Un thread que agotó la espera puede seguir terminando su socket:
+                # no mutar su Request al iniciar el siguiente modelo.
+                peticion = Request(
                     "https://generativelanguage.googleapis.com/v1beta/models/"
-                    f"{modelo}:generateContent"
+                    f"{modelo}:generateContent",
+                    data=solicitud.data, headers=dict(solicitud.headers), method="POST",
+                )
+                inicio = time.monotonic()
+                codigo, clase = None, "ninguna"
+                diagnostico = {}
+                _log.info(
+                    "whatsapp_interpretacion_intento referencia=%s modelo=%s "
+                    "intento=%s timeout_s=%s",
+                    referencia, modelo, intento + 1, self._timeout,
                 )
                 try:
-                    respuesta = await asyncio.wait_for(
-                        asyncio.to_thread(_leer_json, solicitud, min(self._timeout, restante)),
-                        timeout=restante,
+                    respuesta, causa, codigo, clase = await asyncio.wait_for(
+                        _consultar_gemini(peticion, self._timeout, diagnostico),
+                        timeout=self._timeout,
                     )
-                    break
-                except HTTPError as error:
-                    codigo = error.code
-                    try:
-                        causa = await asyncio.wait_for(
-                            asyncio.to_thread(_causa_http_gemini, error),
-                            timeout=max(0, limite - time.monotonic()),
-                        )
-                    except TimeoutError:
-                        return _fallo("TIMEOUT")
-                    _log.warning(
-                        "whatsapp_interpretacion_error http=%s clase=HTTPError causa=%s intento=%s",
-                        codigo, causa, intento + 1,
-                    )
-                    recuperable = codigo in _HTTP_TRANSITORIOS | {408, 429, 404}
-                    if not recuperable:
-                        return _fallo(causa)
+                    if causa is None:
+                        resultado = _validar_respuesta_gemini(respuesta, texto)
+                        if isinstance(resultado, dict):
+                            _log.info(
+                                "whatsapp_interpretacion_resultado referencia=%s modelo=%s "
+                                "intento=%s duracion_ms=%s causa=OK",
+                                referencia, modelo, intento + 1,
+                                round((time.monotonic() - inicio) * 1000),
+                            )
+                            return resultado
+                        causa = resultado
                 except TimeoutError:
-                    # wait_for no cancela un socket en su thread. Si se agotó el
-                    # plazo global no lanzamos una segunda llamada en paralelo.
-                    causa = "TIMEOUT"
-                    if time.monotonic() >= limite:
-                        return _fallo(causa)
-                    codigo = 408
-                except (OSError, http.client.HTTPException):
-                    causa, codigo = "TRANSITORIO", None
-                if intento + 1 == self._max_intentos:
-                    return _fallo(causa)
+                    codigo = diagnostico.get("http")
+                    causa, clase = "TIMEOUT", "TimeoutError"
+                except (OSError, http.client.HTTPException) as error:
+                    causa, clase = "TRANSITORIO", type(error).__name__
+                except _ERRORES_PROVEEDOR as error:
+                    causa, clase = "RESPUESTA_INVALIDA", type(error).__name__
+                _log.warning(
+                    "whatsapp_interpretacion_resultado referencia=%s modelo=%s intento=%s "
+                    "duracion_ms=%s causa=%s http=%s clase=%s",
+                    referencia, modelo, intento + 1,
+                    round((time.monotonic() - inicio) * 1000), causa, codigo, clase,
+                )
+                if codigo is not None and codigo not in _HTTP_TRANSITORIOS | {408, 429, 404}:
+                    return _fallo(causa, referencia=referencia)
+                if causa in {"CREDENCIALES", "PERMISOS"} or intento + 1 == self._max_intentos:
+                    return _fallo(causa, referencia=referencia)
                 if indice_modelo + 1 < len(self._modelos):
                     indice_modelo += 1
-                elif codigo not in _HTTP_TRANSITORIOS:
-                    # Cuota, modelo inexistente y timeout no se repiten sobre
-                    # el mismo modelo. Un alternativo necesita opt-in explícito.
-                    return _fallo(causa)
-                if codigo in _HTTP_TRANSITORIOS:
-                    demora = 0.25 * (2 ** intento)
-                    if limite - time.monotonic() <= demora:
-                        return _fallo("TIMEOUT")
-                    await asyncio.sleep(demora)
-            candidatos = respuesta["candidates"]
-            if not isinstance(candidatos, list) or len(candidatos) != 1:
-                return _fallo()
-            candidato = candidatos[0]
-            if candidato.get("finishReason") == "MAX_TOKENS":
-                return _fallo("TRUNCADA")
-            if candidato.get("finishReason", "STOP") != "STOP":
-                return _fallo()
-            partes = candidato["content"]["parts"]
-            llamadas = [p["functionCall"] for p in partes if "functionCall" in p]
-            if len(llamadas) != 1:
-                return _fallo("HERRAMIENTA")
-            accion, argumentos = llamadas[0]["name"], llamadas[0].get("args", {})
-            if not isinstance(accion, str) or accion not in _ESQUEMAS:
-                return _fallo("HERRAMIENTA")
-            if not _argumentos_validos(accion, argumentos):
-                return _fallo("ARGUMENTOS")
-            if accion == "confirmar" and _normalizar(texto).strip(" .!¡") not in _CONFIRMACIONES:
-                return _fallo("ARGUMENTOS")
-            return {"accion": accion, "argumentos": argumentos}
+                elif codigo in _HTTP_TRANSITORIOS:
+                    await asyncio.sleep(0.25 * (2 ** intento))
+                else:
+                    # Sin otro modelo configurado, no repetir un modelo agotado
+                    # por cuota, timeout o salida inválida.
+                    return _fallo(causa, referencia=referencia)
         except _ERRORES_PROVEEDOR as error:
             _log.warning("whatsapp_interpretacion_error clase=%s", type(error).__name__)
             return _fallo()

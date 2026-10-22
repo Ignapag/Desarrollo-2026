@@ -146,9 +146,11 @@ para ambos, sujetos a cuota y disponibilidad del proyecto. No se activó factura
 ni se contrató otro servicio. Que exista nivel gratuito no garantiza costo cero si
 la clave pertenece a un proyecto que ya tiene facturación habilitada.
 
-Cada interpretación tiene un presupuesto configurable de dos intentos y veinte
-segundos por defecto, compartido entre modelos. Una reinterpretación por concurrencia
-puede llevar una entrada a cuatro llamadas y cuarenta segundos de espera de IA.
+Cada interpretación permite por defecto tres intentos con quince segundos independientes
+para cada uno. Si un modelo falla se prueba el siguiente configurado; al agotarse todos
+se da una salida controlada. Credenciales y permisos inválidos cortan la cadena.
+Una reinterpretación por concurrencia puede llevar una entrada a seis llamadas y noventa
+segundos de espera de IA, más hasta 1,5 segundos de pausas si se repite el mismo modelo.
 Los comandos guiados, avisos y comprobantes no consumen Gemini. El catálogo enviado
 está acotado; precios, permisos y ejecución siguen siendo autoridad del backend.
 

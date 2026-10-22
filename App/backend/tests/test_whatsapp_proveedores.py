@@ -4,7 +4,10 @@ import hashlib
 import hmac
 import io
 import json
+import logging
+import re
 from copy import copy
+from types import SimpleNamespace
 from urllib.error import HTTPError, URLError
 
 import pytest
@@ -596,19 +599,141 @@ async def test_gemini_agota_todos_los_modelos_sin_superar_presupuesto(http):
     assert resultado["causa_proveedor"] == "CUOTA" and len(llamadas) == 2
 
 
-async def test_gemini_tiempo_total_corta_espera_sin_segunda_llamada(http, monkeypatch):
-    llamadas, _ = http
+async def test_gemini_cada_modelo_recibe_quince_segundos_aunque_los_anteriores_agoten_plazo(
+    monkeypatch, caplog,
+):
+    reloj = [0.0]
+    llamadas = []
+
+    def leer(solicitud, timeout):
+        llamadas.append((solicitud.full_url.rsplit('/', 1)[-1], timeout))
+        reloj[0] += 15
+        if len(llamadas) < 3:
+            raise TimeoutError('detalle-privado')
+        return respuesta_funcion('consulta', {})
+
+    monkeypatch.setattr(proveedores, 'time', SimpleNamespace(monotonic=lambda: reloj[0]))
+    monkeypatch.setattr(proveedores, '_leer_json', leer)
+    # Un valor heredado de Render no debe volver a recortar los respaldos.
+    monkeypatch.setenv('GEMINI_TIEMPO_TOTAL', '20')
+    monkeypatch.setattr(dependencias, 'settings', Settings(
+        _env_file=None, gemini_modo='real', gemini_api_key='clave-privada',
+    ))
+    caplog.set_level(logging.INFO, logger='monuburger.whatsapp.proveedor')
+    resultado = await dependencias.interpretador().interpretar('mensaje-privado', {})
+    assert resultado == {'accion': 'consulta', 'argumentos': {}}
+    assert llamadas == [
+        ('gemini-3.5-flash-lite:generateContent', 15),
+        ('gemini-3.1-flash-lite:generateContent', 15),
+        ('gemini-3.6-flash:generateContent', 15),
+    ]
+    finales = [
+        r.message for r in caplog.records if 'whatsapp_interpretacion_resultado ' in r.message
+    ]
+    assert len(finales) == 3
+    assert all('duracion_ms=15000' in log for log in finales)
+    assert 'causa=TIMEOUT' in finales[0] and 'intento=1' in finales[0]
+    assert 'causa=TIMEOUT' in finales[1] and 'intento=2' in finales[1]
+    assert 'causa=OK' in finales[2] and 'intento=3' in finales[2]
+    referencias = re.findall(r'referencia=([a-f0-9]{12})', caplog.text)
+    assert referencias and len(set(referencias)) == 1
+    assert all(
+        s not in caplog.text for s in ('clave-privada', 'mensaje-privado', 'detalle-privado')
+    )
+
+
+async def test_gemini_timeout_por_intento_avanza_y_agota_respaldos_sin_colgarse(monkeypatch):
+    import asyncio
+    import time
+
+    llamadas = []
+
+    async def red_lenta(funcion, solicitud, timeout):
+        llamadas.append(solicitud.full_url)
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(proveedores.asyncio, 'to_thread', red_lenta)
+    inicio = time.monotonic()
+    resultado = await proveedores.GeminiInterpretador(
+        'ficticia', 'gemini-3.5-flash-lite', timeout=0.01,
+        modelos_alternativos=['gemini-3.1-flash-lite', 'gemini-3.6-flash'], max_intentos=3,
+    ).interpretar('hola', {})
+    assert resultado['causa_proveedor'] == 'TIMEOUT'
+    assert len(llamadas) == 3 and len(set(llamadas)) == 3
+    assert time.monotonic() - inicio < 1
+
+
+@pytest.mark.parametrize('respuesta', [
+    {}, {'candidates': [{'finishReason': 'MAX_TOKENS'}]},
+    respuesta_funcion('cantidad', {'cantidad': True}),
+    respuesta_funcion('confirmar', {}),
+])
+async def test_gemini_respuesta_invalida_prueba_respaldo_sin_aplicar_salida_anterior(
+    http, respuesta,
+):
+    llamadas, respuestas = http
+    respuestas.extend([respuesta, respuesta_funcion('consulta', {})])
+    resultado = await proveedores.GeminiInterpretador(
+        'ficticia', 'gemini-3.5-flash-lite', modelos_alternativos=['gemini-3.1-flash-lite'],
+    ).interpretar('hola', {})
+    assert resultado == {'accion': 'consulta', 'argumentos': {}}
+    assert len(llamadas) == 2
+
+
+async def test_gemini_cancelacion_no_inicia_otro_modelo(monkeypatch):
     import asyncio
 
-    async def red_lenta(*args):
-        await asyncio.sleep(0.2)
+    iniciado = asyncio.Event()
+    llamadas = []
 
-    monkeypatch.setattr(proveedores.asyncio, "to_thread", red_lenta)
-    resultado = await proveedores.GeminiInterpretador(
-        "ficticia", "modelo", tiempo_total=0.01
-    ).interpretar("hola", {})
-    assert resultado["causa_proveedor"] == "TIMEOUT"
-    assert not llamadas
+    async def red_lenta(funcion, solicitud, timeout):
+        llamadas.append(solicitud.full_url)
+        iniciado.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(proveedores.asyncio, 'to_thread', red_lenta)
+    tarea = asyncio.create_task(proveedores.GeminiInterpretador(
+        'ficticia', 'gemini-3.5-flash-lite', modelos_alternativos=['gemini-3.1-flash-lite'],
+    ).interpretar('hola', {}))
+    await iniciado.wait()
+    tarea.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await tarea
+    assert len(llamadas) == 1
+
+
+async def test_gemini_respuesta_tardia_no_sustituye_respaldo_ni_muta_peticion(monkeypatch):
+    import asyncio
+    import threading
+
+    liberar = threading.Event()
+    terminado = threading.Event()
+    peticiones = []
+
+    def leer(solicitud, timeout):
+        peticiones.append(solicitud)
+        if len(peticiones) == 1:
+            try:
+                liberar.wait(1)
+                return respuesta_funcion('cancelar', {})
+            finally:
+                terminado.set()
+        liberar.set()
+        return respuesta_funcion('consulta', {})
+
+    monkeypatch.setattr(proveedores, '_leer_json', leer)
+    try:
+        resultado = await proveedores.GeminiInterpretador(
+            'ficticia', 'gemini-3.5-flash-lite', timeout=0.02,
+            modelos_alternativos=['gemini-3.1-flash-lite'],
+        ).interpretar('hola', {})
+        assert await asyncio.to_thread(terminado.wait, 1)
+        assert resultado == {'accion': 'consulta', 'argumentos': {}}
+        assert len(peticiones) == 2 and peticiones[0] is not peticiones[1]
+        assert peticiones[0].full_url.endswith('/gemini-3.5-flash-lite:generateContent')
+        assert peticiones[1].full_url.endswith('/gemini-3.1-flash-lite:generateContent')
+    finally:
+        liberar.set()
 
 
 def test_contexto_catalogo_y_edicion_no_envian_datos_personales():
@@ -639,7 +764,7 @@ async def test_gemini_contexto_excesivo_diagnostica_sin_llamar(http):
     assert not llamadas
 
 
-async def test_gemini_diagnostico_http_tambien_respeta_tiempo_total(http, monkeypatch):
+async def test_gemini_diagnostico_http_tambien_respeta_timeout_del_intento(http, monkeypatch):
     _, respuestas = http
     respuestas.append(HTTPError("https://ficticio.test", 400, "privado", {}, None))
 
@@ -650,9 +775,35 @@ async def test_gemini_diagnostico_http_tambien_respeta_tiempo_total(http, monkey
 
     monkeypatch.setattr(proveedores, "_causa_http_gemini", cuerpo_lento)
     resultado = await proveedores.GeminiInterpretador(
-        "ficticia", "modelo", tiempo_total=0.01
+        "ficticia", "modelo", timeout=0.01
     ).interpretar("hola", {})
     assert resultado["causa_proveedor"] == "TIMEOUT"
+
+
+@pytest.mark.parametrize('codigo', [400, 401, 403])
+async def test_gemini_http_no_recuperable_corta_aunque_diagnostico_se_demore(
+    http, monkeypatch, codigo, caplog,
+):
+    import time
+
+    llamadas, respuestas = http
+    respuestas.extend([
+        HTTPError('https://ficticio.test', codigo, 'privado', {}, None),
+        respuesta_funcion('consulta', {}),
+    ])
+
+    def diagnostico_lento(error):
+        time.sleep(0.1)
+        return 'CREDENCIALES'
+
+    monkeypatch.setattr(proveedores, '_causa_http_gemini', diagnostico_lento)
+    resultado = await proveedores.GeminiInterpretador(
+        'ficticia', 'gemini-3.5-flash-lite', timeout=0.01,
+        modelos_alternativos=['gemini-3.1-flash-lite'],
+    ).interpretar('hola', {})
+    assert resultado['motivo'] == 'PROVEEDOR'
+    assert len(llamadas) == 1
+    assert f'http={codigo}' in caplog.text
 
 
 async def test_gemini_clave_invalida_en_http400_no_se_confunde_con_herramienta(http):
@@ -672,7 +823,7 @@ def test_contexto_edicion_ignora_accion_sin_tipo_valido():
 
 @pytest.mark.parametrize("config", [
     {"gemini_modelos_alternativos": ["gemini-3.1-pro"]},
-    {"gemini_max_intentos": 4}, {"gemini_timeout": 0}, {"gemini_tiempo_total": 46},
+    {"gemini_max_intentos": 4}, {"gemini_timeout": 0}, {"gemini_timeout": 31},
 ])
 def test_configuracion_rechaza_alternativos_y_presupuestos_no_permitidos(config):
     with pytest.raises(ValidationError):
