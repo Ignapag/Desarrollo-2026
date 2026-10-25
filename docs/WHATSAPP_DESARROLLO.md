@@ -1065,8 +1065,10 @@ llamadas y noventa segundos de espera de IA por entrada con los valores por defe
 configurables son seis llamadas y ciento ochenta segundos, más esas pausas. Es un presupuesto
 del proveedor, no una garantía de latencia de API o base. Las llamadas ocurren fuera de
 la transacción y sin historial remoto, con una candidata y hasta 768 tokens de salida.
-La entrada de contexto y mensaje no supera 10.000 bytes. Se proyectan hasta treinta
-productos (ID/nombre, descripción de hasta 200 caracteres, diez nombres de variantes
+La entrada de contexto y mensaje no supera 10.000 bytes. Se consulta el catálogo
+activo en cada turno, sin un corte por posición: las altas posteriores al producto 30
+también se incluyen y no requieren cambiar código ni reiniciar el asistente.
+Se proyectan productos (ID/nombre, descripción de hasta 200 caracteres, diez nombres de variantes
 disponibles y veinte ingredientes),
 diez ítems, la intención de edición pendiente y cuatro turnos semánticos. El contexto
 no incluye teléfono, dirección ni nombre del cliente; los datos operativos se conservan
@@ -1090,8 +1092,24 @@ la descripción, respetando límites de palabra, sin distinguir mayúsculas ni a
 La referencia debe tener al menos dos palabras significativas: se ignoran artículos y
 conectores comunes como «de», «del», «con», «sin» e «y». No se infieren sinónimos
 ni se aceptan fragmentos de palabras.
-Una coincidencia única permite preparar la propuesta; varias muestran solamente sus
-candidatos y conservan cantidad y personalización hasta la elección. La selección no
+Una coincidencia única permite preparar la propuesta. Ante dudas, varios candidatos
+o una referencia desconocida, Gemini redacta `pregunta_producto` dentro de
+`agregar_producto`, `reemplazar_producto` o `completar_edicion`. Conserva los argumentos
+conocidos (producto, cantidad, variante y personalizaciones). El backend guarda la
+intención y la pregunta por separado, sin seleccionar siquiera un nombre único si la
+IA declaró una duda. La siguiente respuesta natural vuelve a Gemini con esa pregunta
+y la edición pendiente; no exige escribir `catálogo N`. Una respuesta de IA que intenta
+agregar/reemplazar un producto no inequívoco sin preguntar se rechaza como
+`ACLARACION_PRODUCTO` y sigue los respaldos del proveedor, sin aplicar la operación.
+
+La pregunta admite hasta 300 caracteres entre `¿` y `?`, una sola interrogación,
+sin HTML, enlaces con protocolo, símbolos monetarios ni comandos `catálogo N`/`producto N`
+(tampoco sus variantes con números). Las instrucciones limitan su contenido a
+aclarar productos del catálogo; el texto generado no acredita disponibilidad, precio
+ni cambios en el pedido; la validación de formato no certifica la corrección semántica
+del texto. Las reglas del pedido siempre se validan en servidor. El catálogo
+numerado se conserva para el modo sin IA y los comandos pedidos expresamente.
+La selección no
 escribe el pedido: se mantiene la validación de stock y, si cambia el importe,
 se exige confirmación.
 Las pruebas con HTTP simulado
@@ -1109,13 +1127,16 @@ inventar opciones. El modelo nunca ejecuta funciones ni confirma pagos, precios 
 
 Un fallo devuelve `humano`, `motivo: "PROVEEDOR"` y `causa_proveedor` de un conjunto cerrado:
 `CREDENCIALES`, `PERMISOS`, `CUOTA`, `MODELO`, `TIMEOUT`, `TRANSITORIO`, `TRUNCADA`,
-`HERRAMIENTA`, `ARGUMENTOS`, `CONTEXTO`, `RESPUESTA_INVALIDA` o `SOLICITUD_INVALIDA`.
+`HERRAMIENTA`, `ARGUMENTOS`, `ACLARACION_PRODUCTO`, `CONTEXTO`, `RESPUESTA_INVALIDA`
+o `SOLICITUD_INVALIDA`.
 `CONTEXTO` indica que la entrada acotada todavía excede el presupuesto; no demuestra
 por sí sola que falte información. Un pedido incompleto se aclara en el backend;
 una operación no implementada no se soluciona cambiando de modelo. Los logs de
 `whatsapp_interpretacion_intento` registran referencia aleatoria, modelo, intento y plazo.
 `whatsapp_interpretacion_resultado` registra además duración en milisegundos y causa
-(`OK` al responder correctamente), HTTP y clase cuando hay error. La referencia vincula
+(`OK` al responder correctamente), la acción validada en los éxitos, HTTP y clase
+cuando hay error. No registra el texto de la pregunta, los argumentos ni el mensaje.
+La referencia vincula
 los respaldos y el error final `whatsapp_interpretacion_error` de una interpretación;
 no identifica al cliente ni la sesión. Nunca se registran clave, URL con credencial,
 cuerpo del proveedor ni texto del cliente. El bot

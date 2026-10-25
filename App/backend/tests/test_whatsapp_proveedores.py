@@ -224,6 +224,115 @@ async def test_descripcion_del_catalogo_llega_desde_servicio_hasta_gemini(http, 
     }]
 
 
+async def test_catalogo_ia_incluye_altas_posteriores_al_producto_treinta_y_se_actualiza(http):
+    llamadas, respuestas = http
+    productos = [{'id': n, 'nombre': f'Burger {n}', 'descripcion': f'Receta especial {n}'}
+                 for n in range(1, 46)]
+
+    class Repo:
+        async def ingredientes_items(self, items): return []
+        async def memoria(self, *args): return []
+
+    class Productos:
+        async def listar(self, **kwargs):
+            assert kwargs == {'solo_activos': True}
+            return productos
+
+    bot = ServicioBot(Repo(), None, productos=Productos())
+    b = {'pedido_id': None, 'estado': 'BORRADOR', 'items': [], 'contexto_chat': {},
+         'tipo_entrega': 'RETIRO', 'metodo_pago': 'EFECTIVO', 'telefono': 'privado',
+         'referencia_hash': 'privado', 'version': 1}
+    assert len((await bot._contexto(b))['catalogo']) == 45
+    productos.append({'id': 46, 'nombre': 'Nueva especial', 'descripcion': 'Receta del bosque'})
+    contexto = await bot._contexto(b)
+    respuestas.append(respuesta_funcion('agregar_producto', {
+        'producto': 'Nueva especial', 'cantidad': 1,
+    }))
+    accion = await proveedores.GeminiInterpretador('ficticia', 'modelo').interpretar(
+        'agregame una del bosque', contexto,
+    )
+    enviado = json.loads(json.loads(llamadas[0][0].data)['contents'][0]['parts'][0]['text'])
+    assert len(enviado['contexto']['catalogo']) == 46
+    assert enviado['contexto']['catalogo'][-1]['descripcion'] == 'Receta del bosque'
+    resultado = await resolver_items(bot, b, {'id': 'ficticio'}, {'items': []}, accion)
+    assert resultado[0][-1]['producto_id'] == 46
+
+
+async def test_ia_pregunta_ante_duda_y_conserva_intencion_hasta_respuesta_natural(http, caplog):
+    _, respuestas = http
+    productos = [{'id': 1, 'nombre': 'Del Bosque', 'descripcion': 'Hongos y provolone'},
+                 {'id': 2, 'nombre': 'Veggie', 'descripcion': 'Medallon de hongos'}]
+
+    class Productos:
+        async def listar(self, **kwargs): return productos
+
+    bot = ServicioBot(None, None, productos=Productos())
+    b = {'contexto_chat': {}, 'version': 1}
+    pedido = {'items': [], 'version': 1}
+    pregunta = '\u00bfTe referis a Del Bosque o a Veggie?'
+    args = {'producto': 'la de hongos', 'cantidad': 2, 'aclaraciones': 'Sin tomate',
+            'pregunta_producto': pregunta}
+    respuestas.append(respuesta_funcion('agregar_producto', args))
+    ia = proveedores.GeminiInterpretador('ficticia', 'modelo')
+    with caplog.at_level(logging.INFO, logger='monuburger.whatsapp.proveedor'):
+        accion = await ia.interpretar('dos de hongos sin tomate', {'catalogo': productos})
+    assert 'accion=agregar_producto' in caplog.text
+    assert pregunta not in caplog.text and 'Sin tomate' not in caplog.text
+    respuesta = await resolver_items(bot, b, {'id': 'duda'}, pedido, accion)
+    assert respuesta == pregunta
+    assert pedido['items'] == [] and b['propuesta'] is None
+    pendiente = b['contexto_chat']['edicion']
+    assert pendiente['argumentos'] == {k: v for k, v in args.items() if k != 'pregunta_producto'}
+    assert pendiente['pregunta_producto'] == pregunta
+    respuestas.append(respuesta_funcion('completar_edicion', {'producto': 'Del Bosque'}))
+    accion = await ia.interpretar('la del bosque porfa', {
+        'catalogo': productos, 'edicion_pendiente': pendiente,
+    })
+    items, _, _ = await resolver_items(bot, b, {'id': 'eleccion'}, pedido, accion)
+    assert items == [{'producto_id': 1, 'cantidad': 2, 'variante': None,
+                      'aclaraciones': 'Sin tomate'}]
+
+
+async def test_ia_no_selecciona_nombre_unico_si_declara_una_duda():
+    class Productos:
+        async def listar(self, **kwargs): return [{'id': 12, 'nombre': 'Nueva burger'}]
+
+    bot = ServicioBot(None, None, productos=Productos())
+    b = {'contexto_chat': {}, 'version': 1}
+    pregunta = '\u00bfTe referis a Nueva burger?'
+    resultado = await resolver_items(bot, b, {'id': 'duda'}, {'items': []}, {
+        'accion': 'agregar_producto', 'argumentos': {
+            'producto': 'Nueva burger', 'cantidad': 1, 'pregunta_producto': pregunta,
+        },
+    })
+    assert resultado == pregunta and b['propuesta'] is None
+
+
+async def test_ia_ambigua_sin_pregunta_es_respuesta_invalida_no_menu_guiado(http):
+    _, respuestas = http
+    respuestas.append(respuesta_funcion('agregar_producto', {
+        'producto': 'Especial', 'cantidad': 1,
+    }))
+    resultado = await proveedores.GeminiInterpretador('ficticia', 'modelo').interpretar(
+        'una especial', {'catalogo': [{'id': 1, 'nombre': 'Especial roja'},
+                                    {'id': 2, 'nombre': 'Especial verde'}]},
+    )
+    assert resultado['motivo'] == 'PROVEEDOR'
+    assert resultado['causa_proveedor'] == 'ACLARACION_PRODUCTO'
+
+
+@pytest.mark.parametrize('pregunta', ['', 'Ya agregue la hamburguesa.', 'x' * 301,
+                                     '\u00bfVisita https://ajeno.test?', 123,
+                                     'Ya agregue dos hamburguesas. Queres confirmar?',
+                                     '\u00bfElegis catalogo 99?', '\u00bfElegis producto 2?',
+                                     '\u00bfQueres la burger por $100?',
+                                     '\u00bfEntra a javascript://ajeno?'])
+def test_pregunta_producto_invalida_se_rechaza(pregunta):
+    assert not proveedores._argumentos_validos('agregar_producto', {
+        'producto': 'Especial', 'cantidad': 1, 'pregunta_producto': pregunta,
+    })
+
+
 @pytest.mark.parametrize('descripcion', ['x' * 500, '\U0001f354' * 500], ids=['texto', 'unicode'])
 async def test_descripcion_larga_se_acota_en_la_peticion(http, descripcion):
     llamadas, respuestas = http
@@ -853,7 +962,7 @@ def test_contexto_catalogo_y_edicion_no_envian_datos_personales():
             "producto": "Crispy", "cantidad": 1, "aclaraciones": "sin bacon",
             "direccion": "privado", "telefono": "privado"}},
     })
-    assert 0 < len(seguro["catalogo"]) <= 30
+    assert len(seguro["catalogo"]) == 1  # Se deduplican IDs, no se recorta el catálogo.
     assert seguro["catalogo"][0] == {
         "id": 7, "nombre": "Crispy", "variantes": ["Simple", "Doble"],
         "ingredientes": ["bacon"],
@@ -865,9 +974,9 @@ def test_contexto_catalogo_y_edicion_no_envian_datos_personales():
 async def test_gemini_contexto_excesivo_diagnostica_sin_llamar(http):
     llamadas, _ = http
     resultado = await proveedores.GeminiInterpretador("ficticia", "modelo").interpretar(
-        "hola", {"catalogo": [{"id": 1, "nombre": "a" * 80,
+        "hola", {"catalogo": [{"id": n, "nombre": "a" * 80,
                                 "variantes": ["v" * 80] * 10,
-                                "ingredientes": ["i" * 60] * 20}] * 30}
+                                "ingredientes": ["i" * 60] * 20} for n in range(30)]}
     )
     assert resultado["causa_proveedor"] == "CONTEXTO"
     assert not llamadas
@@ -905,6 +1014,16 @@ async def test_gemini_http_no_recuperable_corta_aunque_diagnostico_se_demore(
         time.sleep(0.1)
         return 'CREDENCIALES'
 
+    to_thread_real = proveedores.asyncio.to_thread
+
+    async def ejecutar_con_http_ya_recibido(funcion, *args):
+        # El HTTP es simulado e inmediato. Se prueba el plazo de su diagnostico,
+        # no si Windows logra iniciar un thread en menos de diez milisegundos.
+        if funcion is proveedores._leer_json:
+            return funcion(*args)
+        return await to_thread_real(funcion, *args)
+
+    monkeypatch.setattr(proveedores.asyncio, 'to_thread', ejecutar_con_http_ya_recibido)
     monkeypatch.setattr(proveedores, '_causa_http_gemini', diagnostico_lento)
     resultado = await proveedores.GeminiInterpretador(
         'ficticia', 'gemini-3.5-flash-lite', timeout=0.01,
