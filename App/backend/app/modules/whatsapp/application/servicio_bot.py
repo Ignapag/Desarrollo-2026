@@ -392,11 +392,11 @@ class ServicioBot:
                 {"id": p["id"], "nombre": p["nombre"], "descripcion": p.get("descripcion"),
                  "variantes": p.get("variantes") or [],
                  "ingredientes": p.get("ingredientes_quitables") or []}
-                for p in (await catalogo(self))[:30]
+                for p in await catalogo(self)
             ],
             "edicion_pendiente": {
                 k: v for k, v in (chat.get("edicion") or {}).items()
-                if k in {"accion", "argumentos", "datos_presentes"}
+                if k in {"accion", "argumentos", "datos_presentes", "pregunta_producto"}
             },
             "conversacion": {
                 "solicitud_pendiente": pregunta_actual(b),

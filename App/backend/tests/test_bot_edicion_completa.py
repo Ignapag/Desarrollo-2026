@@ -266,6 +266,48 @@ async def test_referencia_comercial_propone_y_confirma_alta_sin_perder_personali
     assert len((await s.repo.pedido(pid))['items']) == 2
 
 
+@pytest.mark.parametrize('multiple', [False, True])
+async def test_pregunta_ia_conserva_solicitud_y_respuesta_natural_hasta_confirmar(uow, multiple):
+    s, pid = await crear_pedido_bot(uow)
+    anterior = await s.repo.pedido(pid)
+    original = anterior['items'][0]
+    pregunta = '\u00bfTe referis a la hamburguesa de tu pedido o a otra?'
+    args = {'producto': 'la especial', 'cantidad': 2, 'variante': original['variante'],
+            'aclaraciones': 'Sin tomate', 'pregunta_producto': pregunta}
+    accion = 'agregar_producto'
+    if multiple:
+        accion = 'editar_pedido'
+        args = {'operaciones': [{'accion': 'agregar_producto', 'argumentos': args},
+                               {'accion': 'datos', 'argumentos': {'tipo_entrega': 'retiro'}}]}
+    respuesta = await enviar(s, 'duda-ia', 'quiero dos de la especial sin tomate', accion, args)
+    assert respuesta == pregunta
+    assert await s.repo.pedido(pid) == anterior
+    s = construir_servicio(uow)  # Otro worker debe recuperar la aclaracion.
+    await s.recibir('eleccion-ia', TELEFONO, 'la misma que pedi porfa')
+    preparado = await s.preparar('eleccion-ia')
+    assert preparado['interpretar'] is True
+    pendiente = preparado['contexto']['edicion_pendiente']
+    assert pendiente['pregunta_producto'] == pregunta
+    assert pendiente['argumentos']['cantidad'] == 2
+    assert pendiente['argumentos']['aclaraciones'] == 'Sin tomate'
+    assert 'pregunta_producto' not in pendiente['argumentos']
+    nombre_catalogo = await uow.valor(
+        'SELECT nombre FROM producto WHERE id=%s', (original['producto_id'],),
+    )
+    propuesta = await s.procesar('eleccion-ia', {
+        'accion': 'completar_edicion', 'argumentos': {'producto': nombre_catalogo},
+    }, preparado['vinculo'])
+    assert 'confirmar' in propuesta
+    assert await s.repo.pedido(pid) == anterior
+    assert 'guardado' in (await enviar(s, 'confirmar-ia', 'confirmar')).lower()
+    actual = await s.repo.pedido(pid)
+    assert len(actual['items']) == 2 and actual['items'][0] == original
+    assert actual['items'][1]['producto_id'] == original['producto_id']
+    assert actual['items'][1]['cantidad'] == 2
+    assert actual['items'][1]['aclaraciones'].casefold() == 'sin tomate'
+    assert actual['total'] > anterior['total']
+
+
 async def test_elegir_variante_ya_vigente_conserva_precio_y_snapshot(uow):
     s, pid = await crear_pedido_bot(uow)
     original = (await s.repo.pedido(pid))["items"][0]

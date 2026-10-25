@@ -1,11 +1,15 @@
 """Aclaraciones y propuestas del chat; Pedidos es autoridad de la edición física."""
 
 import re
-import unicodedata
 from decimal import Decimal
 
 from app.errores import ErrorDominio
 from app.modules.pedidos.domain.entidades import EstadoPedido
+from app.modules.whatsapp.domain.catalogo import (
+    coincidencias_productos,
+    normalizar,
+    pregunta_producto_valida,
+)
 from app.modules.whatsapp.domain.mensajes import resumen
 
 ACCIONES_ITEMS = {
@@ -20,9 +24,11 @@ ACCIONES_ITEMS = {
     "cancelar",
 }
 ARGUMENTOS_EDICION = {
-    "agregar_producto": {"producto", "cantidad", "variante", "aclaraciones", "catalogo_indice"},
+    "agregar_producto": {"producto", "cantidad", "variante", "aclaraciones", "catalogo_indice",
+                         "pregunta_producto"},
     "reemplazar_producto": {
         "producto", "cantidad", "variante", "aclaraciones", "catalogo_indice", "item_indice",
+        "pregunta_producto",
     },
     "cambiar_variante": {"producto", "variante", "item_indice", "cantidad", "aclaraciones"},
     "quitar_producto": {"item_indice"},
@@ -41,16 +47,6 @@ AYUDA = (
     "• *resumen*, *cancelar pedido* o *empleado*.\n"
     "Los cambios de importe requieren *confirmar*. No se cambia nada al mostrar opciones."
 )
-
-
-def normalizar(texto):
-    return " ".join(
-        "".join(
-            c
-            for c in unicodedata.normalize("NFD", texto.casefold())
-            if unicodedata.category(c) != "Mn"
-        ).split()
-    ).strip(" .!¡?¿")
 
 
 def comando_guiado(texto, b=None):
@@ -137,18 +133,6 @@ async def catalogo(bot):
     if bot.productos is None:
         return []
     return await bot.productos.listar(solo_activos=True)
-
-
-def _coincide_descripcion(producto, buscado):
-    """Referencia literal de al menos dos palabras significativas; sin inferir sinónimos."""
-    descripcion = producto.get("descripcion")
-    if not isinstance(descripcion, str):
-        return False
-    palabras = re.findall(r"\w+", buscado)
-    genericas = {"de", "del", "la", "las", "el", "los", "un", "una", "con", "sin", "y"}
-    if len([p for p in palabras if p not in genericas]) < 2:
-        return False
-    return bool(re.search(r"(?<!\w)" + re.escape(buscado) + r"(?!\w)", normalizar(descripcion)))
 
 
 def _guardar_pendiente(b, accion, argumentos, entrada, foto, campo):
@@ -297,6 +281,9 @@ async def resolver_items(bot, b, entrada, pedido, accion, *, permitir_vacio=Fals
     permitidos = ARGUMENTOS_EDICION.get(nombre, set())
     if set(args) - permitidos:
         return await bot._derivar(b, entrada, {"accion": "humano"})
+    pregunta_ia = args.pop("pregunta_producto", None)
+    if pregunta_ia is not None and not pregunta_producto_valida(pregunta_ia):
+        return await bot._derivar(b, entrada, {"accion": "humano"})
     items = [
         {
             k: i[k]
@@ -307,6 +294,10 @@ async def resolver_items(bot, b, entrada, pedido, accion, *, permitir_vacio=Fals
     ]
     if nombre == "cancelar":
         return await _cancelar(bot, b, entrada, pedido, foto)
+    if pregunta_ia:
+        _guardar_pendiente(b, nombre, args, entrada, foto, "producto")
+        b["contexto_chat"]["edicion"]["pregunta_producto"] = pregunta_ia.strip()
+        return pregunta_ia.strip()
     indice = args.get("item_indice")
     if nombre != "agregar_producto":
         if indice is None and len(items) == 1:
@@ -351,14 +342,7 @@ async def resolver_items(bot, b, entrada, pedido, accion, *, permitir_vacio=Fals
         elif elegido_pendiente is not None:
             producto = next((p for p in productos if p["id"] == elegido_pendiente), None)
         elif args.get("producto"):
-            buscado = normalizar(str(args["producto"]))
-            coincidencias = [p for p in productos if normalizar(p["nombre"]) == buscado]
-            if not coincidencias:
-                coincidencias = [
-                    p for p in productos if buscado and buscado in normalizar(p["nombre"])
-                ]
-            if not coincidencias:
-                coincidencias = [p for p in productos if _coincide_descripcion(p, buscado)]
+            coincidencias = coincidencias_productos(productos, args["producto"])
             if len(coincidencias) == 1:
                 producto = coincidencias[0]
             elif coincidencias:
