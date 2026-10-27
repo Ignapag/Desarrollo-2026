@@ -9,6 +9,7 @@ export const ROUTE_PERMISSIONS = {
   '/dashboard/catalog': 'productos.gestionar',
   '/dashboard/customers': 'clientes.ver',
   '/dashboard/inventory': 'stock.ver',
+  '/dashboard/caja': 'caja.ver',
   '/dashboard/analytics': 'reportes.ver',
   '/delivery': 'delivery.ver',
 };

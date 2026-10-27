@@ -36,6 +36,20 @@ La migración `028_permisos_por_rol.sql` crea `rol_acceso` (versión por rol) y
 gestión de stock y generación de cierres que ya tenía Repartidor. Administrador recibe
 también el permiso financiero que antes estaba reservado al Dueño.
 
+## Acceso a Caja
+
+`/dashboard/caja` y su entrada de navegación requieren `caja.ver`. El consolidado,
+el historial y el detalle usan ese mismo permiso; no dependen de `reportes.ver` ni
+de `reportes.financieros`. `caja.generar` habilita generar o regenerar pendientes y
+`caja.aprobar` habilita su aprobación. Las acciones se muestran según la matriz
+vigente, sin asumir autorización por nombre de rol ni conceder permisos nuevos.
+
+La API vuelve a comprobar cada permiso antes de acceder a los datos. Un cierre
+`APROBADO` permanece bloqueado aunque la persona tenga permiso para generar o
+aprobar. Un 401/403 retira los datos privados rechazados y obliga a resolver la
+sesión o el permiso antes de continuar; una respuesta de otra sesión no publica
+resultados ni confirma comandos para la cuenta nueva.
+
 ## Sesiones vigentes
 
 El JWT HttpOnly identifica al usuario, pero su rol firmado ya no decide autoridad.

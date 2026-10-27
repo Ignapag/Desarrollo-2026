@@ -23,6 +23,7 @@ const DeliveryPanel = lazy(pageLoaders['/delivery']);
 const Kitchen = lazy(pageLoaders['/dashboard/kitchen']);
 const Catalog = lazy(pageLoaders['/dashboard/catalog']);
 const Inventory = lazy(pageLoaders['/dashboard/inventory']);
+const Caja = lazy(pageLoaders['/dashboard/caja']);
 
 
 function App() {
@@ -47,6 +48,7 @@ function App() {
           <Route path="/dashboard/catalog" element={<ProtectedRoute path="/dashboard/catalog"><Catalog /></ProtectedRoute>} />
           <Route path="/dashboard/customers" element={<ProtectedRoute path="/dashboard/customers"><Customers /></ProtectedRoute>} />
           <Route path="/dashboard/inventory" element={<ProtectedRoute path="/dashboard/inventory"><Inventory /></ProtectedRoute>} />
+          <Route path="/dashboard/caja" element={<ProtectedRoute path="/dashboard/caja"><Caja /></ProtectedRoute>} />
           <Route path="/dashboard/analytics" element={<ProtectedRoute path="/dashboard/analytics"><Analytics /></ProtectedRoute>} />
           <Route path="/dashboard/access" element={<ProtectedRoute path="/dashboard/access"><AccessControl /></ProtectedRoute>} />
         </Route>}

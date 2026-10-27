@@ -74,11 +74,44 @@ test('las rutas de clientes muestran menu y no renderizan login ni gestion', asy
   assert.match(menu, /Cargando menú/);
   assert.doesNotMatch(menu, /Agregar Cheese al carrito/);
   assert.doesNotMatch(menu, /href="\/login"/);
-  for (const ruta of ['/login', '/dashboard/orders', '/delivery']) {
+  for (const ruta of ['/login', '/dashboard/orders', '/dashboard/caja', '/delivery']) {
     const html = await vista(servidor, ruta);
     assert.doesNotMatch(html, /Iniciar sesión|Panel de Control|Repartidor Activo/);
   }
 });
+
+for (const permitido of [true, false]) {
+  test(`la ruta directa de Caja ${permitido ? 'abre su módulo diferido y aparece en ambas navegaciones' : 'rechaza y oculta la sección sin caja.ver'}`, async (t) => {
+    const user = { id: 4, name: 'Operador', backendRole: 'EMPLEADO', permisos: permitido ? ['caja.ver'] : ['pedidos.ver'] };
+    const servidor = await createServer({
+      mode: 'personal', server: { middlewareMode: true, hmr: false }, logLevel: 'silent',
+      plugins: [{
+        name: 'sesion-caja-rutas', enforce: 'pre',
+        resolveId(source) {
+          if (source === '../cash/Caja') return '\0caja-ruta-test';
+          return null;
+        },
+        load(id) {
+          if (id === '\0caja-ruta-test') return 'export default function Caja() { return "Gestión de caja de prueba"; }';
+          if (id.replaceAll('\\', '/').endsWith('/src/auth/AuthContext.jsx')) {
+            return `const user=${JSON.stringify(user)}; export const useAuth=()=>({user,loading:false,logout(){}}); export const AuthProvider=({children})=>children;`;
+          }
+          return null;
+        },
+      }],
+    });
+    t.after(() => servidor.close());
+    const html = await vista(servidor, '/dashboard/caja');
+    if (permitido) {
+      assert.match(html, /Gestión de caja de prueba/);
+      assert.equal([...html.matchAll(/href="\/dashboard\/caja"/g)].length, 2);
+      assert.doesNotMatch(html, /href="\/dashboard\/orders"|Sin acceso a esta sección/);
+    } else {
+      assert.match(html, /Sin acceso a esta sección/);
+      assert.doesNotMatch(html, /Gestión de caja de prueba|href="\/dashboard\/caja"/);
+    }
+  });
+}
 
 test('el portal personal muestra credenciales y no renderiza menu publico', async (t) => {
   const servidor = await createServer({

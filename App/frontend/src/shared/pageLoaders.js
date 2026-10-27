@@ -11,6 +11,7 @@ export const pageLoaders = {
   '/dashboard/kitchen': () => import('../kitchen/Kitchen'),
   '/dashboard/catalog': () => import('../management/Catalog'),
   '/dashboard/inventory': () => import('../inventory/Inventory'),
+  '/dashboard/caja': () => import('../cash/Caja'),
 };
 
 export function preloadPage(path) {

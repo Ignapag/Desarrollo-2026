@@ -66,6 +66,7 @@ App/
     ├── ordering/                     menú, layout del cliente y carrito
     ├── fulfillment/                  pedidos y delivery
     ├── kitchen/
+    ├── cash/                         consolidado, historial y cierres de caja
     ├── inventory/
     ├── management/                   panel, catálogo y vistas administrativas
     └── shared/                       cliente HTTP y estado común (DataContext)
@@ -228,6 +229,27 @@ Vite reenvía `/api` a `http://127.0.0.1:8000` en desarrollo.
    Carrito y botón de chat viven en `ordering/ClientLayout.jsx`; el servidor es
    la fuente del historial y de los pedidos al recargar. Contratos, límites y
    comandos en [chat web de demostración](WHATSAPP_DESARROLLO.md#chat-web-de-demostración).
+
+## Caja en el frontend
+
+`cash/Caja.jsx` registra `/dashboard/caja` en el portal de personal y en el modo
+completo. Usa `cajaController` para coordinar lecturas y escrituras y `cajaContract`
+para validar fechas, filtros y respuestas de `/api/caja`; comparte el cliente HTTP,
+la cookie y la sesión existentes. El portal de clientes no registra esta pantalla.
+El backend conserva los permisos `caja.ver`, `caja.generar` y `caja.aprobar`.
+
+El consolidado informa una ventana y los cierres conservan un snapshot con posible
+arrastre; no son totales intercambiables. La pantalla presenta los importes de la
+API, sin recalcular el saldo contable a partir de pedidos. Las fechas contables y
+las ventanas se muestran con sus componentes recibidos, sin convertirlas a UTC.
+
+La API de Caja no ofrece versión esperada ni clave de idempotencia. Una prelectura
+antes de confirmar y aprobar permite detectar cambios conocidos, pero no elimina
+la carrera entre esa lectura y el POST: no hay comparación y actualización atómica
+contra el snapshot que vio la persona. Tampoco se reenvían escrituras al fallar la
+red. La recuperación consulta fecha/turno para generación y el ID para aprobación;
+la existencia de un cierre no demuestra que el POST propio ni sus observaciones se
+hayan persistido. Contratos y límites en [operación de Caja](OPERACION_PEDIDOS.md#caja-en-el-panel).
 
 ## Datos y configuración
 
