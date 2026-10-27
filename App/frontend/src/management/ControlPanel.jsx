@@ -12,11 +12,8 @@ const moneda = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'AR
 const hora = new Intl.DateTimeFormat('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour: '2-digit', minute: '2-digit' });
 const tarjeta = 'bg-monu-bone rounded-2xl p-6 shadow-sm border border-monu-green/10 min-w-0';
 
-function useReportes(user) {
-  const rol = user?.backendRole;
-  const [datos, setDatos] = useState(null);
-  const [error, setError] = useState('');
-  const [cargando, setCargando] = useState(true);
+function useReportes(user, refreshSession) {
+  const [estado, setEstado] = useState(null);
   const [intento, setIntento] = useState(0);
 
   useEffect(() => {
@@ -31,7 +28,7 @@ function useReportes(user) {
       if (!forzar && Date.now() - ultimoInicio < 10000) return;
       pendiente = true;
       ultimoInicio = Date.now();
-      setCargando(true);
+      setEstado((anterior) => ({ owner: user, datos: anterior?.owner === user ? anterior.datos : null, error: '', cargando: true }));
       const periodo = periodoPanel();
       const query = new URLSearchParams({ fecha_desde: periodo.desde, fecha_hasta: periodo.hasta });
       try {
@@ -43,14 +40,16 @@ function useReportes(user) {
         if (fallida) throw fallida.reason;
         const [resumen, ventas] = respuestas.map((respuesta) => respuesta.value);
         if (activo) {
-          setDatos({ rol, resumen, serie: unidadesPorDia(periodo.dias, ventas) });
-          setError('');
+          setEstado({ owner: user, datos: { resumen, serie: unidadesPorDia(periodo.dias, ventas) }, error: '', cargando: false });
         }
       } catch (fallo) {
-        if (activo) setError(fallo.message || 'No se pudo cargar el panel.');
+        if (activo) {
+          const sinAcceso = [401, 403].includes(fallo.status);
+          setEstado((anterior) => ({ owner: user, datos: !sinAcceso && anterior?.owner === user ? anterior.datos : null, error: fallo.message || 'No se pudo cargar el panel.', cargando: false }));
+          if (sinAcceso) void refreshSession?.();
+        }
       } finally {
         pendiente = false;
-        if (activo) setCargando(false);
       }
     }
 
@@ -66,15 +65,17 @@ function useReportes(user) {
       window.removeEventListener('focus', refrescar);
       document.removeEventListener('visibilitychange', refrescar);
     };
-  }, [user, rol, intento]);
+  }, [user, intento, refreshSession]);
 
-  return { datos: datos?.rol === rol ? datos : null, error, cargando, recargar: () => setIntento((anterior) => anterior + 1) };
+  const habilitado = can(user, 'reportes.ver');
+  const actual = habilitado && estado?.owner === user ? estado : null;
+  return { datos: actual?.datos, error: actual?.error || '', cargando: habilitado && (actual?.cargando ?? true), recargar: () => setIntento((anterior) => anterior + 1) };
 }
 
 export default function ControlPanel() {
-  const { user } = useAuth();
+  const { user, refreshSession } = useAuth();
   const habilitado = can(user, 'reportes.ver');
-  const { datos, error, cargando, recargar } = useReportes(user);
+  const { datos, error, cargando, recargar } = useReportes(user, refreshSession);
   const resumen = datos?.resumen;
   const ranking = resumen?.ranking_productos.slice(0, 5) || [];
   const stats = resumen ? [

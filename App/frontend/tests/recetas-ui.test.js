@@ -11,6 +11,7 @@ let dom;
 let createRoot;
 let Catalog;
 let DataProvider;
+let useData;
 const previousFetch = globalThis.fetch;
 const product = { id: 1, categoria_id: 1, categoria: 'Hamburguesas', nombre: 'Cheese', precio_base: '100', activo: true, disponible: true, variantes: [] };
 const inventory = [{ id: 10, nombre: 'Tomate', unidad_medida: 'UNIDAD', cantidad_actual: '10', umbral_minimo: '1', nivel: 'NORMAL' }, { id: 11, nombre: 'Pan', unidad_medida: 'UNIDAD', cantidad_actual: '10', umbral_minimo: '1', nivel: 'NORMAL' }];
@@ -28,11 +29,11 @@ before(async () => {
     return null;
   } }, react()], ssr: { noExternal: ['sonner'] }, server: { middlewareMode: true, hmr: false, ws: false }, optimizeDeps: { noDiscovery: true }, appType: 'custom', logLevel: 'silent' });
   ({ default: Catalog } = await server.ssrLoadModule('/src/management/Catalog.jsx'));
-  ({ DataProvider } = await server.ssrLoadModule('/src/shared/store/DataContext.jsx'));
+  ({ DataProvider, useData } = await server.ssrLoadModule('/src/shared/store/DataContext.jsx'));
 });
 after(async () => { globalThis.fetch = previousFetch; await server?.close(); dom?.restore(); });
 
-async function mount(t, extraFetch = () => undefined) {
+async function mount(t, extraFetch = () => undefined, captureData) {
   globalThis.fetch = async (path, options = {}) => {
     const extra = extraFetch(path, options);
     if (extra) return extra;
@@ -41,7 +42,8 @@ async function mount(t, extraFetch = () => undefined) {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
-  await act(async () => root.render(createElement(MemoryRouter, null, createElement(DataProvider, null, createElement(Catalog)))));
+  function Probe() { captureData(useData()); return null; }
+  await act(async () => root.render(createElement(MemoryRouter, null, createElement(DataProvider, null, createElement(Catalog), captureData && createElement(Probe)))));
   t.after(async () => { await act(async () => root.unmount()); document.body.removeChild(container); });
   return container;
 }
@@ -67,6 +69,60 @@ test('crear una hamburguesa envía la receta completa y convierte un cuarto sin 
   assert.deepEqual(sent.ingredientes.map((row) => [row.ingrediente_id, row.cantidad_requerida]), [[10, '0.25'], [11, '1']]);
 });
 
+test('alta usa la categoría visible Nuestras Burgers aunque no exista Hamburguesas', async (t) => {
+  let sent;
+  const burger = { ...product, categoria_id: 23, categoria: 'Nuestras Burgers' };
+  const container = await mount(t, (path, options) => {
+    if (path !== '/api/productos') return undefined;
+    if (options.method === 'POST') {
+      sent = JSON.parse(options.body);
+      return response({ ...burger, id: 99, nombre: 'Nueva burger' });
+    }
+    return response([burger, { ...product, id: 2, categoria_id: 26, categoria: 'Combos' }]);
+  });
+  await act(async () => reactProps(button(container, 'Nuevo Producto')).onClick());
+  assert.equal(reactProps(input(container, 'new-product-category')).value, 'Nuestras Burgers');
+  await change(input(container, 'new-product-name'), 'Nueva burger');
+  await change(input(container, 'new-product-price'), '15000');
+  const ingredient = elements(container, (node) => node.localName === 'select' && node.getAttribute('id')?.includes('-ingredient-'))[0];
+  await change(ingredient, '10');
+  await act(async () => reactProps(button(container, 'Guardar Producto')).onClick());
+  assert.equal(sent.categoria_id, 23);
+});
+
+test('catálogo explica falta de disponibilidad y receta muestra el stock recibido', async (t) => {
+  const container = await mount(t, (path) => {
+    if (path === '/api/productos') return response([{ ...product, disponible: false }]);
+    if (path.startsWith('/api/stock/ingredientes')) return response([{ ...inventory[0], cantidad_actual: '0' }]);
+  });
+  assert.match(container.textContent, /No disponible.*receta.*stock/);
+  await act(async () => reactProps(button(container, 'Nuevo Producto')).onClick());
+  const ingredient = elements(container, (node) => node.localName === 'select' && node.getAttribute('id')?.includes('-ingredient-'))[0];
+  await change(ingredient, '10');
+  assert.match(container.textContent, /Stock registrado: 0 unidad/);
+});
+
+test('una categoría retirada durante el alta muestra el selector vacío y no envía el producto', async (t) => {
+  let catalog = [{ ...product, categoria: 'Vieja' }];
+  let data;
+  let sent = false;
+  const container = await mount(t, (path, options) => {
+    if (path !== '/api/productos') return undefined;
+    if (options.method === 'POST') sent = true;
+    return response(catalog);
+  }, (value) => { data = value; });
+  await act(async () => reactProps(button(container, 'Nuevo Producto')).onClick());
+  assert.equal(reactProps(input(container, 'new-product-category')).value, 'Vieja');
+  await change(input(container, 'new-product-name'), 'Nueva burger');
+  await change(input(container, 'new-product-price'), '15000');
+  catalog = [{ ...product, categoria_id: 23, categoria: 'Nuestras Burgers' }];
+  await act(async () => data.refreshCatalog(undefined, true));
+  assert.equal(reactProps(input(container, 'new-product-category')).value, '');
+  await act(async () => reactProps(button(container, 'Guardar Producto')).onClick());
+  assert.equal(sent, false);
+  assert.match(container.textContent, /Seleccioná una categoría existente/);
+});
+
 test('editar la receta guarda cantidades por variante con control de versión', async (t) => {
   let sent;
   const recipe = { producto_id: 1, actualizado_en: '2026-10-18T10:00:00Z', ingredientes: [{ ingrediente_id: 10, nombre: 'Tomate', unidad_medida: 'UNIDAD', cantidad_requerida: '0.25', es_base: true }], variantes: [{ nombre: 'Simple', precio: '100', ingredientes: [{ ingrediente_id: 10, cantidad_requerida: '0.25', es_base: true }] }, { nombre: 'Doble', precio: '150', ingredientes: [{ ingrediente_id: 10, cantidad_requerida: '0.5', es_base: true }] }] };
@@ -86,7 +142,7 @@ test('editar la receta guarda cantidades por variante con control de versión', 
 test('crear variantes conserva cada cantidad y bloquea una fracción inválida antes del POST', async (t) => {
   let sent;
   const container = await mount(t, (path, options) => {
-    if (path === '/api/productos' && options.method === 'POST') { sent = JSON.parse(options.body); return response(product); }
+    if (path === '/api/productos' && options.method === 'POST') { sent = JSON.parse(options.body); return response({ ...product, id: 2 }); }
   });
   await act(async () => reactProps(button(container, 'Nuevo Producto')).onClick());
   await change(input(container, 'new-product-name'), 'Nueva');

@@ -4,7 +4,7 @@ import { useAuth } from '../auth/AuthContext';
 import { useData } from '../shared/store/DataContext';
 import { apiFetch } from '../shared/api/http';
 import { createOrderCommands } from './orderCommands';
-import { addressLabel, dateTime, money, stateLabel } from './orderModel';
+import { addressLabel, confirmedOrder, dateTime, money, stateLabel } from './orderModel';
 import { buttonClass, DataError } from './operationUi';
 import { EditOperation, StateOperation } from './OrderOperationForms';
 import OrderDelivery from './OrderDelivery';
@@ -13,13 +13,14 @@ import OrderPayments from './OrderPayments';
 const commands = createOrderCommands(apiFetch);
 
 export default function OrderDetail({ id, onClose, requireFresh = false }) {
-  const { user } = useAuth();
+  const { user, refreshSession } = useAuth();
   const { state, startOrderOperation, orderOperationPending } = useData();
   const cached = state.orders.find((candidate) => candidate.id === id)?.detail;
   const [order, setOrder] = useState(cached || null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(requireFresh || !cached);
   const [stale, setStale] = useState(false);
+  const [editRevision, setEditRevision] = useState(0);
   const lock = useRef(false);
   const request = useRef(0);
   const dialog = useRef(null);
@@ -33,13 +34,19 @@ export default function OrderDetail({ id, onClose, requireFresh = false }) {
     const ticket = ++request.current;
     try {
       const result = await commands.detail(id, controller.signal);
+      if (!confirmedOrder(result, id)) throw new Error('No se pudo verificar el detalle recibido. Actualizá antes de operar.');
       if (!controller.signal.aborted && mounted.current && ticket === request.current) { setOrder(result); setStale(false); }
     } catch (failure) {
+      if (!controller.signal.aborted && mounted.current && ticket === request.current && [401, 403].includes(failure.status)) {
+        setOrder(null);
+        setStale(true);
+        void refreshSession?.();
+      }
       if (!controller.signal.aborted) throw failure;
     } finally {
       if (readController.current === controller) readController.current = null;
     }
-  }, [id]);
+  }, [id, refreshSession]);
   useEffect(() => {
     let active = true;
     mounted.current = true;
@@ -64,7 +71,7 @@ export default function OrderDetail({ id, onClose, requireFresh = false }) {
     try { await load(); } catch (failure) { if (mounted.current) setError(`No se pudo actualizar el detalle. ${failure.message}`); }
     finally { lock.current = false; if (mounted.current) setLoading(false); }
   };
-  const run = (operation, success, { keepOpen = false, optimisticOrder } = {}) => {
+  const run = (operation, success, { keepOpen = false, optimisticOrder, resetEdit = false } = {}) => {
     if (lock.current || busy || stale) return;
     lock.current = true;
     const ticket = ++request.current;
@@ -76,6 +83,7 @@ export default function OrderDetail({ id, onClose, requireFresh = false }) {
         request.current += 1;
         readController.current?.abort();
         setOrder(updated);
+        if (resetEdit) setEditRevision((value) => value + 1);
         setStale(false);
         setError('');
       } : undefined,
@@ -110,7 +118,7 @@ export default function OrderDetail({ id, onClose, requireFresh = false }) {
           {(can(user, 'delivery.planificar') || can(user, 'delivery.operar') || can(user, 'delivery.corregir')) && <OrderDelivery can={(key) => can(user, key)} order={order} role={user.backendRole} commands={commands} run={run} busy={busy || stale} />}
         </div>}
         {can(user, 'pagos.ver') && <OrderPayments can={(key) => can(user, key)} key={user.id} order={order} userId={user.id} commands={commands} run={run} busy={busy || stale} />}
-        {can(user, 'pedidos.editar') && <EditOperation can={(key) => can(user, key)} key={`edit:${order.id}:${order.version}`} order={order} role={user.backendRole} commands={commands} run={run} busy={busy || stale} />}
+        {can(user, 'pedidos.editar') && <EditOperation can={(key) => can(user, key)} key={`edit:${order.id}:${editRevision}`} order={order} role={user.backendRole} commands={commands} run={run} busy={busy || stale} />}
         <details className="space-y-3 border-t border-monu-green/20 pt-3"><summary className="cursor-pointer min-h-11 flex items-center font-bold text-monu-green">Historial y detalles</summary>
           <dl className="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-[max-content_1fr]">{[['creado_en', 'Creado'], ['confirmado_en', 'Confirmado'], ['preparacion_en', 'Preparación'], ['listo_en', 'Listo'], ['entregado_en', 'Entregado'], ['cancelado_en', 'Cancelado']].filter(([key]) => order[key]).map(([key, label]) => <div className="contents" key={key}><dt className="font-bold">{label}</dt><dd>{dateTime(order[key])}</dd></div>)}</dl>
           <ol className="space-y-3">{order.historial.map((event) => <li key={event.id} className="border-l-2 border-monu-green/30 pl-3 text-sm space-y-1"><p className="font-bold">{stateLabel(event.estado_anterior)} → {stateLabel(event.estado_nuevo)}</p><p>{dateTime(event.creado_en)} · {event.actor || 'Sistema'}</p><p className="break-words">{event.observacion || 'Cambio de estado'}</p>{event.tratamiento_stock && <p>Stock: {({ CONSERVAR: 'consumo conservado', RECONSUMIR: 'nuevo consumo', MERMA: 'merma declarada', RESERVA_DEVUELTA: 'reserva devuelta' })[event.tratamiento_stock] || event.tratamiento_stock}</p>}</li>)}</ol>

@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Info, LoaderCircle, MessageCircle, Paperclip, Send, X } from 'lucide-react';
-import { chatMessageStatus, getChatConversation, getPendingChatSend, openChatSession, reconcileChatSend, sendChatReceipt, sendChatText } from './chatDemo';
+import { chatMessageStatus, getChatConversation, getPendingChatSend, openChatSession, reconcileChatSend, sendChatDraft, sendChatReceipt, sendChatText } from './chatDemo';
+import { useData } from '../shared/store/DataContext';
+import { buildWhatsAppDraftPayload } from './whatsapp';
 
 const buttonClass = 'min-h-11 min-w-11 inline-flex items-center justify-center gap-2 rounded-xl px-3 font-bold active:opacity-75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-monu-green focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
 
@@ -10,6 +12,15 @@ function messageText(value) {
 }
 
 export default function ChatDrawer({ isOpen, onClose }) {
+  const { state, dispatch } = useData();
+  const cartSnapshot = useRef({ cart: state.cart, dispatch });
+  useLayoutEffect(() => { cartSnapshot.current = { cart: state.cart, dispatch }; }, [state.cart, dispatch]);
+  const clearRecoveredCart = useCallback((draft) => {
+    const { cart, dispatch: clear } = cartSnapshot.current;
+    if (!draft?.items || !cart?.length) return;
+    const items = draft.items.map((item) => ({ producto_id: item.producto_id, cantidad: item.cantidad, variante: item.variante || null, aclaraciones: item.aclaraciones || null }));
+    if (JSON.stringify(buildWhatsAppDraftPayload({ cart }).items) === JSON.stringify(items)) clear({ type: 'CLEAR_CART' });
+  }, []);
   const [conversation, setConversation] = useState(null);
   const [checkedAt, setCheckedAt] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -74,6 +85,7 @@ export default function ChatDrawer({ isOpen, onClose }) {
         if (epoch.current === current && mutation.current === version) {
           const unresolved = getPendingChatSend();
           if (reconcileChatSend(data)) {
+            clearRecoveredCart(unresolved.draft);
             setRetry(null);
             setSendError('');
             setText((value) => value === unresolved.text ? '' : value);
@@ -104,7 +116,7 @@ export default function ChatDrawer({ isOpen, onClose }) {
     void refresh();
     document.addEventListener('visibilitychange', refresh);
     return () => { epoch.current += 1; refreshRef.current = null; window.clearTimeout(timer); document.removeEventListener('visibilitychange', refresh); };
-  }, [isOpen]);
+  }, [isOpen, clearRecoveredCart]);
 
   useEffect(() => {
     if (revision) void refreshRef.current?.();
@@ -122,13 +134,14 @@ export default function ChatDrawer({ isOpen, onClose }) {
     mutation.current += 1;
     setSending(true);
     setSendError('');
-    const outgoing = { direccion: 'cliente', texto: operation.file ? `Comprobante: ${operation.file.name || 'archivo'}` : operation.text.trim(), estado: 'ENVIANDO_LOCAL', creado_en: new Date().toISOString(), tiene_archivo: !!operation.file };
+    const outgoing = { direccion: 'cliente', texto: operation.draft ? 'Pedido enviado desde el carrito' : operation.file ? `Comprobante: ${operation.file.name || 'archivo'}` : operation.text.trim(), estado: 'ENVIANDO_LOCAL', creado_en: new Date().toISOString(), tiene_archivo: !!operation.file };
     localMessageRef.current = outgoing;
     setLocalMessage(outgoing);
-    if (!operation.file && !operation.preserveText) setText((value) => value === operation.text ? '' : value);
+    if (!operation.file && !operation.draft && !operation.preserveText) setText((value) => value === operation.text ? '' : value);
     try {
-      const acknowledgement = operation.file ? await sendChatReceipt(operation.file) : await sendChatText(operation.text);
+      const acknowledgement = operation.draft ? await sendChatDraft(operation.draft) : operation.file ? await sendChatReceipt(operation.file) : await sendChatText(operation.text);
       const saved = { ...outgoing, ...acknowledgement };
+      if (operation.draft) clearRecoveredCart(operation.draft);
       localMessageRef.current = saved;
       setLocalMessage(saved);
       if (fileRef.current) fileRef.current.value = '';
@@ -138,7 +151,7 @@ export default function ChatDrawer({ isOpen, onClose }) {
     } catch (failure) {
       localMessageRef.current = null;
       setLocalMessage(null);
-      if (!operation.file && !operation.preserveText) setText((value) => value || operation.text);
+      if (!operation.file && !operation.draft && !operation.preserveText) setText((value) => value || operation.text);
       const unresolved = getPendingChatSend();
       setSendError((failure.message || 'No pudimos enviar.') + (unresolved ? ' No confirmamos el resultado; recuperá el mismo envío antes de continuar.' : ''));
       setRetry(unresolved ? { ...unresolved, preserveText: operation.preserveText || (unresolved.text && unresolved.text !== text) } : null);

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Eye, EyeOff, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from './AuthContext';
@@ -6,25 +6,42 @@ import { Link } from 'react-router-dom';
 import { portal } from '../shared/portal';
 
 export default function Login() {
-  const { login } = useAuth();
+  const { login, logout, sessionError } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const pending = useRef(false);
+  const [errors, setErrors] = useState({});
+  const [submitError, setSubmitError] = useState('');
+  const usernameInput = useRef(null);
+  const passwordInput = useRef(null);
+  useEffect(() => {
+    if (errors.username) usernameInput.current?.focus();
+    else if (errors.password) passwordInput.current?.focus();
+  }, [errors]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-    if (!username || !password) {
-      toast.error('Completá usuario y contraseña');
+    if (pending.current) return;
+    const invalid = { ...(!username.trim() && { username: 'Ingresá tu usuario.' }), ...(!password && { password: 'Ingresá tu contraseña.' }) };
+    setErrors(invalid);
+    setSubmitError('');
+    if (Object.keys(invalid).length) {
       return;
     }
 
+    pending.current = true;
     setSubmitting(true);
     try {
-      const result = await login(username, password);
-      if (result?.error) toast.error(result.error);
-      else toast.success('¡Bienvenido!');
+      const result = await login(username.trim(), password);
+      if (result?.error) setSubmitError(result.error);
+      else if (result?.success) toast.success('¡Bienvenido!');
+      else setSubmitError('No se pudo confirmar el inicio de sesión. Volvé a intentar.');
+    } catch (error) {
+      setSubmitError(error.message || 'No se pudo iniciar sesión. Volvé a intentar.');
     } finally {
+      pending.current = false;
       setSubmitting(false);
     }
   };
@@ -43,6 +60,8 @@ export default function Login() {
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
+            {sessionError && <div role="alert" className="text-sm text-red-700"><p>{sessionError}</p><button type="button" onClick={logout} className="min-h-11 underline">Reintentar cierre de sesión</button></div>}
+            {submitError && <p role="alert" className="text-sm text-red-700">{submitError}</p>}
             <div>
               <label htmlFor="username" className="block text-xs font-bold text-monu-dark mb-1">Usuario</label>
               <input
@@ -53,9 +72,13 @@ export default function Login() {
                 onChange={(event) => setUsername(event.target.value)}
                 autoComplete="username"
                 required
+                aria-invalid={Boolean(errors.username)}
+                aria-describedby={errors.username ? 'username-error' : undefined}
+                ref={usernameInput}
                 className="w-full bg-monu-cream/50 border border-monu-green/10 rounded-xl px-4 py-3 font-bold text-sm text-monu-dark focus:outline-none focus:border-monu-green transition-colors"
                 placeholder="Tu usuario"
               />
+              {errors.username && <p id="username-error" role="alert" className="text-sm text-red-700">{errors.username}</p>}
             </div>
 
             <div>
@@ -69,6 +92,9 @@ export default function Login() {
                   onChange={(event) => setPassword(event.target.value)}
                   autoComplete="current-password"
                   required
+                  aria-invalid={Boolean(errors.password)}
+                  aria-describedby={errors.password ? 'password-error' : undefined}
+                  ref={passwordInput}
                   className="w-full bg-monu-cream/50 border border-monu-green/10 rounded-xl px-4 py-3 pr-11 font-bold text-sm text-monu-dark focus:outline-none focus:border-monu-green transition-colors"
                   placeholder="••••••••"
                 />
@@ -81,6 +107,7 @@ export default function Login() {
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
+              {errors.password && <p id="password-error" role="alert" className="text-sm text-red-700">{errors.password}</p>}
             </div>
 
             <button

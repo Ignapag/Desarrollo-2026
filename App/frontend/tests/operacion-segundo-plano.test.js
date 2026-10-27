@@ -4,6 +4,7 @@ import { act, createElement, useLayoutEffect, useState } from 'react';
 import { createTestServer as createServer } from './vite-test-server.js';
 import react from '@vitejs/plugin-react';
 import { installMinimalDom, elements, reactProps, deferred } from './minimal-dom.js';
+import { paymentFixture } from './payment-fixtures.js';
 
 let server;
 let dom;
@@ -206,7 +207,7 @@ test('cobrar cierra inmediatamente y conserva el UUID para recuperar una respues
   let data;
   const bodies = [];
   globalThis.fetch = async (path, options = {}) => {
-    if (options.method === 'POST') { bodies.push(options.body); return bodies.length === 1 ? writing.promise : response({ pago: { id: 55 }, pedido: { ...order, neto_cobrado: '12000', saldo_pendiente: '0' } }); }
+    if (options.method === 'POST') { bodies.push(options.body); return bodies.length === 1 ? writing.promise : response(paymentFixture({ id: 55, pedido: { ...order, neto_cobrado: '12000', saldo_pendiente: '0' } })); }
     return response(path === '/api/pedidos/17' ? order : [order]);
   };
   let reopen;
@@ -237,7 +238,7 @@ test('una transferencia de la sesión anterior no inicia otra llamada con la ses
   let calls = 0;
   const transfer = { ...order, metodo_pago_acordado: 'TRANSFERENCIA' };
   globalThis.fetch = async (path, options = {}) => {
-    if (options.method === 'POST') { calls += 1; return calls === 1 ? writing.promise : response({ id: 55, estado: 'CONCILIADO' }); }
+    if (options.method === 'POST') { calls += 1; return calls === 1 ? writing.promise : response(paymentFixture({ kind: 'transferencia', id: 55 })); }
     return response(path === '/api/pedidos/17' ? transfer : []);
   };
   function Screen() { const [open, setOpen] = useState(true); return open ? createElement(OrderDetail, { id: 17, onClose: () => setOpen(false) }) : null; }
@@ -246,7 +247,7 @@ test('una transferencia de la sesión anterior no inicia otra llamada con la ses
   setUser({ id: 3, role: 'admin', backendRole: 'EMPLEADO', permisos: ['pedidos.ver','pedidos.editar','pedidos.cambiar_estado','pagos.ver','pagos.registrar','pagos.conciliar','delivery.planificar'] });
   t.after(() => setUser({ id: 1, role: 'admin', backendRole: 'EMPLEADO', permisos: ['pedidos.ver','pedidos.editar','pedidos.cambiar_estado','pagos.ver','pagos.registrar','pagos.conciliar','delivery.planificar'] }));
   await act(async () => container.rerender());
-  await act(async () => { writing.resolve(response({ id: 55, estado: 'PENDIENTE' })); });
+  await act(async () => { writing.resolve(response(paymentFixture({ kind: 'transferencia', id: 55, state: 'PENDIENTE' }))); });
   assert.equal(calls, 1);
 });
 
@@ -277,7 +278,7 @@ for (const existing of [false, true]) {
     assert.equal(closed, 0);
     assert.equal(elements(container, (node) => node.localName === 'dialog').length, 1);
     assert.equal(reactProps(confirm).disabled, true);
-    await act(async () => { writing.resolve(response({ id: 55, estado: 'CONCILIADO', pedido: paid })); });
+    await act(async () => { writing.resolve(response(paymentFixture({ kind: 'transferencia', id: 55, pedido: paid }))); });
     assert.match(container.textContent, /Pagado/);
     assert.equal(closed, 0);
     assert.equal(reads, readsBefore, 'La respuesta confirmada actualiza el detalle sin otro GET');
@@ -295,7 +296,7 @@ test('un fallo de transferencia deja el detalle abierto y conserva el intento pa
     if (options.method === 'POST') {
       bodies.push(options.body);
       if (bodies.length === 1) throw Error('Respuesta perdida');
-      return response({ id: 55, estado: 'CONCILIADO', pedido: { ...transfer, version: 4, neto_cobrado: '12000', saldo_pendiente: '0' } });
+      return response(paymentFixture({ kind: 'transferencia', id: 55, pedido: { ...transfer, version: 4, neto_cobrado: '12000', saldo_pendiente: '0' } }));
     }
     return response(path === '/api/pedidos/17' ? transfer : [transfer]);
   };
@@ -328,6 +329,6 @@ test('una respuesta antigua no borra el UUID al volver a entrar con la misma cue
   assert.ok(attempt);
   setUser({ id: 1, role: 'admin', backendRole: 'EMPLEADO', permisos: ['pedidos.ver','pedidos.editar','pedidos.cambiar_estado','pagos.ver','pagos.registrar','pagos.conciliar','delivery.planificar'] });
   await act(async () => container.rerender());
-  await act(async () => { writing.resolve(response({ pago: { id: 55 }, pedido: { ...order, neto_cobrado: '12000', saldo_pendiente: '0' } })); });
+  await act(async () => { writing.resolve(response(paymentFixture({ id: 55, pedido: { ...order, neto_cobrado: '12000', saldo_pendiente: '0' } }))); });
   assert.equal(storage.get('monu-payment:1:17'), attempt);
 });

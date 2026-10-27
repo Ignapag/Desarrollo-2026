@@ -21,6 +21,7 @@ const initialState = {
   ordersStatus: 'loading',
   ordersError: null,
   inventory: [],
+  inventoryOwner: null,
   inventoryStatus: 'idle',
   inventoryError: null,
 };
@@ -61,7 +62,7 @@ function dataReducer(state, action) {
     case 'SYNC_ORDERS':
       return { ...state, orders: action.payload, ordersOwner: action.owner, ordersStatus: 'ready', ordersError: null };
     case 'ORDERS_ERROR':
-      return { ...state, ordersStatus: 'error', ordersError: action.payload };
+      return { ...state, ...(action.unauthorized && { orders: [] }), ordersStatus: 'error', ordersError: action.payload };
     case 'UPSERT_ORDER':
       return { ...state, ordersOwner: action.owner, orders: state.orders.some((o) => o.id === action.payload.id)
         ? state.orders.map((o) => o.id === action.payload.id ? action.payload : o) : [action.payload, ...state.orders] };
@@ -74,11 +75,11 @@ function dataReducer(state, action) {
     case 'CATALOG_ERROR':
       return { ...state, catalogStatus: 'error', catalogError: action.payload };
     case 'SYNC_INVENTORY':
-      return { ...state, inventory: action.payload, inventoryStatus: 'ready', inventoryError: null };
+      return { ...state, inventory: action.payload, inventoryOwner: action.owner, inventoryStatus: 'ready', inventoryError: null };
     case 'INVENTORY_LOADING':
-      return { ...state, inventoryStatus: 'loading', inventoryError: null };
+      return { ...state, inventoryOwner: action.owner, inventoryStatus: 'loading', inventoryError: null };
     case 'INVENTORY_ERROR':
-      return { ...state, inventoryStatus: 'error', inventoryError: action.payload };
+      return { ...state, ...(action.unauthorized && { inventory: [] }), inventoryOwner: action.owner, inventoryStatus: 'error', inventoryError: action.payload };
     case 'ADD_TO_CART': {
       const existingIndex = state.cart.findIndex(item => item.id === action.payload.id);
       if (existingIndex >= 0) {
@@ -122,7 +123,7 @@ function dataReducer(state, action) {
     case 'ADD_INVENTORY_ITEM':
       return {
         ...state,
-        inventory: [{ id: state.inventory.length + 1, ...action.payload }, ...state.inventory]
+        inventory: [{ ...action.payload }, ...state.inventory], inventoryOwner: action.owner,
       }
     case 'UPDATE_INVENTORY_STOCK': {
       const { id, delta } = action.payload;
@@ -138,6 +139,8 @@ function dataReducer(state, action) {
         })
       };
     }
+    case 'CONFIRM_INVENTORY_STOCK':
+      return { ...state, inventory: state.inventory.map((item) => item.id === action.id ? { ...item, stock: action.stock, status: action.stock <= item.min ? 'critico' : 'estable' } : item) };
     default:
       return state;
   }
@@ -148,7 +151,7 @@ const DataContext = createContext(null);
 export function DataProvider({ children }) {
   const [state, dispatch] = useReducer(dataReducer, initialState);
   const [loading, setLoading] = useState(false);
-  const { user } = useAuth();
+  const { user, refreshSession } = useAuth();
   const userRef = useRef(user);
   const ordersRequestRef = useRef(null);
   const freshnessRef = useRef(createFreshnessFence());
@@ -210,7 +213,9 @@ export function DataProvider({ children }) {
       })
       .catch((error) => {
         if (userRef.current === user && !signal?.aborted && freshnessRef.current.accepts(token)) {
-          dispatch({ type: 'ORDERS_ERROR', payload: `No se pudieron actualizar los pedidos. Se conserva la última información. ${error.message}` });
+          const unauthorized = [401, 403].includes(error.status);
+          if (unauthorized) void refreshSession?.();
+          dispatch({ type: 'ORDERS_ERROR', unauthorized, payload: `No se pudieron actualizar los pedidos.${unauthorized ? '' : ' Se conserva la última información.'} ${error.message}` });
         }
         throw error;
       })
@@ -219,7 +224,7 @@ export function DataProvider({ children }) {
       });
     ordersRequestRef.current = { owner: user, signal, request };
     return request;
-  }, [user]);
+  }, [user, refreshSession]);
 
   const refreshCatalog = useCallback((signal, force = false) => {
     if (!force && catalogRequest.current?.owner === user && !catalogRequest.current.signal?.aborted) return catalogRequest.current.promise;
@@ -247,26 +252,28 @@ export function DataProvider({ children }) {
     if (!can(user, 'stock.ver') || userRef.current !== user) return Promise.resolve();
     if (!force && inventoryRequest.current?.owner === user && !inventoryRequest.current.signal?.aborted) return inventoryRequest.current.promise;
     if (!force && Date.now() - inventoryLoadedAt.current < 30000) return Promise.resolve();
-    if (!inventoryLoadedAt.current) dispatch({ type: 'INVENTORY_LOADING' });
+    if (!inventoryLoadedAt.current) dispatch({ type: 'INVENTORY_LOADING', owner: user });
     const entry = { owner: user, signal };
     const token = inventoryFence.current.read();
     entry.promise = apiFetch('/api/stock/ingredientes?activo=true', { signal }).then((inventory) => {
       if (!signal?.aborted && userRef.current === user && inventoryRequest.current === entry && inventoryFence.current.accepts(token)) {
         inventoryLoadedAt.current = Date.now();
-        dispatch({ type: 'SYNC_INVENTORY', payload: inventory.map(mapInventory) });
+        dispatch({ type: 'SYNC_INVENTORY', payload: inventory.map(mapInventory), owner: user });
       }
     }).catch((error) => {
       if (!signal?.aborted && userRef.current === user && inventoryRequest.current === entry && inventoryFence.current.accepts(token)) {
         inventoryLoadedAt.current = 0;
-        dispatch({ type: 'INVENTORY_ERROR', payload: error.message });
+        dispatch({ type: 'INVENTORY_ERROR', payload: error.message, owner: user, unauthorized: [401, 403].includes(error.status) });
+        if ([401, 403].includes(error.status)) void refreshSession?.();
       }
       throw error;
     }).finally(() => { if (inventoryRequest.current === entry) inventoryRequest.current = null; });
     inventoryRequest.current = entry;
     return entry.promise;
-  }, [user]);
+  }, [user, refreshSession]);
 
   const cachedCustomers = useCallback((path) => {
+    if (!can(user, 'clientes.ver') || userRef.current !== user) return null;
     const entry = customerCache.current.get(path);
     return entry?.owner === user && Date.now() - entry.time < 30000 ? entry.value : null;
   }, [user]);
@@ -290,6 +297,7 @@ export function DataProvider({ children }) {
       return value;
     }).catch((error) => {
       if (customerCache.current.get(path) === entry) customerCache.current.delete(path);
+      if (userRef.current === user && [401, 403].includes(error.status)) customerCache.current.clear();
       throw error;
     });
     customerCache.current.set(path, entry);
@@ -303,6 +311,7 @@ export function DataProvider({ children }) {
   }, [refreshOrders]);
 
   const runOrderMutation = async (operation) => {
+    if (!user || userRef.current !== user) throw new Error('La sesión cambió. Volvé a ingresar antes de continuar.');
     const owner = user;
     const fence = freshnessRef.current;
     let confirmed = null;
@@ -347,13 +356,14 @@ export function DataProvider({ children }) {
     const entry = { id, number, status: 'pending', message: '', preview, silent: Boolean(preview) };
     operationsRef.current.set(id, entry);
     publishOperations();
-    let committed = false;
     void runOrderMutation(async () => {
       const result = await operation(() => userRef.current === user);
-      committed = true;
       if (userRef.current !== user) return result;
+      if (!result || typeof result !== 'object' || !Object.keys(result).length) throw new Error('No se pudo confirmar la acción: respuesta incompleta.');
       // Reparto y adaptadores anteriores pueden devolver sólo el movimiento.
-      return confirmedOrder(result, id) || await apiFetch(`/api/pedidos/${id}`);
+      const confirmed = confirmedOrder(result, id) || confirmedOrder(await apiFetch(`/api/pedidos/${id}`), id);
+      if (!confirmed) throw new Error('No se pudo confirmar el pedido: respuesta incompleta.');
+      return confirmed;
     }).then((result) => {
       if (userRef.current !== user || operationsRef.current.get(id) !== entry) return;
       entry.status = 'success';
@@ -366,9 +376,7 @@ export function DataProvider({ children }) {
     }).catch((error) => {
       if (userRef.current !== user || operationsRef.current.get(id) !== entry) return;
       entry.status = 'error';
-      entry.message = committed
-        ? `La acción se registró, pero falta actualizar el pedido. ${error.message}`
-        : `${error.message} Revisá el pedido antes de reintentar.`;
+      entry.message = `${error.message} No pudimos confirmar el estado final. Revisá el pedido antes de reintentar.`;
       publishOperations();
       onError?.(entry.message);
     });
@@ -438,7 +446,8 @@ export function DataProvider({ children }) {
     };
   }, [user?.id, user?.backendRole, refreshOrders]);
 
-  const runResourceMutation = async (kind, operation) => {
+  const runResourceMutation = async (kind, operation, permission) => {
+    if (!user || userRef.current !== user || !can(user, permission)) throw new Error('La sesión cambió o no tenés acceso a esta operación.');
     const fence = kind === 'catalog' ? catalogFence.current : inventoryFence.current;
     const request = kind === 'catalog' ? catalogRequest : inventoryRequest;
     const refresh = kind === 'catalog' ? refreshCatalog : refreshInventory;
@@ -469,30 +478,36 @@ export function DataProvider({ children }) {
         variantes: payload.variantes,
       }),
     });
+    if (!Number.isInteger(created?.id) || typeof created.nombre !== 'string' || created.precio_base == null || !Number.isFinite(Number(created.precio_base))) throw new Error('No pudimos confirmar el producto: respuesta incompleta. Actualizá el catálogo antes de reintentar.');
     const product = mapProduct(created);
     if (userRef.current === user) dispatch({ type: 'ADD_CATALOG_ITEM', payload: product });
     return product;
-  });
+  }, 'productos.gestionar');
 
-  const updateRecipe = async (id, body) => runResourceMutation('catalog', () => apiFetch(`/api/productos/${id}/receta`, {
-    method: 'PUT', body: JSON.stringify(body),
-  }));
+  const updateRecipe = async (id, body) => runResourceMutation('catalog', async () => {
+    const result = await apiFetch(`/api/productos/${id}/receta`, { method: 'PUT', body: JSON.stringify(body) });
+    if (result?.producto_id !== id || !Array.isArray(result.ingredientes) || !Array.isArray(result.variantes) || typeof result.actualizado_en !== 'string') throw new Error('No pudimos confirmar la receta: respuesta incompleta. Consultá su estado antes de reintentar.');
+    return result;
+  }, 'productos.gestionar');
 
   const deactivateProduct = async (id) => runResourceMutation('catalog', async () => {
-    await apiFetch(`/api/productos/${id}/estado`, {
+    const result = await apiFetch(`/api/productos/${id}/estado`, {
       method: 'PATCH',
       body: JSON.stringify({ activo: false }),
     });
+    if (result?.id !== id || result.activo !== false) throw new Error('No pudimos confirmar la desactivación: respuesta incompleta. Actualizá el catálogo antes de reintentar.');
     if (userRef.current === user) dispatch({ type: 'DELETE_CATALOG_ITEM', payload: id });
-  });
+  }, 'productos.gestionar');
 
   const changeOrderStatus = async (id, status, options = {}) => {
+    if (!can(user, 'pedidos.cambiar_estado')) throw new Error('No tenés acceso a cambiar el estado.');
     const order = state.orders.find((candidate) => candidate.id === id);
     if (!order) throw new Error('Actualizá el pedido antes de cambiar su estado.');
     return runOrderMutation(() => commands.state(order, { estado: status.toUpperCase(), ...options }, options.motivo));
   };
 
   const placeOrder = async ({ address, zone, items }) => {
+    if (!user || userRef.current !== user) throw new Error('La sesión cambió. Volvé a ingresar antes de continuar.');
     const created = await apiFetch('/api/pedidos', {
       method: 'POST',
       body: JSON.stringify({
@@ -525,29 +540,36 @@ export function DataProvider({ children }) {
         umbral_minimo: Number(payload.min),
       }),
     });
+    if (!Number.isInteger(created?.id) || typeof created.nombre !== 'string' || created.cantidad_actual == null || created.umbral_minimo == null || !Number.isFinite(Number(created.cantidad_actual)) || !Number.isFinite(Number(created.umbral_minimo))) throw new Error('No pudimos confirmar el insumo: respuesta incompleta. Actualizá el inventario antes de reintentar.');
     const item = mapInventory(created);
-    if (userRef.current === user) dispatch({ type: 'ADD_INVENTORY_ITEM', payload: item });
+    if (userRef.current === user) dispatch({ type: 'ADD_INVENTORY_ITEM', payload: item, owner: user });
     return item;
-  });
+  }, 'stock.gestionar');
 
   const replenishIngredient = async (id, quantity = 1) => runResourceMutation('inventory', async () => {
     // Actualizacion optimista: Render y Supabase estan en regiones distintas,
     // pero el operador debe ver el cambio apenas toca el boton.
     dispatch({ type: 'UPDATE_INVENTORY_STOCK', payload: { id, delta: quantity } });
     try {
-      await apiFetch(`/api/stock/ingredientes/${id}/reposiciones`, {
+      const result = await apiFetch(`/api/stock/ingredientes/${id}/reposiciones`, {
         method: 'POST',
         body: JSON.stringify({ cantidad: quantity, origen: 'PANEL_WEB' }),
       });
+      if (result?.ingrediente_id !== id || !Number.isInteger(result.movimiento_id) || result.saldo_resultante == null || !Number.isFinite(Number(result.saldo_resultante))) throw new Error('No pudimos confirmar la reposición: respuesta incompleta. Consultá el inventario antes de reintentar.');
+      if (userRef.current === user) dispatch({ type: 'CONFIRM_INVENTORY_STOCK', id, stock: Number(result.saldo_resultante) });
     } catch (error) {
       if (userRef.current === user) dispatch({ type: 'UPDATE_INVENTORY_STOCK', payload: { id, delta: -quantity } });
       throw error;
     }
-  });
+  }, 'stock.reponer');
 
   return (
     <DataContext.Provider value={{
-      state: { ...state, orders: visibleOrders },
+      state: { ...state, orders: visibleOrders,
+        inventory: can(user, 'stock.ver') && state.inventoryOwner === user ? state.inventory : [],
+        inventoryStatus: can(user, 'stock.ver') && state.inventoryOwner === user ? state.inventoryStatus : 'idle',
+        inventoryError: can(user, 'stock.ver') && state.inventoryOwner === user ? state.inventoryError : null,
+      },
       dispatch,
       loading,
       refreshData,

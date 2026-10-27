@@ -1,6 +1,6 @@
 import { Plus, LoaderCircle, RefreshCw } from 'lucide-react';
 import { useData } from '../shared/store/DataContext';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Settings2 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 const CATEGORIES = ['Todas', 'Nuestras Burgers', 'Monufusión', 'Opciones Individuales', 'Combos', 'Acompañamientos', 'Bebidas', 'Dips Extra'];
 
 function ProductCard({ product, addToCart }) {
-  const [selectedVariantIndex, setSelectedVariantIndex] = useState(() => Math.max(0, product.variants?.findIndex((variant) => variant.available !== false) ?? 0));
+  const [selectedVariantName, setSelectedVariantName] = useState(() => product.variants?.find((variant) => variant.available !== false)?.name || '');
   const [removedIngredients, setRemovedIngredients] = useState([]);
   const optionsRef = useRef(null);
   const removableIngredients = product.removableIngredients || [];
@@ -17,18 +17,19 @@ function ProductCard({ product, addToCart }) {
 
   const hasVariants = product.variants && product.variants.length > 0;
   const productAvailable = product.active === true && product.available === true;
-  const selectedVariant = product.variants?.[selectedVariantIndex];
-  const canOrder = productAvailable && (!hasVariants || (selectedVariant && selectedVariant.available !== false));
+  const selectedVariant = product.variants?.find((variant) => variant.name === selectedVariantName);
+  const changedOptions = removedIngredients.some((name) => !removableIngredients.includes(name));
+  const canOrder = productAvailable && !changedOptions && (!hasVariants || (selectedVariant && selectedVariant.available !== false));
   const currentPrice = hasVariants ? selectedVariant?.price : product.price;
 
   const handleAdd = () => {
     if (!canOrder) return;
     const itemToAdd = hasVariants ? {
       ...product,
-      id: `${product.id}-${product.variants[selectedVariantIndex].name}`,
-      name: `${product.name} (${product.variants[selectedVariantIndex].name})`,
-      price: product.variants[selectedVariantIndex].price,
-      variant: product.variants[selectedVariantIndex].name,
+      id: `${product.id}-${selectedVariant.name}`,
+      name: `${product.name} (${selectedVariant.name})`,
+      price: selectedVariant.price,
+      variant: selectedVariant.name,
     } : { ...product };
 
     if (notes.trim()) {
@@ -36,7 +37,7 @@ function ProductCard({ product, addToCart }) {
       itemToAdd.id = `${itemToAdd.id}-${Date.now()}`; // Unique ID so it stacks separately in cart
     }
     
-    addToCart(itemToAdd);
+    if (addToCart(itemToAdd) === false) return;
     toast.success('Agregado al carrito', { description: itemToAdd.name });
     setRemovedIngredients([]);
     if (optionsRef.current) optionsRef.current.open = false;
@@ -79,19 +80,21 @@ function ProductCard({ product, addToCart }) {
             {hasVariants ? (
               <select 
                 disabled={!productAvailable}
-                value={selectedVariantIndex}
+                value={selectedVariant?.name || ''}
                 aria-label={`Variante de ${product.name}`}
-                onChange={(e) => setSelectedVariantIndex(parseInt(e.target.value))}
+                onChange={(e) => setSelectedVariantName(e.target.value)}
                 className="flex-1 bg-monu-cream/50 border border-monu-green/10 rounded-xl px-3 py-2 text-sm font-bold text-monu-dark focus:outline-none focus:border-monu-green"
               >
-                {product.variants.map((v, i) => (
-                  <option key={i} value={i} disabled={v.available === false}>{v.name} - ${v.price}{v.available === false ? ' · Sin disponibilidad' : ''}</option>
+                {!selectedVariant && <option value="" disabled>Elegí una variante vigente</option>}
+                {product.variants.map((v) => (
+                  <option key={v.name} value={v.name} disabled={v.available === false}>{v.name} - ${v.price}{v.available === false ? ' · Sin disponibilidad' : ''}</option>
                 ))}
               </select>
             ) : null}
           </div>
           
-          {canOrder && removableIngredients.length > 0 && (
+          {changedOptions && <div role="alert" className="mt-3 text-sm text-red-800"><p>Las opciones cambiaron. Revisá la personalización antes de agregar.</p><button type="button" onClick={() => setRemovedIngredients((previous) => previous.filter((name) => removableIngredients.includes(name)))} className="min-h-11 underline focus-visible:ring-2 focus-visible:ring-monu-green">Revisar opciones vigentes</button></div>}
+          {productAvailable && removableIngredients.length > 0 && (
             <details ref={optionsRef} className="mt-3 rounded-xl border border-monu-green/10 bg-monu-cream/25">
               <summary aria-label={`Personalizar ${product.name}`} className="min-h-11 cursor-pointer rounded-xl px-3 py-3 text-sm font-bold text-monu-green focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-monu-green">
                 <Settings2 aria-hidden="true" className="mr-2 inline size-4" />Personalizar
@@ -124,7 +127,12 @@ function ProductCard({ product, addToCart }) {
 }
 
 export default function Menu() {
-  const { state, dispatch, refreshData } = useData();
+  const { state, dispatch, refreshCatalog } = useData();
+  useEffect(() => {
+    const controller = new AbortController();
+    Promise.resolve().then(() => { if (!controller.signal.aborted) return refreshCatalog(controller.signal); }).catch(() => undefined);
+    return () => controller.abort();
+  }, [refreshCatalog]);
   const [searchParams, setSearchParams] = useSearchParams();
   const query = (searchParams.get('q') || '').toLowerCase();
   const currentCategory = searchParams.get('categoria') || 'Todas';
@@ -138,7 +146,13 @@ export default function Menu() {
   });
 
   const addToCart = (product) => {
+    const existing = state.cart.find((item) => item.id === product.id);
+    if ((existing?.quantity || 0) >= 50 || (!existing && state.cart.length >= 50)) {
+      toast.error('Revisá el carrito', { description: 'El pedido admite hasta 50 productos y 50 unidades por ítem.' });
+      return false;
+    }
     dispatch({ type: 'ADD_TO_CART', payload: { ...product, quantity: 1 } });
+    return true;
   };
 
   if (state.catalogStatus === 'loading') {
@@ -154,7 +168,7 @@ export default function Menu() {
     return (
       <div className="flex min-h-64 flex-col items-center justify-center gap-4 rounded-3xl border border-monu-green/10 bg-monu-bone p-6 text-center">
         <p role="alert" className="font-bold text-monu-dark">{state.catalogError}</p>
-        <button type="button" onClick={() => { void refreshData().catch(() => undefined); }} className="flex min-h-11 items-center gap-2 rounded-xl bg-monu-green px-5 py-3 font-bold text-white hover:bg-monu-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-monu-green focus-visible:ring-offset-2">
+        <button type="button" onClick={() => { void refreshCatalog(undefined, true).catch(() => undefined); }} className="flex min-h-11 items-center gap-2 rounded-xl bg-monu-green px-5 py-3 font-bold text-white hover:bg-monu-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-monu-green focus-visible:ring-offset-2">
           <RefreshCw aria-hidden="true" className="size-4" />Reintentar
         </button>
       </div>

@@ -32,12 +32,13 @@ before(async () => {
 });
 after(async () => { globalThis.fetch = previousFetch; await server?.close(); dom?.restore(); });
 
-async function mount(t, child) {
+async function mount(t, child, path = '/') {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
-  await act(async () => root.render(createElement(MemoryRouter, null, createElement(DataProvider, null, child))));
-  container.rerender = () => root.render(createElement(MemoryRouter, null, createElement(DataProvider, null, child)));
+  const routerProps = { initialEntries: [path] };
+  await act(async () => root.render(createElement(MemoryRouter, routerProps, createElement(DataProvider, null, child))));
+  container.rerender = () => root.render(createElement(MemoryRouter, routerProps, createElement(DataProvider, null, child)));
   t.after(async () => { await act(async () => root.unmount()); document.body.removeChild(container); });
   return container;
 }
@@ -59,6 +60,15 @@ test('clientes muestra la identidad real de la API y permite abrir sus pedidos p
   assert.match(link?.getAttribute('href') || '', /cliente_id=71/);
 });
 
+test('una página fuera del total no anuncia un rango imposible ni un directorio vacío', async (t) => {
+  globalThis.fetch = async (path) => response(path.startsWith('/api/reportes/clientes') ? { clientes: [], total: 1, limite: 50, desplazamiento: 100 } : []);
+  const container = await mount(t, createElement(Customers), '/dashboard/customers?desplazamiento=100');
+  assert.match(container.textContent, /No hay clientes en esta página/);
+  assert.doesNotMatch(container.textContent, /No hay clientes registrados|101–100/);
+  const previous = elements(container, (node) => node.localName === 'button' && node.textContent === 'Anterior')[0];
+  assert.equal(previous.disabled, false);
+});
+
 test('un error de clientes muestra reintento y nunca rellena personas de muestra', async (t) => {
   globalThis.fetch = async (path) => {
     if (path.startsWith('/api/reportes/clientes')) throw new Error('No disponible');
@@ -67,6 +77,23 @@ test('un error de clientes muestra reintento y nunca rellena personas de muestra
   const container = await mount(t, createElement(Customers));
   assert.match(container.textContent, /No se pudieron cargar los clientes/);
   assert.doesNotMatch(container.textContent, /Martina Gómez|Lucas Fernández|No hay clientes/);
+});
+
+test('un error del directorio no se muestra en la siguiente sesión', async (t) => {
+  globalThis.fetch = async (path) => {
+    if (path.startsWith('/api/reportes/clientes')) throw new Error('Error exclusivo de la sesión anterior');
+    return response([]);
+  };
+  const container = await mount(t, createElement(Customers));
+  assert.match(container.textContent, /Error exclusivo de la sesión anterior/);
+  const waiting = deferred();
+  globalThis.fetch = async (path) => path.startsWith('/api/reportes/clientes') ? waiting.promise : response([]);
+  setTestUser({ id: 2, role: 'admin', backendRole: 'EMPLEADO', permisos: ['clientes.ver'] });
+  t.after(() => setTestUser({ id: 1, role: 'admin', backendRole: 'EMPLEADO', permisos: ['pedidos.ver', 'pedidos.cambiar_estado', 'clientes.ver', 'stock.ver', 'stock.gestionar', 'stock.reponer', 'productos.gestionar', 'pagos.ver', 'pagos.registrar', 'pagos.conciliar', 'reportes.ver'] }));
+  await act(async () => container.rerender());
+  assert.doesNotMatch(container.textContent, /Error exclusivo de la sesión anterior/);
+  assert.match(container.textContent, /Consultando clientes/);
+  await act(async () => waiting.resolve(response({ clientes: [], total: 0 })));
 });
 
 test('cargas de catálogo concurrentes comparten solicitud y conservan caché al volver', async (t) => {
@@ -102,6 +129,17 @@ test('actualizar clientes conserva las filas mientras espera la respuesta nueva'
   assert.match(container.textContent, /4 pedidos/);
 });
 
+test('un permiso rechazado retira las filas del directorio ya cargadas', async (t) => {
+  globalThis.fetch = async (path) => response(path.startsWith('/api/reportes/clientes') ? { clientes: [row], total: 1 } : []);
+  const container = await mount(t, createElement(Customers));
+  assert.match(container.textContent, /Cliente real reciente/);
+  globalThis.fetch = async () => ({ ok: false, status: 403, json: async () => ({ detail: 'Directorio sin acceso' }) });
+  const refresh = elements(container, (node) => node.localName === 'button' && node.textContent === 'Actualizar clientes')[0];
+  await act(async () => reactProps(refresh).onClick());
+  assert.match(container.textContent, /Directorio sin acceso/);
+  assert.doesNotMatch(container.textContent, /Cliente real reciente/);
+});
+
 test('un GET anterior no resucita productos ni pisa una reposición confirmada', async (t) => {
   const oldCatalog = deferred();
   const oldStock = deferred();
@@ -121,8 +159,8 @@ test('un GET anterior no resucita productos ni pisa una reposición confirmada',
       stockReads += 1;
       return stockReads === 2 ? oldStock.promise : response([{ ...ingredient, cantidad_actual: replenished ? 11 : 10 }]);
     }
-    if (options.method === 'PATCH') removed = true;
-    if (path.endsWith('/reposiciones')) replenished = true;
+    if (options.method === 'PATCH') { removed = true; return response({ ...product, activo: false }); }
+    if (path.endsWith('/reposiciones')) { replenished = true; return response({ ingrediente_id: 9, movimiento_id: 1, saldo_resultante: '11' }); }
     return response([]);
   };
   function Capture() { const current = useData(); useLayoutEffect(() => { data = current; }); return null; }
@@ -226,6 +264,6 @@ test('una escritura pendiente de la sesión anterior no bloquea recursos de la n
   await act(async () => data.refreshCatalog());
   assert.equal(data.state.catalogStatus, 'ready');
   assert.equal(data.state.catalog[0].name, 'Vigente');
-  await act(async () => { waiting.resolve(response({})); await pending; });
+  await act(async () => { waiting.resolve(response({ id: 7, activo: false })); await pending; });
   assert.equal(data.state.catalog.length, 1);
 });

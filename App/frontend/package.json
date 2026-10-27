@@ -11,6 +11,7 @@
     "test:portales": "node --test tests/portal.test.js tests/api-proxy.test.js tests/portal-routes.test.js",
     "test:panel": "node --test tests/panel-datos.test.js tests/analytics.test.js tests/clientes-carga.test.js tests/recetas-cantidades.test.js tests/recetas-ui.test.js",
     "test:operacion": "node --test tests/operacion-pedidos.test.js tests/operacion-ui.test.js tests/operacion-regresiones.test.js tests/operacion-segundo-plano.test.js tests/whatsapp-avisos.test.js",
+    "test:validaciones": "node --test tests/http-validaciones.test.js tests/login-validaciones.test.js tests/store-validaciones.test.js tests/validaciones-gestion-ui.test.js tests/operaciones-validacion.test.js tests/operacion-privacidad.test.js tests/ordering-validacion.test.js tests/acceso.test.js tests/acceso-sesion.test.js tests/chat-demo.test.js",
     "lint": "oxlint",
     "preview": "vite preview"
   },

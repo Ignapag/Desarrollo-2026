@@ -1,6 +1,6 @@
 ﻿import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiFetch } from '../shared/api/http';
+import { apiFetch, invalidateApiSession, onUnauthorized } from '../shared/api/http';
 import { aceptaSesion, portal } from '../shared/portal';
 import { can as hasPermission, homeFor } from './permissions';
 
@@ -14,6 +14,8 @@ function mapUser(data) {
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(portal.personal);
+  const [sessionError, setSessionError] = useState('');
+  const signedOut = useRef(false);
   const navigate = useNavigate();
   const epoch = useRef(0);
   const busy = useRef(false);
@@ -25,7 +27,7 @@ export function AuthProvider({ children }) {
   };
   const refreshRequest = useRef(null);
   const refreshSession = useCallback(async () => {
-    if (!portal.personal || busy.current) return;
+    if (!portal.personal || busy.current || signedOut.current) return;
     if (refreshRequest.current) return refreshRequest.current;
     const token = epoch.current;
     const request = apiFetch('/api/auth/me').then((data) => {
@@ -41,6 +43,16 @@ export function AuthProvider({ children }) {
     refreshRequest.current = request;
     return request;
   }, []);
+  useEffect(() => onUnauthorized(() => {
+    epoch.current += 1;
+    invalidateApiSession();
+    busy.current = false;
+    refreshRequest.current = null;
+    signedOut.current = true;
+    setUser(null);
+    setLoading(false);
+    setSessionError('La sesión venció. Volvé a ingresar.');
+  }), []);
   useEffect(() => {
     void refreshSession();
     const refreshVisible = () => { if (!document.hidden) void refreshSession(); };
@@ -57,6 +69,9 @@ export function AuthProvider({ children }) {
   }, [refreshSession]);
   const login = async (username, password) => {
     const token = ++epoch.current;
+    invalidateApiSession();
+    signedOut.current = false;
+    setSessionError('');
     busy.current = true;
     refreshRequest.current = null;
     setUser(null);
@@ -76,14 +91,21 @@ export function AuthProvider({ children }) {
   };
   const logout = async () => {
     const token = ++epoch.current;
+    invalidateApiSession();
+    signedOut.current = true;
+    setSessionError('');
     busy.current = true;
     refreshRequest.current = null;
     setUser(null);
     setLoading(false);
     navigate('/login');
     try { await mutateAuth(() => apiFetch('/api/auth/logout', { method: 'POST' })); }
+    catch (error) {
+      if (token === epoch.current) setSessionError(`No se pudo cerrar la sesión en el servidor. Reintentá el cierre. ${error.message}`);
+      return { error: error.message };
+    }
     finally { if (token === epoch.current) busy.current = false; }
   };
-  return <AuthContext.Provider value={{ user, loading, login, logout, refreshSession, can: (permission) => hasPermission(user, permission) }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ user, loading, sessionError, login, logout, refreshSession, can: (permission) => hasPermission(user, permission) }}>{children}</AuthContext.Provider>;
 }
 export const useAuth = () => useContext(AuthContext);

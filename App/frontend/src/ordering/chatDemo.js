@@ -100,6 +100,7 @@ async function sendJson(kind, path, content) {
   const pending = getPendingChatSend();
   if (pending && pending.key !== attempt.key) throw new Error('Primero recuperá el envío anterior con el mismo contenido.');
   if (kind === 'texto') rememberSend(attempt, { text: content.texto });
+  if (kind === 'borrador') rememberSend(attempt, { draft: content.borrador });
   return sendAttempt(attempt, path, {
     method: 'POST', headers: postHeaders,
     body: JSON.stringify({ solicitud_id: attempt.id, ...content }),

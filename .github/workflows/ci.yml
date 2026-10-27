@@ -43,6 +43,9 @@ jobs:
       - name: Compilar frontend
         run: npm run build
 
+      - name: Regresiones de validacion, sesion y errores
+        run: npm run test:validaciones
+
   backend:
     name: Backend y base de datos
     runs-on: ubuntu-latest

@@ -3,6 +3,7 @@ import { Users, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { apiFetch } from '../shared/api/http';
 import NewUserForm from './NewUserForm';
+import { confirmsUser } from './userConfirmation';
 
 const field = 'min-h-11 w-full rounded-xl border border-monu-green/30 bg-white px-3 py-2 focus-visible:outline-2 focus-visible:outline-monu-green';
 const button = 'min-h-11 rounded-xl bg-monu-green px-4 py-2 font-bold text-white disabled:opacity-50 disabled:cursor-not-allowed';
@@ -14,16 +15,19 @@ export function UserRoleEditor({ person, roles, onSaved }) {
   const [pending, setPending] = useState(false);
   const [feedback, setFeedback] = useState(null);
   const active = useRef(true);
+  const busy = useRef(false);
   useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
   const save = async (event) => {
     event.preventDefault();
-    if (pending || selected === person.rol) return;
+    if (busy.current || selected === person.rol || !roles.some((role) => role.rol === selected)) return;
+    busy.current = true;
     setPending(true); setFeedback(null);
     try {
       const updated = await apiFetch(`/api/usuarios/${person.id}/rol`, { method: 'POST', body: JSON.stringify({ rol: selected }) });
+      if (!confirmsUser(updated, { id: person.id, role: selected })) throw new Error('No pudimos confirmar el rol: respuesta incompleta. Actualizá el listado antes de reintentar.');
       if (active.current) { onSaved(updated); setFeedback({ text: 'Rol actualizado.', error: false }); }
     } catch (error) { if (active.current) setFeedback({ text: error.message, error: true }); }
-    finally { if (active.current) setPending(false); }
+    finally { busy.current = false; if (active.current) setPending(false); }
   };
   return <form onSubmit={save} className="rounded-xl border border-monu-green/15 p-4 space-y-3">
     <div className="break-words"><h3 className="font-bold">{person.nombre} {person.apellido}</h3><p className="text-sm">{person.username} · {person.estado}</p></div>
@@ -38,27 +42,32 @@ export function RolePermissionsEditor({ role, modules, onSaved, refreshRole }) {
   const [feedback, setFeedback] = useState(null);
   const [conflicted, setConflicted] = useState(false);
   const active = useRef(true);
+  const busy = useRef(false);
   useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
   const dirty = !samePermissions(selected, role.permisos);
   const reload = async () => {
+    if (busy.current) return;
+    busy.current = true;
     setPending(true);
     try { await refreshRole(role.rol); }
     catch (error) { if (active.current) setFeedback({ error: true, text: `No se pudo actualizar el rol. ${error.message}` }); }
-    finally { if (active.current) setPending(false); }
+    finally { busy.current = false; if (active.current) setPending(false); }
   };
   const save = async (event) => {
     event.preventDefault();
-    if (!role.editable || !dirty || pending || conflicted) return;
+    if (!role.editable || !dirty || busy.current || conflicted) return;
+    busy.current = true;
     setPending(true); setFeedback(null);
     try {
       const updated = await apiFetch(`/api/acceso/roles/${role.rol}`, { method: 'PUT', body: JSON.stringify({ permisos: selected, version: role.version }) });
+      if (updated?.rol !== role.rol || !Number.isInteger(updated.version) || updated.version <= role.version || typeof updated.nombre !== 'string' || typeof updated.editable !== 'boolean' || !Array.isArray(updated.disponibles) || !Array.isArray(updated.permisos) || !updated.permisos.every((permission) => typeof permission === 'string')) throw new Error('No pudimos confirmar los permisos: respuesta incompleta. Actualizá el rol antes de reintentar.');
       if (active.current) { onSaved(updated); setFeedback({ error: false, text: 'Permisos guardados.' }); }
     } catch (error) {
       if (active.current) {
         if (error.status === 409) { setConflicted(true); setFeedback({ error: true, text: 'Otro administrador modificó este rol. Actualizá sus permisos antes de volver a editar. Tus cambios no se guardaron.' }); }
         else setFeedback({ error: true, text: error.message });
       }
-    } finally { if (active.current) setPending(false); }
+    } finally { busy.current = false; if (active.current) setPending(false); }
   };
   return <form onSubmit={save} className="rounded-2xl border border-monu-green/15 bg-white p-4 md:p-6 space-y-4 min-w-0">
     <div><h3 className="text-xl font-bold">{role.nombre}</h3><p className="text-sm">{selected.length} permisos{role.editable ? ' · Editable' : ' · Protegido'}</p></div>
@@ -85,6 +94,7 @@ export default function AccessControl() {
   const owner = useRef(user);
   useLayoutEffect(() => { owner.current = user; }, [user]);
   useEffect(() => {
+    if (user?.backendRole !== 'ADMINISTRADOR') return undefined;
     const controller = new AbortController();
     Promise.resolve().then(() => { if (!controller.signal.aborted) { setSnapshot(null); setError(null); } });
     Promise.all([apiFetch('/api/acceso', { signal: controller.signal }), apiFetch('/api/usuarios', { signal: controller.signal })]).then(([access, people]) => {

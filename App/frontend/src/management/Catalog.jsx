@@ -22,67 +22,103 @@ export default function Catalog() {
   }, [refreshCatalog, refreshInventory]);
   const [isAdding, setIsAdding] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const deleteBusy = useRef(false);
+  const [deleting, setDeleting] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
   const [recipe, setRecipe] = useState(newRecipe);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
+  const imageReader = useRef(null);
+  const mounted = useRef(true);
+  const [imageLoading, setImageLoading] = useState(false);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; imageReader.current?.abort?.(); imageReader.current = null; }; }, []);
   const [createError, setCreateError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [showRecipeErrors, setShowRecipeErrors] = useState(false);
+  const errorSummary = useRef(null);
+  useEffect(() => { if (createError) errorSummary.current?.focus(); }, [createError]);
   const [newItem, setNewItem] = useState({ 
-    name: '', category: 'Hamburguesas', price: '', description: '', image: null,
+    name: '', category: '', price: '', description: '', image: null,
   });
 
   const categories = [...new Set(state.catalog.map(p => p.category))];
+  const selectedCategory = categories.includes(newItem.category) ? newItem.category : '';
 
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
+    imageReader.current?.abort?.();
+    imageReader.current = null;
+    setImageLoading(false);
     if (file) {
+      if (!file.type.startsWith('image/')) { setCreateError('Seleccioná un archivo de imagen.'); return; }
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setNewItem({ ...newItem, image: reader.result }); // Base64
+      imageReader.current = reader;
+      setImageLoading(true);
+      reader.onload = () => {
+        if (imageReader.current !== reader) return;
+        setNewItem((item) => ({ ...item, image: reader.result }));
+        setImageLoading(false);
       };
+      reader.onerror = () => { if (imageReader.current === reader) { setImageLoading(false); setCreateError('No se pudo leer la imagen. Elegila nuevamente.'); } };
       reader.readAsDataURL(file);
     }
   };
 
   const handleAdd = async () => {
-    if (savingRef.current) return;
+    if (savingRef.current || imageLoading || !can(user, 'productos.gestionar')) return;
     setCreateError('');
-    if (!newItem.name.trim() || (!recipe.variants.length && !newItem.price)) return setCreateError('Completá el nombre y el precio.');
-    const category = state.catalog.find((product) => product.category === newItem.category);
-    if (!category) return setCreateError('Seleccioná una categoría existente');
+    setShowRecipeErrors(true);
+    const category = state.catalog.find((product) => product.category === selectedCategory);
+    const errors = {};
+    if (!newItem.name.trim() || newItem.name.length > 120) errors.name = 'Ingresá un nombre de hasta 120 caracteres.';
+    if (!category) errors.category = 'Seleccioná una categoría existente';
+    const basePrice = newItem.price.trim().replace(',', '.');
+    if (!recipe.variants.length && (!/^\d{1,10}(?:\.\d{1,2})?$/.test(basePrice) || Number(basePrice) <= 0)) errors.price = 'Ingresá un precio mayor que cero, con hasta 2 decimales.';
+    setFieldErrors(errors);
+    if (Object.keys(errors).length) return setCreateError(Object.values(errors).join(' '));
     try {
+      if (recipe.ingredients.some((row) => !state.inventory.some((item) => String(item.id) === row.ingredientId))) throw Error('Seleccioná un ingrediente disponible en cada fila.');
       const ingredients = serializeRecipe(recipe, { includePrices: true });
-      const price = ingredients.variantes[0]?.precio || newItem.price.replace(',', '.');
+      const price = ingredients.variantes[0]?.precio || basePrice;
       if (!/^\d{1,10}(?:\.\d{1,2})?$/.test(price) || Number(price) <= 0) throw Error('Completá un precio válido.');
       savingRef.current = true;
       setSaving(true);
       await createProduct({
-        ...newItem,
+        ...newItem, name: newItem.name.trim(),
         ...ingredients,
         categoryId: category.categoryId,
         price,
       });
+      if (!mounted.current) return;
       toast.success('Producto agregado', { description: newItem.name });
       setNewItem({
         name: '', category: categories[0] || '', price: '', description: '', image: null,
       });
       setRecipe(newRecipe());
+      setShowRecipeErrors(false);
       setIsAdding(false);
     } catch (error) {
-      setCreateError(error.message);
+      if (mounted.current) setCreateError(error.message);
     } finally {
       savingRef.current = false;
-      setSaving(false);
+      if (mounted.current) setSaving(false);
     }
   };
 
   const handleDelete = async (id) => {
+    if (deleteBusy.current || !can(user, 'productos.gestionar')) return;
+    deleteBusy.current = true;
+    setDeleting(true);
     try {
       await deactivateProduct(id);
+      if (!mounted.current) return;
       toast.info('Producto desactivado');
       setDeletingId(null);
     } catch (error) {
-      toast.error('No se pudo desactivar el producto', { description: error.message });
+      if (mounted.current) toast.error('No se pudo desactivar el producto', { description: error.message });
+    } finally {
+      deleteBusy.current = false;
+      if (mounted.current) setDeleting(false);
     }
   };
 
@@ -96,7 +132,10 @@ export default function Catalog() {
           <p className="text-monu-text/70">Gestioná los productos que ven los clientes.</p>
         </div>
         <button disabled={!can(user, 'productos.gestionar')}
-          onClick={() => setIsAdding(true)}
+          onClick={() => {
+            setNewItem((item) => ({ ...item, category: categories.includes(item.category) ? item.category : categories[0] || '' }));
+            setIsAdding(true);
+          }}
           className="bg-monu-dark text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-black transition shadow-md"
         >
           <Plus className="w-5 h-5" /> Nuevo Producto
@@ -109,44 +148,49 @@ export default function Catalog() {
           <fieldset disabled={saving} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <div>
               <label htmlFor="new-product-name" className="block text-xs font-bold text-gray-500 mb-1">Nombre</label>
-              <input id="new-product-name" type="text" value={newItem.name} disabled={saving} onChange={e => setNewItem({...newItem, name: e.target.value})} className="min-h-11 w-full border rounded-lg px-3 py-2 font-bold focus:outline-monu-green" placeholder="Ej: Super Burger" />
+              <input id="new-product-name" type="text" maxLength={120} aria-invalid={Boolean(fieldErrors.name)} aria-describedby="new-product-name-error" value={newItem.name} disabled={saving} onChange={e => setNewItem({...newItem, name: e.target.value})} className="min-h-11 w-full border rounded-lg px-3 py-2 font-bold focus:outline-monu-green" placeholder="Ej: Super Burger" />
+              <p id="new-product-name-error" className="text-sm text-red-700">{fieldErrors.name}</p>
             </div>
             <div>
               <label htmlFor="new-product-category" className="block text-xs font-bold text-gray-500 mb-1">Categoría</label>
-              <select id="new-product-category" value={newItem.category} onChange={e => setNewItem({...newItem, category: e.target.value})} className="min-h-11 w-full border rounded-lg px-3 py-2 font-bold focus:outline-monu-green">
+              <select id="new-product-category" aria-invalid={Boolean(fieldErrors.category)} aria-describedby="new-product-category-error" value={selectedCategory} onChange={e => setNewItem({...newItem, category: e.target.value})} className="min-h-11 w-full border rounded-lg px-3 py-2 font-bold focus:outline-monu-green">
+                <option value="" disabled>Seleccioná una categoría</option>
                 {categories.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
+              <p id="new-product-category-error" className="text-sm text-red-700">{fieldErrors.category}</p>
             </div>
             <div>
               <label htmlFor="new-product-price" className="block text-xs font-bold text-gray-500 mb-1">Precio base ($)</label>
-              <input id="new-product-price" inputMode="decimal" value={newItem.price} disabled={saving || recipe.variants.length > 0} onChange={e => setNewItem({...newItem, price: e.target.value})} className="min-h-11 w-full border rounded-lg px-3 py-2 font-bold focus:outline-monu-green" placeholder="10000" />
+              <input id="new-product-price" inputMode="decimal" aria-invalid={Boolean(fieldErrors.price)} aria-describedby="new-product-price-error" value={newItem.price} disabled={saving || recipe.variants.length > 0} onChange={e => setNewItem({...newItem, price: e.target.value})} className="min-h-11 w-full border rounded-lg px-3 py-2 font-bold focus:outline-monu-green" placeholder="10000" />
+              <p id="new-product-price-error" className="text-sm text-red-700">{fieldErrors.price}</p>
               {recipe.variants.length > 0 && <p className="mt-1 text-xs text-monu-text">Se usa el precio de la primera variante.</p>}
             </div>
             <div>
-              <label className="block text-xs font-bold text-gray-500 mb-1">Foto</label>
-              <label className="w-full border rounded-lg px-3 py-2 font-bold flex items-center gap-2 cursor-pointer bg-gray-50 hover:bg-gray-100 transition">
+              <label htmlFor="new-product-image" className="block text-xs font-bold text-gray-500 mb-1">Foto</label>
+              <div className="w-full border rounded-lg px-3 py-2 font-bold flex flex-wrap items-center gap-2 bg-gray-50">
                 <ImageIcon className="w-4 h-4 text-monu-green" />
                 <span className="text-sm truncate">{newItem.image ? 'Imagen cargada' : 'Subir archivo...'}</span>
-                <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
-              </label>
+                <input id="new-product-image" type="file" accept="image/*" onChange={handleImageUpload} className="min-h-11 w-full text-sm focus-visible:outline-2 focus-visible:outline-monu-green" />
+              </div>
+              {imageLoading && <p role="status" className="text-sm">Leyendo imagen…</p>}
             </div>
             <div className="md:col-span-2 lg:col-span-4">
               <label htmlFor="new-product-description" className="block text-xs font-bold text-gray-500 mb-1">Descripción del menú</label>
               <input id="new-product-description" type="text" value={newItem.description} onChange={e => setNewItem({...newItem, description: e.target.value})} className="min-h-11 w-full border rounded-lg px-3 py-2 font-bold focus:outline-monu-green" placeholder="Ej: Carne, cheddar, bacon y salsa monu." />
             </div>
           </fieldset>
-          <RecipeEditor value={recipe} onChange={setRecipe} inventory={state.inventory} disabled={saving} basePrice={newItem.price} />
-          <DataError message={createError} />
+          <RecipeEditor value={recipe} onChange={setRecipe} inventory={state.inventory} disabled={saving} basePrice={newItem.price} showErrors={showRecipeErrors} />
+          <div ref={errorSummary} tabIndex={-1}><DataError message={createError} /></div>
           <div className="flex justify-end gap-2 mt-2 border-t pt-4">
-            <button disabled={saving} onClick={() => setIsAdding(false)} className="min-h-11 px-4 py-2 text-gray-500 font-bold hover:bg-gray-100 rounded-lg">Cancelar</button>
-            <button disabled={saving} aria-busy={saving} onClick={handleAdd} className="min-h-11 px-4 py-2 bg-monu-green text-white font-bold rounded-lg hover:bg-[#002b22] flex items-center gap-2 disabled:opacity-60">
+            <button disabled={saving} onClick={() => { imageReader.current?.abort?.(); imageReader.current = null; setImageLoading(false); setIsAdding(false); }} className="min-h-11 px-4 py-2 text-gray-500 font-bold hover:bg-gray-100 rounded-lg">Cancelar</button>
+            <button disabled={saving || imageLoading} aria-busy={saving} onClick={handleAdd} className="min-h-11 px-4 py-2 bg-monu-green text-white font-bold rounded-lg hover:bg-[#002b22] flex items-center gap-2 disabled:opacity-60">
               <Check className="w-4 h-4" /> Guardar Producto
             </button>
           </div>
         </div>
       )}
 
-      <div className="bg-white rounded-2xl shadow-sm border border-monu-green/10 overflow-hidden">
+      <div role="region" aria-label="Catálogo de productos" tabIndex={0} className="bg-white rounded-2xl shadow-sm border border-monu-green/10 overflow-x-auto focus-visible:ring-2 focus-visible:ring-monu-green">
         <table className="w-full text-left">
           <thead className="bg-monu-cream/50 text-monu-dark">
             <tr>
@@ -170,6 +214,7 @@ export default function Catalog() {
                     </div>
                     <div>
                       <p className="font-extrabold text-monu-dark">{product.name}</p>
+                      {product.available === false && <p className="mt-1 text-sm font-medium text-monu-burnt">No disponible · Revisá la receta y el stock.</p>}
                       <p className="text-xs text-gray-500 truncate max-w-[200px] hidden sm:block">{product.description}</p>
                     </div>
                   </div>
@@ -184,12 +229,12 @@ export default function Catalog() {
                     <div className="flex flex-col gap-1 items-end">
                       <span className="text-xs font-bold text-red-500">¿Seguro?</span>
                       <div className="flex gap-1">
-                        <button disabled={!can(user, 'productos.gestionar')} onClick={() => handleDelete(product.id)} className="text-xs font-bold bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded transition">Sí</button>
-                        <button onClick={() => setDeletingId(null)} className="text-xs font-bold bg-gray-200 hover:bg-gray-300 text-monu-dark px-2 py-1 rounded transition">No</button>
+                        <button disabled={deleting || !can(user, 'productos.gestionar')} aria-busy={deleting} onClick={() => handleDelete(product.id)} className="min-h-11 min-w-11 text-xs font-bold bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded transition">Sí</button>
+                        <button disabled={deleting} onClick={() => setDeletingId(null)} className="min-h-11 min-w-11 text-xs font-bold bg-gray-200 hover:bg-gray-300 text-monu-dark px-2 py-1 rounded transition">No</button>
                       </div>
                     </div>
                   ) : (
-                    <button disabled={!can(user, 'productos.gestionar')} onClick={() => setDeletingId(product.id)} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition" title="Eliminar">
+                    <button disabled={deleting || !can(user, 'productos.gestionar')} onClick={() => setDeletingId(product.id)} className="min-h-11 min-w-11 p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition" aria-label={`Desactivar ${product.name}`} title="Eliminar">
                       <Trash2 className="w-5 h-5" />
                     </button>
                   )}

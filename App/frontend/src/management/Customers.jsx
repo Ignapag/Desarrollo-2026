@@ -9,7 +9,7 @@ const pageSize = 50;
 const customerDate = (value) => value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' }) : '—';
 
 export default function Customers() {
-  const { user } = useAuth();
+  const { user, refreshSession } = useAuth();
   const { getCustomers, cachedCustomers } = useData();
   const [params, setParams] = useSearchParams();
   const query = params.get('q') || '';
@@ -21,7 +21,7 @@ export default function Customers() {
   const [refreshing, setRefreshing] = useState(false);
   const [revision, setRevision] = useState(0);
   const data = snapshot.owner === user && snapshot.path === path ? snapshot.data : cachedCustomers(path);
-  const errorMessage = error?.path === path ? error.message : '';
+  const errorMessage = error?.owner === user && error?.path === path ? error.message : '';
 
   useEffect(() => {
     const controller = new AbortController();
@@ -34,7 +34,13 @@ export default function Customers() {
         const result = await getCustomers(path, controller.signal, force);
         if (!controller.signal.aborted) { setSnapshot({ owner: user, path, data: result }); setError(null); }
       } catch (failure) {
-        if (!controller.signal.aborted) setError({ path, message: `No se pudieron cargar los clientes. ${failure.message}` });
+        if (!controller.signal.aborted) {
+          setError({ owner: user, path, message: `No se pudieron cargar los clientes. ${failure.message}` });
+          if ([401, 403].includes(failure.status)) {
+            setSnapshot({ owner: user, path, data: null });
+            void refreshSession?.();
+          }
+        }
       } finally {
         reading = false;
         if (!controller.signal.aborted) setRefreshing(false);
@@ -47,7 +53,7 @@ export default function Customers() {
     window.addEventListener('focus', refresh);
     document.addEventListener('visibilitychange', refresh);
     return () => { controller.abort(); clearTimeout(debounce); clearInterval(timer); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); };
-  }, [path, query, user, getCustomers, cachedCustomers, revision]);
+  }, [path, query, user, getCustomers, cachedCustomers, revision, refreshSession]);
 
   const setOffset = (value) => { const next = new URLSearchParams(params); if (value) next.set('desplazamiento', String(value)); else next.delete('desplazamiento'); setParams(next); };
   return <div className="space-y-6">
@@ -68,9 +74,9 @@ export default function Customers() {
           <td className="p-4"><span className="bg-monu-yellow/20 text-monu-dark font-bold px-3 py-1 rounded-full text-xs whitespace-nowrap">{customer.pedidos_count} {customer.pedidos_count === 1 ? 'pedido' : 'pedidos'}</span></td>
           <td className="p-4 text-sm">{customerDate(customer.primer_pedido_en)}</td>
           <td className="p-4"><Link to={`/dashboard/orders?${new URLSearchParams({ cliente_id: String(customer.id), cliente: customer.nombre })}`} className={`${buttonClass} inline-flex items-center whitespace-nowrap hover:bg-monu-green hover:text-white`}>Ver pedidos<span className="sr-only"> de {customer.nombre}</span></Link></td>
-        </tr>)}{data?.clientes.length === 0 && <tr><td colSpan="6" className="p-8 text-center text-sm">{query.trim() ? 'No hay clientes que coincidan con tu búsqueda.' : 'No hay clientes registrados.'}</td></tr>}</tbody>
+        </tr>)}{data?.clientes.length === 0 && <tr><td colSpan="6" className="p-8 text-center text-sm">{offset > 0 ? 'No hay clientes en esta página. Volvé a la página anterior o actualizá la búsqueda.' : query.trim() ? 'No hay clientes que coincidan con tu búsqueda.' : 'No hay clientes registrados.'}</td></tr>}</tbody>
       </table></div>
     </div>
-    {data && <div className="flex flex-wrap items-center justify-between gap-3 text-sm"><p>{data.total === 0 ? '0 clientes' : `${offset + 1}–${offset + data.clientes.length} de ${data.total} clientes`}</p><div className="flex gap-2"><button type="button" disabled={refreshing || offset === 0} onClick={() => setOffset(Math.max(0, offset - pageSize))} className={buttonClass}>Anterior</button><button type="button" disabled={refreshing || offset + pageSize >= data.total} onClick={() => setOffset(offset + pageSize)} className={buttonClass}>Siguiente</button></div></div>}
+    {data && <div className="flex flex-wrap items-center justify-between gap-3 text-sm"><p>{data.total === 0 ? '0 clientes' : data.clientes.length === 0 ? `${data.total} clientes en total` : `${offset + 1}–${offset + data.clientes.length} de ${data.total} clientes`}</p><div className="flex gap-2"><button type="button" disabled={refreshing || offset === 0} onClick={() => setOffset(Math.max(0, offset - pageSize))} className={buttonClass}>Anterior</button><button type="button" disabled={refreshing || offset + pageSize >= data.total} onClick={() => setOffset(offset + pageSize)} className={buttonClass}>Siguiente</button></div></div>}
   </div>;
 }

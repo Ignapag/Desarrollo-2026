@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ORDER_STATES, mapOrder, ordersPath, stateCommands, hasAssignment, canEditOperation, createFreshnessFence, ageMinutes, money } from '../src/fulfillment/orderModel.js';
 import { createOrderCommands, createPaymentAttempt, executePayment } from '../src/fulfillment/orderCommands.js';
+import { paymentFixture } from './payment-fixtures.js';
 
 const base = { id: 999, numero: 12, estado: 'PENDIENTE', version: 6, tipo_entrega: 'DELIVERY', cliente: 'Ana', total: '12000', saldo_pendiente: '2000', neto_cobrado: '10000', items: [{ id: 1, cantidad: 2, nombre_producto: 'Monu', aclaraciones: 'Sin sal' }], creado_en: '2026-10-17T16:00:00Z', telefono: '5492211234567', direccion: { calle: 'Camino', numero: '123', localidad: 'Ensenada' }, pagos: [], historial: [] };
 const commandsFor = (order, role = 'EMPLEADO') => stateCommands(order, role);
@@ -151,7 +152,7 @@ test('salida y entrega persisten por viaje y envío, sin PATCH de estado fictici
 test('si se pierde una respuesta de efectivo el reintento conserva UUID y contenido', async () => {
   const calls = [];
   const attempt = createPaymentAttempt({ pedido_id: 999, monto_recibido: '2000', monto_a_pagar: '2000', conciliar_inmediato: true }, 'efectivo', () => 'one-operation');
-  const http = async (path, options) => { calls.push({ path, body: options.body }); if (calls.length === 1) throw new Error('Conexión interrumpida'); return { estado: 'CONCILIADO' }; };
+  const http = async (path, options) => { calls.push({ path, body: options.body }); if (calls.length === 1) throw new Error('Conexión interrumpida'); return paymentFixture({ orderId: 999, amount: '2000' }); };
   await assert.rejects(executePayment(http, attempt), /Conexión/);
   await executePayment(http, attempt);
   assert.deepEqual(calls[0], calls[1]);
@@ -164,9 +165,9 @@ test('fallo parcial de transferencia reintenta el mismo registro y concilia el m
   let failReconciliation = true;
   const http = async (path, options) => {
     calls.push({ path, body: JSON.parse(options.body) });
-    if (path === '/api/pagos/transferencia') return { id: 51, estado: 'PENDIENTE' };
+    if (path === '/api/pagos/transferencia') return paymentFixture({ kind: 'transferencia', orderId: 999, amount: '2000', state: 'PENDIENTE' });
     if (failReconciliation) { failReconciliation = false; throw new Error('No disponible'); }
-    return { id: 51, estado: 'CONCILIADO' };
+    return paymentFixture({ kind: 'transferencia', orderId: 999, amount: '2000' });
   };
   const attempt = createPaymentAttempt({ pedido_id: 999, monto: '2000' }, 'transferencia', () => 'same-transfer');
   await assert.rejects(executePayment(http, attempt), /quedó registrada/);
@@ -180,13 +181,13 @@ test('fallo parcial de transferencia reintenta el mismo registro y concilia el m
 test('una transferencia ya conciliada por otra vía no vuelve a conciliarse', async () => {
   const calls = [];
   const attempt = createPaymentAttempt({ pedido_id: 999, monto: '2000' }, 'transferencia', () => 'same-transfer');
-  await executePayment(async (path) => { calls.push(path); return { id: 51, estado: 'CONCILIADO' }; }, attempt);
+  await executePayment(async (path) => { calls.push(path); return paymentFixture({ kind: 'transferencia', orderId: 999, amount: '2000' }); }, attempt);
   assert.deepEqual(calls, ['/api/pagos/transferencia']);
 });
 
 test('devolución usa movimiento separado con método, motivo y clave nueva', async () => {
   const { calls, http } = recorder();
-  await executePayment(http, createPaymentAttempt({ pedido_id: 999, monto: '400', metodo_pago: 'EFECTIVO', motivo: 'Diferencia de envío' }, 'devolucion', () => 'refund-key'));
+  await executePayment(async (path, options) => { await http(path, options); return paymentFixture({ kind: 'devolucion', orderId: 999, amount: '400' }); }, createPaymentAttempt({ pedido_id: 999, monto: '400', metodo_pago: 'EFECTIVO', motivo: 'Diferencia de envío' }, 'devolucion', () => 'refund-key'));
   assert.deepEqual(calls[0].body, { pedido_id: 999, monto: '400', metodo_pago: 'EFECTIVO', motivo: 'Diferencia de envío', clave_operacion: 'refund-key' });
   assert.equal(calls[0].path, '/api/pagos/devolucion');
 });

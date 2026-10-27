@@ -10,7 +10,7 @@ import WhatsAppInbox from './WhatsAppInbox';
 import OrderDetail from './OrderDetail';
 
 export default function Orders() {
-  const { user } = useAuth();
+  const { user, refreshSession } = useAuth();
   const { state, refreshOrders, watchOrders, orderOperationPending, projectOrder } = useData();
   const [params, setParams] = useSearchParams();
   const location = useLocation();
@@ -40,11 +40,14 @@ export default function Orders() {
       setError('');
       apiFetch(queryPath, { signal: controller.signal })
         .then((orders) => { if (!controller.signal.aborted) { loadedPath.current = queryPath; setResults({ path: queryPath, orders: orders.map(mapOrder) }); } })
-        .catch((failure) => { if (!controller.signal.aborted) setError(`No se pudo consultar el historial. ${failure.message}`); })
+        .catch((failure) => { if (!controller.signal.aborted) {
+          if ([401, 403].includes(failure.status)) { setResults(null); setSelected(null); loadedPath.current = ''; void refreshSession?.(); }
+          setError(`No se pudo consultar el historial. ${failure.message}`);
+        } })
         .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     }, 250);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [remote, queryPath, revision, state.orders]);
+  }, [remote, queryPath, revision, state.orders, refreshSession]);
   const orders = remote ? results?.path === queryPath ? results.orders.map((order) => projectOrder?.(order) || order) : [] : state.orders;
   const countsKnown = remote ? results?.path === queryPath : state.ordersStatus === 'ready' || orders.length > 0;
   const columns = ORDER_STATES.filter(([id]) => scope === 'history' ? ['ENTREGADO', 'CANCELADO'].includes(id) : scope === 'active' ? !['ENTREGADO', 'CANCELADO'].includes(id) : true);

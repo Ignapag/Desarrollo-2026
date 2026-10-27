@@ -135,6 +135,7 @@ npm run build
 npm run test:portales
 npm run test:panel
 npm run test:operacion
+npm run test:validaciones
 ```
 
 El lint ejecuta oxlint; build genera `dist/` con Vite. No hay script `npm test`
@@ -147,6 +148,14 @@ Analítica agrega pruebas de validación y aplicación de filtros, vacío, error
 reintento, separación de permisos financieros y respuestas atrasadas de otros períodos
 o sesiones. `tests/vite-test-server.js` asigna una caché por proceso/servidor bajo
 `node_modules/.vite-tests`; mantenerla separada de la caché del Vite de desarrollo.
+`test:validaciones` agrega regresiones de sesión, permisos, cliente HTTP, campos,
+respuestas incompletas, conservación de borradores y privacidad ante 401/403.
+Para ejecutar todos los archivos de pruebas de frontend: `node --test tests/*.test.js`.
+La [matriz de auditoría](VALIDACIONES_FRONTEND.md) distingue esta cobertura del navegador.
+`node tests/browser-validaciones.mjs` ejecuta la comprobación con Chromium y
+Playwright ya preparados; opcionalmente admite `MONU_PLAYWRIGHT_PATH` para el módulo
+y `MONU_CHROMIUM_PATH` para el ejecutable. Usa sólo fixtures, bloquea API externas,
+deshabilita el proxy al backend y escribe evidencias en la carpeta temporal del sistema.
 `test:operacion` cubre comandos HTTP, reintentos financieros,
 versiones, frescura y renderizado de formularios operativos; no reemplaza una
 prueba interactiva en navegador. Para las variantes `build:clientes` y `build:personal`, la
@@ -196,7 +205,7 @@ esos resultados ni regenerarlos por una tarea que no cambió el esquema.
 
 [ci.yml](../.github/workflows/ci.yml) corre en push a `main` y en pull requests:
 
-- Frontend: Node 22, `npm ci`, oxlint, pruebas de portales/panel/operación y build.
+- Frontend: Node 22, `npm ci`, oxlint, pruebas de portales/panel/operación/validaciones y build.
 - Backend: Python 3.12, PostgreSQL 16 descartable, dependencias, Ruff, migraciones
   con seed, estado, pytest y comprobación del esquema generado.
 
