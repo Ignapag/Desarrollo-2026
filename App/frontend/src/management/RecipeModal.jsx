@@ -12,6 +12,7 @@ export default function RecipeModal({ product, onClose }) {
   const { state, updateRecipe } = useData();
   const { user } = useAuth();
   const canEdit = can(user, 'productos.gestionar');
+  const canRead = can(user, 'productos.ver_receta');
   const dialog = useRef(null);
   const busy = useRef(false);
   const mounted = useRef(true);
@@ -21,12 +22,14 @@ export default function RecipeModal({ product, onClose }) {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [reload, setReload] = useState(0);
+  const [showErrors, setShowErrors] = useState(false);
   useEffect(() => {
     mounted.current = true;
     dialog.current?.showModal();
     return () => { mounted.current = false; };
   }, []);
   useEffect(() => {
+    if (!canRead) return undefined;
     const controller = new AbortController();
     apiFetch(`/api/productos/${product.id}/receta`, { signal: controller.signal }).then((result) => {
       if (controller.signal.aborted) return;
@@ -36,9 +39,10 @@ export default function RecipeModal({ product, onClose }) {
     }).catch((failure) => { if (!controller.signal.aborted) setError(failure.message); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [product.id, reload]);
+  }, [product.id, reload, canRead]);
   const save = async () => {
     if (busy.current || loading || !data || !canEdit) return;
+    setShowErrors(true);
     let payload;
     try { payload = { ...serializeRecipe(recipe), actualizado_en_esperado: data.actualizado_en }; }
     catch (failure) { setError(failure.message); return; }
@@ -67,13 +71,13 @@ export default function RecipeModal({ product, onClose }) {
     </div>
     <div className="space-y-4 p-5">
       {error && <><DataError message={error} /><button type="button" disabled={saving || loading} onClick={() => { setLoading(true); setReload((old) => old + 1); }} className={buttonClass}>Volver a cargar receta</button><p className="text-xs">Volver a cargar reemplaza tus cambios por la receta guardada.</p></>}
-      {loading && <p role="status">Consultando receta…</p>}
-      {recipe && <RecipeEditor value={recipe} onChange={setRecipe} inventory={inventory} lockVariants disabled={saving || loading || !canEdit} />}
+      {!canRead ? <p role="alert">No tenés permiso para consultar esta receta.</p> : loading && <p role="status">Consultando receta…</p>}
+      {canRead && recipe && <RecipeEditor value={recipe} onChange={setRecipe} inventory={inventory} lockVariants disabled={saving || loading || !canEdit} showErrors={showErrors} />}
       {recipe && <p className="text-sm text-monu-text">Los pedidos ya registrados conservan sus cantidades originales.</p>}
     </div>
     <div className="sticky bottom-0 flex justify-end gap-2 border-t border-monu-green/15 bg-monu-bone px-5 py-4">
       <button type="button" onClick={onClose} disabled={saving} className={buttonClass}>Cancelar</button>
-      {canEdit && <button type="button" onClick={save} disabled={saving || loading || !recipe} aria-busy={saving} className={`${buttonClass} bg-monu-green text-white disabled:opacity-60`}>Guardar receta</button>}
+      {canRead && canEdit && <button type="button" onClick={save} disabled={saving || loading || !recipe} aria-busy={saving} className={`${buttonClass} bg-monu-green text-white disabled:opacity-60`}>Guardar receta</button>}
     </div>
   </dialog>;
 }

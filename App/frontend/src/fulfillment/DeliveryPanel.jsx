@@ -14,7 +14,7 @@ import WhatsAppAttentionNotice from './WhatsAppAttentionNotice';
 const commands = createOrderCommands(apiFetch);
 
 export default function DeliveryPanel() {
-  const { user, logout } = useAuth();
+  const { user, logout, refreshSession } = useAuth();
   const { runOrderMutation, state } = useData();
   const [trips, setTrips] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -23,17 +23,29 @@ export default function DeliveryPanel() {
   const [selected, setSelected] = useState(null);
   const lock = useRef(false);
   const generation = useRef(0);
+  const withdrawForbidden = useCallback((failure) => {
+    if (![401, 403].includes(failure.status)) return;
+    setTrips(null);
+    setSelected(null);
+    setFeedback('');
+    void refreshSession?.();
+  }, [refreshSession]);
   const load = useCallback(async (signal) => {
     const ticket = ++generation.current;
-    const list = await commands.trips(signal);
-    const details = await Promise.all(list.map((trip) => commands.trip(trip.id, signal)));
-    if (!signal?.aborted && ticket === generation.current) { setTrips(details); setError(''); }
-  }, []);
+    try {
+      const list = await commands.trips(signal);
+      const details = await Promise.all(list.map((trip) => commands.trip(trip.id, signal)));
+      if (!signal?.aborted && ticket === generation.current) { setTrips(details); setError(''); }
+    } catch (failure) {
+      if (!signal?.aborted && ticket === generation.current) withdrawForbidden(failure);
+      throw failure;
+    }
+  }, [withdrawForbidden]);
   useEffect(() => {
     const controller = new AbortController();
     const update = () => {
       if (document.hidden || lock.current) return;
-      void load(controller.signal).catch((failure) => { if (!controller.signal.aborted) setError(`No se pudieron actualizar los viajes. Se conserva la última información. ${failure.message}`); });
+      void load(controller.signal).catch((failure) => { if (!controller.signal.aborted) setError(`No se pudieron actualizar los viajes.${[401, 403].includes(failure.status) ? '' : ' Se conserva la última información.'} ${failure.message}`); });
     };
     update();
     const timer = setInterval(update, 8000);
@@ -58,7 +70,7 @@ export default function DeliveryPanel() {
       await runOrderMutation(operation);
       setFeedback('Operación de reparto registrada.');
       try { await load(); } catch (failure) { setError(`La operación se registró, pero falta actualizar los viajes. ${failure.message}`); }
-    } catch (failure) { setError(`${failure.message} Actualizá y revisá el viaje antes de reintentar.`); }
+    } catch (failure) { withdrawForbidden(failure); setError(`${failure.message} Actualizá y revisá el viaje antes de reintentar.`); }
     finally { lock.current = false; setBusy(false); }
   };
   return <main className="space-y-6 max-w-4xl mx-auto p-4 sm:p-6 min-h-screen bg-monu-cream text-monu-text">

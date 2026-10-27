@@ -1,8 +1,9 @@
-﻿import { useEffect, useRef, useState } from 'react';
+﻿import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useData } from '../shared/store/DataContext';
 import { Trash2, X, MessageCircle, ShoppingCart, ArrowRight, Check, LoaderCircle } from 'lucide-react';
 import { buildWhatsAppDraftPayload, createWhatsAppDraft } from './whatsapp';
 import { openChatSession, sendChatDraft } from './chatDemo';
+import { validateCheckout } from './checkoutValidation';
 
 const inputClass = 'w-full min-h-11 bg-white border border-monu-green/20 rounded-xl px-3 py-2.5 text-base font-medium text-monu-dark placeholder:text-monu-text/50 focus:outline-none focus:ring-2 focus:ring-monu-green disabled:opacity-60';
 const actionClass = 'min-h-11 rounded-xl font-extrabold px-4 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-monu-green disabled:opacity-50 disabled:cursor-not-allowed';
@@ -12,6 +13,8 @@ const iconButtonClass = 'flex min-w-11 min-h-11 items-center justify-center roun
 export default function CartDrawer({ isOpen, onClose, chatConfig = { status: 'ready', habilitado: false }, onRetryChatConfig, onOpenChat }) {
   const { state, dispatch } = useData();
   const { cart } = state;
+  const currentCart = useRef(cart);
+  useLayoutEffect(() => { currentCart.current = cart; }, [cart]);
   const [address, setAddress] = useState('');
   const [zone, setZone] = useState('');
   const [delivery, setDelivery] = useState('RETIRO');
@@ -21,6 +24,7 @@ export default function CartDrawer({ isOpen, onClose, chatConfig = { status: 're
   const [isPreparing, setIsPreparing] = useState(false);
   const [draft, setDraft] = useState(null);
   const [error, setError] = useState('');
+  const [fieldError, setFieldError] = useState(null);
   const [expiredReference, setExpiredReference] = useState(null);
   const [copied, setCopied] = useState(false);
   const dialogRef = useRef(null);
@@ -29,6 +33,7 @@ export default function CartDrawer({ isOpen, onClose, chatConfig = { status: 're
   const draftRef = useRef(null);
   const preparingRef = useRef(false);
   const readyRef = useRef(null);
+  const fieldRefs = useRef({});
   const demo = Boolean(chatConfig.habilitado);
   const needsAddress = delivery === 'DELIVERY';
   const busy = isPreparing;
@@ -38,6 +43,8 @@ export default function CartDrawer({ isOpen, onClose, chatConfig = { status: 're
   const payloadKey = JSON.stringify(payload);
   const currentDraft = draft?.key === payloadKey && draft.data.referencia !== expiredReference ? draft.data : null;
   const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const fieldProps = (id) => ({ ref: (node) => { fieldRefs.current[id] = node; }, 'aria-invalid': fieldError?.field === id, 'aria-describedby': fieldError?.field === id ? `${id}-error` : undefined });
+  const fieldMessage = (id) => fieldError?.field === id ? <span id={`${id}-error`} role="alert" className="block text-sm text-red-800">{fieldError.message}</span> : null;
 
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -69,7 +76,7 @@ export default function CartDrawer({ isOpen, onClose, chatConfig = { status: 're
   }, [draft]);
 
   const updateContact = (event) => {
-    event.target.setCustomValidity('');
+    setFieldError(null);
     const { name, value } = event.target;
     setContact((previous) => ({ ...previous, [name]: value }));
   };
@@ -111,13 +118,14 @@ export default function CartDrawer({ isOpen, onClose, chatConfig = { status: 're
   const handleSubmit = (event) => {
     event.preventDefault();
     if (busy) return;
-    if (demo) { void prepareChat(); return; }
-    for (const field of ['nombre', 'apellido', 'telefono']) {
-      const input = event.currentTarget.elements.namedItem(field);
-      const valid = field === 'telefono' ? /^[0-9]{11,15}$/.test(payload.contacto.telefono) : Boolean(contact[field].trim());
-      input.setCustomValidity(valid ? '' : field === 'telefono' ? 'Ingresá código de área y número (10 dígitos), sin 0 ni 15.' : 'Completá este campo.');
-      if (!valid) { input.reportValidity(); return; }
+    const invalid = validateCheckout(demo ? demoPayload : payload, { partial: demo });
+    setFieldError(invalid);
+    if (invalid) {
+      if (invalid.field) fieldRefs.current[invalid.field]?.focus();
+      else setError(invalid.message);
+      return;
     }
+    if (demo) { void prepareChat(); return; }
     void prepareWhatsApp();
   };
 
@@ -129,8 +137,8 @@ export default function CartDrawer({ isOpen, onClose, chatConfig = { status: 're
     try {
       await openChatSession();
       await sendChatDraft(demoPayload);
-      dispatch({ type: 'CLEAR_CART' });
-      onOpenChat?.();
+      if (currentCart.current === cart) { dispatch({ type: 'CLEAR_CART' }); onOpenChat?.(); }
+      else setError('El pedido se envió al chat. El carrito cambió mientras esperabas y se conservó completo: revisá qué productos ya se enviaron antes de continuar.');
     } catch (failure) {
       setError(failure.message || 'No se pudo continuar. Reintentá para recuperar el mismo envío.');
     } finally {
@@ -185,7 +193,7 @@ export default function CartDrawer({ isOpen, onClose, chatConfig = { status: 're
                             <div className="flex items-center rounded-xl border border-monu-green/15 bg-white">
                               <button type="button" disabled={busy} aria-label={'Reducir cantidad de ' + item.name} onClick={() => dispatch({ type: 'UPDATE_CART_QUANTITY', payload: { index, delta: -1 } })} className={iconButtonClass + ' font-bold text-monu-green hover:bg-monu-green/5'}>−</button>
                               <span className="w-5 text-center text-sm font-extrabold">{item.quantity}</span>
-                              <button type="button" disabled={busy} aria-label={'Aumentar cantidad de ' + item.name} onClick={() => dispatch({ type: 'UPDATE_CART_QUANTITY', payload: { index, delta: 1 } })} className={iconButtonClass + ' font-bold text-monu-green hover:bg-monu-green/5'}>+</button>
+                              <button type="button" disabled={busy || item.quantity >= 50} aria-label={'Aumentar cantidad de ' + item.name} onClick={() => dispatch({ type: 'UPDATE_CART_QUANTITY', payload: { index, delta: 1 } })} className={iconButtonClass + ' font-bold text-monu-green hover:bg-monu-green/5'}>+</button>
                             </div>
                             <span className="font-extrabold text-monu-dark">{'$' + (item.price * item.quantity).toLocaleString('es-AR')}</span>
                           </div>
@@ -202,14 +210,14 @@ export default function CartDrawer({ isOpen, onClose, chatConfig = { status: 're
                     <legend id="checkout-contact" className="mb-4 font-heading text-lg font-extrabold text-monu-dark">Tus datos</legend>
                     <div className="grid grid-cols-2 gap-3">
                       <label htmlFor="checkout-first-name" className={labelClass}><span>Nombre</span>
-                        <input id="checkout-first-name" name="nombre" required maxLength={80} autoComplete="given-name" value={contact.nombre} onChange={updateContact} className={inputClass} />
+                        <input id="checkout-first-name" {...fieldProps('checkout-first-name')} name="nombre" required maxLength={80} autoComplete="given-name" value={contact.nombre} onChange={updateContact} className={inputClass} />{fieldMessage('checkout-first-name')}
                       </label>
                       <label htmlFor="checkout-last-name" className={labelClass}><span>Apellido</span>
-                        <input id="checkout-last-name" name="apellido" required maxLength={80} autoComplete="family-name" value={contact.apellido} onChange={updateContact} className={inputClass} />
+                        <input id="checkout-last-name" {...fieldProps('checkout-last-name')} name="apellido" required maxLength={80} autoComplete="family-name" value={contact.apellido} onChange={updateContact} className={inputClass} />{fieldMessage('checkout-last-name')}
                       </label>
                     </div>
                     <label htmlFor="checkout-phone" className={labelClass}><span>Tu WhatsApp</span>
-                      <input id="checkout-phone" name="telefono" type="tel" inputMode="tel" required maxLength={25} pattern="[+0-9\(\) .\-]+" autoComplete="tel-national" aria-describedby="checkout-phone-help" placeholder="11 1234 5678" value={contact.telefono} onChange={updateContact} className={inputClass} />
+                      <input id="checkout-phone" {...fieldProps('checkout-phone')} name="telefono" type="tel" inputMode="tel" required maxLength={25} pattern="[+0-9\(\) .\-]+" autoComplete="tel-national" aria-describedby={fieldError?.field === 'checkout-phone' ? 'checkout-phone-help checkout-phone-error' : 'checkout-phone-help'} placeholder="11 1234 5678" value={contact.telefono} onChange={updateContact} className={inputClass} />{fieldMessage('checkout-phone')}
                     </label>
                     <p id="checkout-phone-help" className="!mt-1.5 text-xs text-monu-text/70">Código de área y número, sin 0 ni 15. Usá el WhatsApp desde el que vas a enviar el pedido.</p>
                   </fieldset>}
@@ -226,14 +234,14 @@ export default function CartDrawer({ isOpen, onClose, chatConfig = { status: 're
                     {needsAddress && (
                       <div className="space-y-3">
                         <label htmlFor="checkout-zone" className={labelClass}><span>Localidad</span>
-                          <select id="checkout-zone" required={!demo} autoComplete="address-level2" value={zone} onChange={(event) => setZone(event.target.value)} className={inputClass}><option value="">{demo ? 'Completar en el chat' : 'Seleccioná tu localidad'}</option><option value="Ensenada">Ensenada</option><option value="Punta Lara">Punta Lara</option></select>
+                          <select id="checkout-zone" {...fieldProps('checkout-zone')} required={!demo} autoComplete="address-level2" value={zone} onChange={(event) => { setZone(event.target.value); setFieldError(null); }} className={inputClass}><option value="">{demo ? 'Completar en el chat' : 'Seleccioná tu localidad'}</option><option value="Ensenada">Ensenada</option><option value="Punta Lara">Punta Lara</option></select>{fieldMessage('checkout-zone')}
                         </label>
                         <div className="grid grid-cols-[minmax(0,1fr)_6rem] gap-3">
                           <label htmlFor="checkout-street" className={labelClass}><span>Calle</span>
-                            <input id="checkout-street" required={!demo} maxLength={200} autoComplete="address-line1" value={address} onChange={(event) => setAddress(event.target.value)} className={inputClass} />
+                            <input id="checkout-street" {...fieldProps('checkout-street')} required={!demo} maxLength={160} autoComplete="address-line1" value={address} onChange={(event) => { setAddress(event.target.value); setFieldError(null); }} className={inputClass} />{fieldMessage('checkout-street')}
                           </label>
                           <label htmlFor="checkout-number" className={labelClass}><span>Número</span>
-                            <input id="checkout-number" required={!demo} maxLength={20} value={number} onChange={(event) => setNumber(event.target.value)} className={inputClass} />
+                            <input id="checkout-number" {...fieldProps('checkout-number')} required={!demo} maxLength={30} value={number} onChange={(event) => { setNumber(event.target.value); setFieldError(null); }} className={inputClass} />{fieldMessage('checkout-number')}
                           </label>
                         </div>
                       </div>

@@ -262,8 +262,23 @@ paginación. Solo empleados, administradores y dueños pueden acceder. Agrupa po
 por ítems o pagos. La fecha mostrada es la del primer pedido. El enlace a Pedidos
 usa `cliente_id` exacto; el servidor conserva las restricciones de clientes y repartidores.
 
-El frontend comparte solicitudes pendientes y conserva datos al actualizar. Catálogo
-e inventario se consultan al abrir su pantalla, con caché de navegación de 30 segundos.
+El frontend comparte solicitudes pendientes y conserva datos al actualizar. El alta
+de Catálogo elige una categoría existente; no presupone un nombre fijo. El editor
+de recetas muestra las existencias recibidas del inventario autorizado para comparar
+con la cantidad por producto, sin reemplazar la validación de disponibilidad del servidor.
+Un producto activo puede estar no disponible por su receta o el stock de sus ingredientes.
+Catálogo e inventario se consultan al abrir su pantalla, con caché de navegación de 30 segundos.
+Menú solicita también su catálogo al abrirse y al reintentar, incluso si la sesión
+se resuelve como personal durante la carga inicial. El cliente HTTP limita la espera
+a 30 segundos (también al leer JSON), conserva cancelaciones y no reenvía escrituras.
+Una respuesta no JSON o un acuse incompleto no confirma una operación. Un corte de
+red puede dejar un resultado incierto: se conserva el borrador y se comprueba antes
+de repetir; los reintentos financieros reutilizan su UUID.
+Un 401 de recursos privados retira la sesión; un cierre de sesión fallido informa
+el error, permite reintentar y no restaura automáticamente la cookie anterior en
+esa instancia. El inventario y las cachés privadas se ligan a la identidad; los
+rechazos 401/403 retiran datos cuya lectura dejó de estar autorizada.
+Cobertura y límites: [auditoría de validaciones](VALIDACIONES_FRONTEND.md).
 Clientes mantiene una caché acotada a la sesión y se actualiza cada 15 segundos cuando
 está visible; Pedidos y Cocina sondean pedidos activos cada 8 segundos mientras se usan.
 Las lecturas anteriores o iniciadas durante una escritura no pueden sobrescribirla;

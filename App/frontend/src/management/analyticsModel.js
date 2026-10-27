@@ -13,6 +13,7 @@ export function periodoInicial(ahora = new Date()) {
 
 export function validarFechas({ desde, hasta }) {
   const valida = (valor) => /^\d{4}-\d{2}-\d{2}$/.test(valor)
+    && valor.slice(0, 4) !== '0000'
     && !Number.isNaN(Date.parse(`${valor}T00:00:00Z`))
     && new Date(`${valor}T00:00:00Z`).toISOString().slice(0, 10) === valor;
   if (!valida(desde) || !valida(hasta)) return 'Completá ambas fechas con un día válido.';

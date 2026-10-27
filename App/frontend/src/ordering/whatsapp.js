@@ -29,9 +29,13 @@ export function buildWhatsAppDraftPayload({ cart, delivery, payment, address, nu
   };
 }
 
-export function createWhatsAppDraft(payload) {
-  return apiFetch('/api/whatsapp/borradores', {
+export async function createWhatsAppDraft(payload) {
+  const result = await apiFetch('/api/whatsapp/borradores', {
     method: 'POST',
     body: JSON.stringify(payload),
   });
+  if (typeof result?.referencia !== 'string' || !result.referencia.trim() || typeof result.mensaje !== 'string' || !result.mensaje.trim() || !Number.isFinite(Date.parse(result.expira_en))) {
+    throw new Error('No se pudo confirmar el mensaje preparado. Volvé a preparar el pedido.');
+  }
+  return result;
 }

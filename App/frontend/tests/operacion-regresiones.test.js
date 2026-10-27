@@ -4,6 +4,7 @@ import { act, createElement, useLayoutEffect, useState } from 'react';
 import { createTestServer as createServer } from './vite-test-server.js';
 import react from '@vitejs/plugin-react';
 import { installMinimalDom, elements, reactProps, deferred } from './minimal-dom.js';
+import { paymentFixture } from './payment-fixtures.js';
 
 let server;
 let dom;
@@ -117,7 +118,7 @@ test('cancelar pide una sola confirmación contextual y conserva el tratamiento 
 
 test('cobro exacto usa el saldo preparado sin completar campos ni confirmar casillas', async (t) => {
   let sent;
-  globalThis.fetch = async (path, options) => { sent = { path, body: JSON.parse(options.body) }; return response({ id: 51, estado: 'CONCILIADO' }); };
+  globalThis.fetch = async (path, options) => { sent = { path, body: JSON.parse(options.body) }; return response(paymentFixture()); };
   const container = await mount(t, OrderPayments, { order, userId: 1, commands: {}, busy: false, run: async (operation) => operation() });
   await submit(container);
   assert.equal(sent?.path, '/api/pagos/efectivo?incluir_pedido=true');
@@ -165,7 +166,7 @@ test('el cobro simplificado conserva cuerpo y UUID al perder una respuesta', asy
   globalThis.fetch = async (path, options) => {
     calls.push({ path, body: JSON.parse(options.body) });
     if (calls.length === 1) throw new Error('Respuesta perdida');
-    return response({ id: 51, estado: 'CONCILIADO' });
+    return response(paymentFixture());
   };
   const container = await mount(t, OrderPayments, { order, userId: 1, commands: {}, busy: false,
     run: async (operation) => { try { await operation(); } catch { /* El panel muestra el error y conserva el intento. */ } } });
@@ -179,7 +180,7 @@ test('el cobro simplificado conserva cuerpo y UUID al perder una respuesta', asy
 
 test('un cancelado ofrece devolver sólo lo cobrado y exige confirmar que se devolvió', async (t) => {
   const calls = [];
-  globalThis.fetch = async (path, options) => { calls.push({ path, body: JSON.parse(options.body) }); return response({ id: 52, estado: 'CONCILIADO' }); };
+  globalThis.fetch = async (path, options) => { calls.push({ path, body: JSON.parse(options.body) }); return response(paymentFixture({ kind: 'devolucion', id: 52, amount: '500' })); };
   const container = await mount(t, OrderPayments, { order: { ...order, estado: 'CANCELADO', neto_cobrado: '500' }, userId: 1, commands: {}, busy: false, run: async (operation) => operation() });
   await submit(container);
   assert.equal(calls.length, 0);
@@ -383,7 +384,7 @@ test('confirmar transferencia habilita cocina con el pedido devuelto por el cobr
     if (path.startsWith('/api/pagos/transferencia')) {
       payments += 1;
       assert.equal(JSON.parse(options.body).pedido_id, 17);
-      return response({ id: 55, estado: 'CONCILIADO', pedido: { ...transfer, saldo_pendiente: '0', neto_cobrado: '12000', pagos: [{ id: 55, tipo: 'COBRO', estado: 'CONCILIADO', metodo_pago: 'TRANSFERENCIA', monto: '12000' }] } });
+      return response(paymentFixture({ kind: 'transferencia', id: 55, pedido: { ...transfer, saldo_pendiente: '0', neto_cobrado: '12000', pagos: [{ id: 55, tipo: 'COBRO', estado: 'CONCILIADO', metodo_pago: 'TRANSFERENCIA', monto: '12000' }] } }));
     }
     return waiting.promise;
   };

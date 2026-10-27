@@ -1,41 +1,58 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { canEditOperation, stateCommands } from './orderModel';
 import { buttonClass, inputClass, Field, Reason } from './operationUi';
 
 export function EditOperation({ order, role, commands, run, busy, can = null }) {
+  const [base, setBase] = useState(order);
   const [delivery, setDelivery] = useState(order.tipo_entrega);
   const [payment, setPayment] = useState(order.metodo_pago_acordado);
   const [address, setAddress] = useState(order.direccion || { calle: '', numero: '', localidad: '', referencia: '' });
   const [notes, setNotes] = useState(order.observaciones || '');
   const [reason, setReason] = useState('');
+  const [invalidAddress, setInvalidAddress] = useState([]);
+  const addressRefs = useRef({});
   const changes = {};
-  if (delivery !== order.tipo_entrega) changes.tipo_entrega = delivery;
-  if (payment !== order.metodo_pago_acordado) changes.metodo_pago_acordado = payment;
-  if ((notes.trim() || null) !== (order.observaciones?.trim() || null)) changes.observaciones = notes.trim() || null;
+  if (delivery !== base.tipo_entrega) changes.tipo_entrega = delivery;
+  if (payment !== base.metodo_pago_acordado) changes.metodo_pago_acordado = payment;
+  if ((notes.trim() || null) !== (base.observaciones?.trim() || null)) changes.observaciones = notes.trim() || null;
   const addressFields = ['calle', 'numero', 'localidad', 'referencia'];
-  const addressChanged = addressFields.some((key) => (address[key]?.trim() || '') !== (order.direccion?.[key]?.trim() || ''));
-  if (delivery === 'DELIVERY' && (addressChanged || !order.direccion_id)) {
+  const addressChanged = addressFields.some((key) => (address[key]?.trim() || '') !== (base.direccion?.[key]?.trim() || ''));
+  if (delivery === 'DELIVERY' && (addressChanged || !base.direccion_id)) {
     changes.direccion_nueva = Object.fromEntries(addressFields.map((key) => [key, address[key]?.trim() || (key === 'referencia' ? null : '')]));
   }
   const hasChanges = Object.keys(changes).length > 0;
+  const needsRebase = base.version !== order.version;
+  const rebase = (discard = false) => {
+    if (busy) return;
+    if (discard || delivery === base.tipo_entrega) setDelivery(order.tipo_entrega);
+    if (discard || payment === base.metodo_pago_acordado) setPayment(order.metodo_pago_acordado);
+    if (discard || (notes.trim() || null) === (base.observaciones?.trim() || null)) setNotes(order.observaciones || '');
+    setAddress(Object.fromEntries(addressFields.map((key) => [key, discard || (address[key]?.trim() || '') === (base.direccion?.[key]?.trim() || '') ? order.direccion?.[key] || '' : address[key]])));
+    if (discard) setReason('');
+    setBase(order);
+  };
   if (!canEditOperation(order, role, can)) return null;
   const submit = (event) => {
     event.preventDefault();
-    if (busy || !hasChanges) return;
+    if (busy || needsRebase || !hasChanges) return;
+    const invalid = changes.direccion_nueva ? addressFields.filter((key) => key !== 'referencia' && !address[key]?.trim()) : [];
+    setInvalidAddress(invalid);
+    if (invalid.length) { addressRefs.current[invalid[0]]?.focus(); return; }
     const changedLabels = { tipo_entrega: 'entrega', metodo_pago_acordado: 'forma de pago', direccion_nueva: 'dirección', observaciones: 'observaciones' };
     const annotation = reason.trim() || `Edición desde el panel: ${Object.keys(changes).map((key) => changedLabels[key]).join(', ')}.`;
-    void run(() => commands.edit(order, changes, annotation), 'Cambios guardados.');
+    void run(() => commands.edit(order, changes, annotation), 'Cambios guardados.', { keepOpen: true, resetEdit: true });
   };
   return <details className="space-y-3"><summary className={`${buttonClass} cursor-pointer flex items-center`}>Editar dirección, entrega y pago</summary>
     <form onSubmit={submit} className="mt-3 space-y-3">
+      {needsRebase && <div role="alert" className="rounded-xl border border-orange-200 bg-orange-50 p-3 space-y-2 text-sm text-orange-950"><p>El pedido cambió a la versión {order.version}. Conservamos tu borrador: comparalo con el detalle actualizado antes de guardar. Los campos que no editaste adoptarán los valores actuales.</p><button type="button" disabled={busy} onClick={() => rebase()} className={buttonClass}>Conservar borrador sobre la versión actual</button><button type="button" disabled={busy} onClick={() => rebase(true)} className={buttonClass}>Descartar borrador y usar datos actuales</button></div>}
       <div className="grid sm:grid-cols-2 gap-3">
         <Field label="Modalidad"><select value={delivery} onChange={(event) => setDelivery(event.target.value)} disabled={busy} className={inputClass}><option value="DELIVERY">Delivery</option><option value="RETIRO">Retiro en local</option></select></Field>
         <Field label="Método de pago acordado"><select value={payment} onChange={(event) => setPayment(event.target.value)} disabled={busy} className={inputClass}><option value="EFECTIVO">Efectivo</option><option value="TRANSFERENCIA">Transferencia</option></select></Field>
       </div>
-      {delivery === 'DELIVERY' && <details open={order.tipo_entrega !== 'DELIVERY'}><summary className="cursor-pointer min-h-11 flex items-center text-sm font-bold text-monu-green">Cambiar dirección</summary><div className="grid sm:grid-cols-2 gap-3">{[['calle', 'Calle', 160], ['numero', 'Número', 30], ['localidad', 'Localidad', 100], ['referencia', 'Referencia (opcional)', 300]].map(([key, label, max]) => <Field key={key} label={label}><input required={Boolean(changes.direccion_nueva) && key !== 'referencia'} maxLength={max} value={address[key] || ''} onChange={(event) => setAddress({ ...address, [key]: event.target.value })} disabled={busy} className={inputClass} /></Field>)}</div></details>}
+      {delivery === 'DELIVERY' && <details open={order.tipo_entrega !== 'DELIVERY' || invalidAddress.length > 0}><summary className="cursor-pointer min-h-11 flex items-center text-sm font-bold text-monu-green">Cambiar dirección</summary><div className="grid sm:grid-cols-2 gap-3">{[['calle', 'Calle', 160], ['numero', 'Número', 30], ['localidad', 'Localidad', 100], ['referencia', 'Referencia (opcional)', 300]].map(([key, label, max]) => <Field key={key} label={label}><input ref={(node) => { addressRefs.current[key] = node; }} required={Boolean(changes.direccion_nueva) && key !== 'referencia'} maxLength={max} value={address[key] || ''} onChange={(event) => { setAddress({ ...address, [key]: event.target.value }); setInvalidAddress((current) => current.filter((field) => field !== key)); }} disabled={busy} aria-invalid={invalidAddress.includes(key)} aria-describedby={invalidAddress.includes(key) ? `operation-address-${key}-error` : undefined} className={inputClass} />{invalidAddress.includes(key) && <span id={`operation-address-${key}-error`} role="alert" className="block text-sm text-red-800">Completá {label.toLowerCase()}.</span>}</Field>)}</div></details>}
       <Field label="Observaciones"><textarea value={notes} maxLength={500} onChange={(event) => setNotes(event.target.value)} disabled={busy} className={inputClass} /></Field>
       <Reason value={reason} onChange={setReason} disabled={busy} />
-      <button disabled={busy || !hasChanges} className={`${buttonClass} bg-monu-green text-white`}>Guardar cambios</button>
+      <button disabled={busy || needsRebase || !hasChanges} className={`${buttonClass} bg-monu-green text-white`}>Guardar cambios</button>
     </form>
   </details>;
 }

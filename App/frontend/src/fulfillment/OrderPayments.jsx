@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { apiFetch } from '../shared/api/http';
 import { createPaymentAttempt, executePayment } from './orderCommands';
+import { paymentAmount } from './paymentValidation';
 import { money } from './orderModel';
 import { buttonClass, inputClass, Field, Reason } from './operationUi';
 
@@ -37,18 +38,24 @@ export default function OrderPayments({ order, userId, commands, run, busy, can 
   const pendingPayments = order.pagos.filter((payment) => payment.tipo === 'COBRO' && payment.estado === 'PENDIENTE');
   const existingCollection = pendingPayments.some((payment) => payment.metodo_pago === ({ efectivo: 'EFECTIVO', transferencia: 'TRANSFERENCIA' })[kind]);
   const maximum = Number(kind === 'devolucion' ? order.neto_cobrado : order.estado === 'CANCELADO' ? 0 : order.saldo_pendiente);
-  const validAmount = Number.isFinite(Number(amount)) && Number(amount) > 0 && Number(amount) <= maximum;
-  const validReceived = !received || (Number.isFinite(Number(received)) && Number(received) >= Number(amount));
+  const canonicalAmount = paymentAmount(amount);
+  const canonicalReceived = received.trim() ? paymentAmount(received) : canonicalAmount;
+  const validAmount = canonicalAmount !== null && Number(canonicalAmount) <= maximum;
+  const validReceived = canonicalReceived !== null && Number(canonicalReceived) >= Number(canonicalAmount);
+  const validReason = kind !== 'devolucion' || !reason.trim() || reason.trim().length >= 3;
+  const amountError = !validAmount ? `Ingresá un importe mayor a cero, con hasta dos decimales, hasta ${money(maximum)} (máximo 10 dígitos enteros).` : '';
+  const receivedError = received.trim() && !validReceived ? 'Ingresá un importe recibido con hasta dos decimales, igual o mayor al importe a cobrar.' : '';
+  const reasonError = !validReason ? 'Escribí al menos 3 caracteres para la nota de devolución, o dejala vacía.' : '';
   const operationKind = pending?.kind || kind;
   const allowed = can(operationKind === 'devolucion' ? 'pagos.corregir' : 'pagos.registrar') && (operationKind === 'devolucion' || can('pagos.conciliar'));
-  const canSubmit = allowed && (Boolean(pending) || (!existingCollection && validAmount && (kind !== 'efectivo' || validReceived)));
-  const paymentLabel = pending ? 'Reintentar operación guardada' : kind === 'devolucion' ? `Registrar devolución de ${money(amount)}` : kind === 'transferencia' ? `Confirmar ingreso de ${money(amount)}` : `Cobrar ${money(amount)} en efectivo`;
+  const canSubmit = allowed && (Boolean(pending) || (!existingCollection && validAmount && validReason && (kind !== 'efectivo' || validReceived)));
+  const paymentLabel = pending ? 'Reintentar operación guardada' : kind === 'devolucion' ? `Registrar devolución de ${money(canonicalAmount)}` : kind === 'transferencia' ? `Confirmar ingreso de ${money(canonicalAmount)}` : `Cobrar ${money(canonicalAmount)} en efectivo`;
   const perform = async () => {
     if (busy || !canSubmit) return;
     if (!attempt.current) {
       const body = { pedido_id: order.id };
-      if (kind === 'efectivo') Object.assign(body, { monto_recibido: received || amount, monto_a_pagar: amount, conciliar_inmediato: true });
-      else Object.assign(body, { monto: amount });
+      if (kind === 'efectivo') Object.assign(body, { monto_recibido: canonicalReceived, monto_a_pagar: canonicalAmount, conciliar_inmediato: true });
+      else Object.assign(body, { monto: canonicalAmount });
       if (kind === 'devolucion') Object.assign(body, { motivo: reason.trim() || 'Devolución registrada desde el panel.', metodo_pago: method });
       attempt.current = createPaymentAttempt(body, kind);
       saveAttempt(key, attempt.current);
@@ -89,11 +96,11 @@ export default function OrderPayments({ order, userId, commands, run, busy, can 
     {(can('pagos.registrar') || can('pagos.corregir')) && <form onSubmit={submit} className="space-y-3">
       {!pending && <details><summary className="cursor-pointer min-h-11 flex items-center text-sm font-bold text-monu-green">Otros importes, medios de pago o devolución</summary><div className="space-y-3 pt-2">
         <Field label="Operación"><select value={kind} onChange={(event) => { const next = event.target.value; setKind(next); setAmount(String(next === 'devolucion' ? order.neto_cobrado : order.saldo_pendiente)); setReceived(''); setConfirmRefund(false); }} disabled={busy} className={inputClass}><option value="efectivo" disabled={order.estado === 'CANCELADO' || !can('pagos.registrar')}>Cobrar en efectivo</option><option value="transferencia" disabled={order.estado === 'CANCELADO' || !can('pagos.registrar')}>Confirmar transferencia</option><option value="devolucion" disabled={Number(order.neto_cobrado) <= 0 || !can('pagos.corregir')}>Devolver dinero</option></select></Field>
-        <Field label={kind === 'devolucion' ? 'Importe a devolver' : 'Importe a cobrar'}><input type="number" min="0.01" step="0.01" max={maximum} value={amount} onChange={(event) => { setAmount(event.target.value); setConfirmRefund(false); }} disabled={busy} className={inputClass} /></Field>
-        {kind === 'efectivo' && <><Field label="Recibís (opcional, para calcular vuelto)"><input type="number" min={amount || '0.01'} step="0.01" value={received} onChange={(event) => setReceived(event.target.value)} disabled={busy} className={inputClass} /></Field>{received && validReceived && validAmount && <p className="text-sm">Vuelto: <strong>{money(Number(received) - Number(amount))}</strong></p>}</>}
-        {kind === 'devolucion' && <><Field label="Método de devolución"><select value={method} disabled={busy} onChange={(event) => { setMethod(event.target.value); setConfirmRefund(false); }} className={inputClass}><option value="EFECTIVO">Efectivo</option><option value="TRANSFERENCIA">Transferencia</option></select></Field><Reason value={reason} onChange={setReason} disabled={busy} /></>}
+        <Field label={kind === 'devolucion' ? 'Importe a devolver' : 'Importe a cobrar'}><input type="text" inputMode="decimal" max={maximum} value={amount} onChange={(event) => { setAmount(event.target.value); setConfirmRefund(false); }} disabled={busy} aria-invalid={!validAmount} aria-describedby={amountError ? 'payment-amount-error' : 'payment-amount-help'} className={inputClass} /><span id="payment-amount-help" className="text-sm font-normal">Hasta dos decimales, con coma o punto, sin separadores de miles.</span>{amountError && <span id="payment-amount-error" role="alert" className="block text-sm text-red-800">{amountError}</span>}</Field>
+        {kind === 'efectivo' && <><Field label="Recibís (opcional, para calcular vuelto)"><input type="text" inputMode="decimal" value={received} onChange={(event) => setReceived(event.target.value)} disabled={busy} aria-invalid={Boolean(receivedError)} aria-describedby={receivedError ? 'payment-received-error' : undefined} className={inputClass} />{receivedError && <span id="payment-received-error" role="alert" className="block text-sm text-red-800">{receivedError}</span>}</Field>{received.trim() && validReceived && validAmount && <p className="text-sm">Vuelto: <strong>{money(Number(canonicalReceived) - Number(canonicalAmount))}</strong></p>}</>}
+        {kind === 'devolucion' && <><Field label="Método de devolución"><select value={method} disabled={busy} onChange={(event) => { setMethod(event.target.value); setConfirmRefund(false); }} className={inputClass}><option value="EFECTIVO">Efectivo</option><option value="TRANSFERENCIA">Transferencia</option></select></Field><Reason value={reason} onChange={setReason} disabled={busy} error={reasonError} /></>}
       </div></details>}
-      {confirmRefund && !pending ? <div className="rounded-xl bg-orange-50 p-3 text-sm text-orange-950 space-y-3"><p>¿Ya devolviste {money(amount)} al cliente?</p><div className="flex flex-wrap gap-2"><button type="button" disabled={busy || !canSubmit} onClick={() => { void perform(); }} className={`${buttonClass} bg-monu-green text-white`}>Sí, registrar devolución</button><button type="button" disabled={busy} onClick={() => setConfirmRefund(false)} className={buttonClass}>Volver</button></div></div>
+      {confirmRefund && !pending ? <div className="rounded-xl bg-orange-50 p-3 text-sm text-orange-950 space-y-3"><p>¿Ya devolviste {money(canonicalAmount)} al cliente?</p><div className="flex flex-wrap gap-2"><button type="button" disabled={busy || !canSubmit} onClick={() => { void perform(); }} className={`${buttonClass} bg-monu-green text-white`}>Sí, registrar devolución</button><button type="button" disabled={busy} onClick={() => setConfirmRefund(false)} className={buttonClass}>Volver</button></div></div>
         : (pending || (!existingCollection && maximum > 0)) && <button disabled={busy || !canSubmit} className={`${buttonClass} w-full bg-monu-green text-white`}>{paymentLabel}</button>}
     </form>}
     {order.pagos.length > 0 && <details className="text-sm"><summary className="cursor-pointer min-h-11 flex items-center font-bold text-monu-green">Ver movimientos · Recibido: {money(order.neto_cobrado)}</summary><ul className="space-y-2">{order.pagos.map((payment) => <li key={payment.id} className="p-3 border border-monu-green/20 rounded-lg">{payment.tipo === 'DEVOLUCION' ? 'Devolución' : 'Cobro'} · {({ EFECTIVO: 'Efectivo', TRANSFERENCIA: 'Transferencia' })[payment.metodo_pago] || payment.metodo_pago} · {money(payment.monto)} · {({ PENDIENTE: 'Por verificar', CONCILIADO: 'Registrado', ANULADO: 'Anulado' })[payment.estado] || payment.estado}</li>)}</ul></details>}

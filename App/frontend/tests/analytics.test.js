@@ -1,16 +1,17 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { act, createElement } from 'react';
+import { MemoryRouter } from 'react-router-dom';
 import react from '@vitejs/plugin-react';
 import { createTestServer } from './vite-test-server.js';
 import { installMinimalDom, elements, reactProps, deferred } from './minimal-dom.js';
 import { periodoInicial, validarFechas } from '../src/management/analyticsModel.js';
 
-let server, dom, createRoot, Analytics;
+let server, dom, createRoot, Analytics, ControlPanel;
 const originalFetch = globalThis.fetch;
 const user = (id = 1, permisos = ['reportes.ver']) => ({ id, backendRole: 'EMPLEADO', permisos });
 const response = (body, status = 200) => ({ ok: status < 400, status, json: async () => body });
-const dashboard = (producto = 'Monu real') => ({ fecha_desde: '2026-10-01', fecha_hasta: '2026-10-22', ranking_productos: [{ producto_id: 1, producto, cantidad_vendida: 3, ranking: 1 }], ingreso_neto_confirmado: '90.25', ingresos_por_metodo: [{ metodo_pago: 'EFECTIVO', ingreso_neto: '90.25' }] });
+const dashboard = (producto = 'Monu real') => ({ fecha_desde: '2026-10-01', fecha_hasta: '2026-10-22', ranking_productos: [{ producto_id: 1, producto, cantidad_vendida: 3, ranking: 1 }], ingreso_neto_confirmado: '90.25', ingresos_por_metodo: [{ metodo_pago: 'EFECTIVO', ingreso_neto: '90.25' }], pedidos_dia: 1, pedidos_semana: 2, pedidos_mes: 3, alertas_stock: [], actualizado_en: '2026-10-22T12:00:00Z' });
 const ventas = [{ periodo: '2026-10-01', producto_id: 1, producto: 'Monu real', cantidad_vendida: 3, cantidad_pedidos: 1 }];
 test('período inicial usa 30 días inclusivos y fecha argentina al cambiar el mes UTC', () => {
   assert.deepEqual(periodoInicial(new Date('2026-11-01T01:00:00Z')), { desde: '2026-10-02', hasta: '2026-10-31' });
@@ -25,15 +26,16 @@ before(async () => {
     if (id === '\0charts-test') return 'export const ResponsiveContainer=()=>null; export const AreaChart=()=>null; export const Area=()=>null; export const XAxis=()=>null; export const YAxis=()=>null; export const CartesianGrid=()=>null; export const Tooltip=()=>null;';
   } }, react()], server: { middlewareMode: true, hmr: false, ws: false }, optimizeDeps: { noDiscovery: true }, appType: 'custom', logLevel: 'silent' });
   ({ default: Analytics } = await server.ssrLoadModule('/src/management/Analytics.jsx'));
+  ({ default: ControlPanel } = await server.ssrLoadModule('/src/management/ControlPanel.jsx'));
 });
 after(async () => { globalThis.fetch = originalFetch; delete globalThis.__analyticsAuth; await server?.close(); dom?.restore(); });
-async function mount(t, identity = user()) {
+async function mount(t, identity = user(), Component = Analytics) {
   globalThis.__analyticsAuth = { user: identity, refreshSession() {} };
   const container = document.createElement('div'); document.body.appendChild(container);
   const root = createRoot(container);
   const render = async (identity) => {
     if (identity !== undefined) globalThis.__analyticsAuth.user = identity;
-    await act(async () => root.render(createElement(Analytics)));
+    await act(async () => root.render(createElement(MemoryRouter, null, createElement(Component))));
   };
   await render();
   t.after(async () => { await act(async () => root.unmount()); document.body.removeChild(container); });
@@ -64,6 +66,87 @@ test('consulta contratos reales, separa unidades de pedidos y no pide ni muestra
   assert.match(container.textContent, /Pedidos con este producto/);
   assert.doesNotMatch(container.textContent, /90,25|Cobros netos|Rentabilidad estimada|Importe vendido/);
   assert.ok(elements(container, (node) => node.localName === 'table').length >= 2);
+});
+
+test('el año cero no pertenece al contrato date del backend', () => {
+  assert.notEqual(validarFechas({ desde: '0000-01-01', hasta: '0000-01-02' }), '');
+});
+
+test('panel retira métricas de otro usuario con el mismo rol durante la carga', async (t) => {
+  serve([], { dashboard: dashboard('Privado de la primera sesión') });
+  const { container, render } = await mount(t, user(), ControlPanel);
+  assert.match(container.textContent, /Privado de la primera sesión/);
+  const waits = [deferred(), deferred()]; let index = 0;
+  globalThis.fetch = () => waits[index++].promise;
+  await render(user(2));
+  assert.doesNotMatch(container.textContent, /Privado de la primera sesión/);
+  assert.match(container.textContent, /Cargando métricas/);
+  await act(async () => { waits[0].resolve(response(dashboard('Segunda sesión'))); waits[1].resolve(response([])); });
+  assert.match(container.textContent, /Segunda sesión/);
+});
+
+test('panel no conserva datos ni errores de autorización al cambiar la sesión', async (t) => {
+  serve([]);
+  const { container, render } = await mount(t, user(), ControlPanel);
+  let refreshed = 0;
+  globalThis.__analyticsAuth.refreshSession = () => { refreshed += 1; };
+  globalThis.fetch = async () => response({ detail: 'Permiso retirado' }, 403);
+  await act(async () => reactProps(find(container, 'button', 'Actualizar')).onClick());
+  assert.doesNotMatch(container.textContent, /Monu real/);
+  assert.equal(refreshed, 1);
+  const waits = [deferred(), deferred()]; let index = 0;
+  globalThis.fetch = () => waits[index++].promise;
+  await render(user(2));
+  assert.doesNotMatch(container.textContent, /Permiso retirado/);
+  await act(async () => { waits[0].resolve(response(dashboard())); waits[1].resolve(response([])); });
+});
+
+test('panel conserva datos recuperables ante 503 y descarta respuestas de una sesión anterior', async (t) => {
+  serve([], { dashboard: dashboard('Métricas recuperables') });
+  const { container, render } = await mount(t, user(), ControlPanel);
+  globalThis.fetch = async () => response({ detail: 'Temporalmente fuera de servicio' }, 503);
+  await act(async () => reactProps(find(container, 'button', 'Actualizar')).onClick());
+  assert.match(container.textContent, /Métricas recuperables/);
+  assert.match(container.textContent, /Se muestran los últimos datos recibidos/);
+  const waits = [deferred(), deferred()]; let index = 0;
+  globalThis.fetch = () => waits[index++].promise;
+  await act(async () => reactProps(find(container, 'button', 'Reintentar')).onClick());
+  serve([], { dashboard: dashboard('Métricas vigentes') });
+  await render(user(2));
+  await act(async () => { waits[0].resolve(response(dashboard('Respuesta obsoleta'))); waits[1].resolve(response([])); });
+  assert.match(container.textContent, /Métricas vigentes/);
+  assert.doesNotMatch(container.textContent, /Respuesta obsoleta|Métricas recuperables/);
+});
+
+test('reportes no consulta al usuario sin autorización, incluido logout', async (t) => {
+  const calls = []; serve(calls);
+  const { container, render } = await mount(t, user(1, []));
+  assert.equal(calls.length, 0);
+  assert.match(container.textContent, /No tenés permiso/);
+  await render(null);
+  assert.equal(calls.length, 0);
+});
+
+for (const status of [400, 401, 403, 409, 422, 429, 500]) {
+  test(`reportes informa HTTP ${status} sin inventar resultados y permite reintentar`, async (t) => {
+    globalThis.fetch = async () => response({ detail: `Error HTTP ${status}` }, status);
+    const { container } = await mount(t);
+    assert.match(container.textContent, new RegExp(`Error HTTP ${status}`));
+    assert.doesNotMatch(container.textContent, /Monu real|No hay ventas confirmadas/);
+    serve([]);
+    await act(async () => reactProps(find(container, 'button', 'Reintentar')).onClick());
+    assert.match(container.textContent, /Monu real/);
+  });
+}
+
+test('reportes informa desconexión y respuesta no JSON sin presentar datos vacíos', async (t) => {
+  globalThis.fetch = async () => { throw new TypeError('Failed to fetch'); };
+  const { container } = await mount(t);
+  assert.match(container.textContent, /No se pudo conectar/);
+  globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError('HTML'); } });
+  await act(async () => reactProps(find(container, 'button', 'Reintentar')).onClick());
+  assert.match(container.textContent, /no devolvió una respuesta válida/);
+  assert.doesNotMatch(container.textContent, /No hay ventas confirmadas|Monu real/);
 });
 test('fechas inválidas no consultan y editar oculta inmediatamente los resultados anteriores', async (t) => {
   const calls = []; serve(calls);

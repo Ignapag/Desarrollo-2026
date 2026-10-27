@@ -162,3 +162,28 @@ test('alta confirmada se incorpora al listado real y actualiza su contador', asy
   assert.match(container.textContent, /Ana Pérez/);
   assert.match(container.textContent, /anaperez · ACTIVO/);
 });
+
+test('alta con JSON incompleto conserva contraseña y no anuncia una cuenta creada', async (t) => {
+  let created = 0;
+  globalThis.fetch = async () => response({});
+  const container = await mount(t, NewUserForm, { roles: [employee], onCreated: () => created++ });
+  await fillNewUser(container);
+  await act(async () => reactProps(elements(container, (node) => node.localName === 'form')[0]).onSubmit({ preventDefault() {} }));
+  assert.equal(created, 0);
+  assert.equal(elements(container, (node) => node.localName === 'input' && reactProps(node).name === 'password')[0].value, 'MonuCuenta2026!');
+  assert.match(container.textContent, /confirmar|respuesta/);
+});
+test('roles y permisos con JSON incompleto no anuncian cambios guardados', async (t) => {
+  globalThis.fetch = async () => response({});
+  let saved = 0;
+  const container = await mount(t, editors.UserRoleEditor, { person: { id: 19, rol: 'REPARTIDOR' }, roles: [employee, { rol: 'REPARTIDOR' }], onSaved: () => saved++ });
+  await act(async () => reactProps(elements(container, (node) => node.localName === 'select')[0]).onChange({ target: { value: 'EMPLEADO' } }));
+  await act(async () => reactProps(elements(container, (node) => node.localName === 'form')[0]).onSubmit({ preventDefault() {} }));
+  assert.equal(saved, 0);
+  assert.match(container.textContent, /confirmar|respuesta/);
+  const role = await mount(t, editors.RolePermissionsEditor, { role: employee, modules, onSaved: () => saved++ });
+  await act(async () => reactProps(elements(role, (node) => node.localName === 'input')[1]).onChange({ target: { checked: true } }));
+  await act(async () => reactProps(elements(role, (node) => node.localName === 'form')[0]).onSubmit({ preventDefault() {} }));
+  assert.equal(saved, 0);
+  assert.match(role.textContent, /confirmar|respuesta/);
+});

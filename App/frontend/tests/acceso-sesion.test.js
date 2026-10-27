@@ -6,6 +6,7 @@ import { createTestServer as createServer } from './vite-test-server.js';
 import react from '@vitejs/plugin-react';
 import { installMinimalDom, deferred } from './minimal-dom.js';
 let server, dom, createRoot, AuthProvider, useAuth;
+let apiFetch;
 const previousFetch = globalThis.fetch;
 const response = (body, status = 200) => ({ ok: status < 400, status, json: async () => body });
 const person = { id: 1, username: 'ana', nombre: 'Ana', apellido: 'Pérez', rol: 'EMPLEADO', permisos: ['pedidos.ver'] };
@@ -14,6 +15,7 @@ before(async () => {
   ({ createRoot } = await import('react-dom/client'));
   server = await createServer({ configFile: false, plugins: [react()], server: { middlewareMode: true, hmr: false, ws: false }, optimizeDeps: { noDiscovery: true }, appType: 'custom', logLevel: 'silent' });
   ({ AuthProvider, useAuth } = await server.ssrLoadModule('/src/auth/AuthContext.jsx'));
+  ({ apiFetch } = await server.ssrLoadModule('/src/shared/api/http.js'));
 });
 after(async () => { globalThis.fetch = previousFetch; await server?.close(); dom?.restore(); });
 async function mount(t) {
@@ -71,4 +73,29 @@ test('login espera al logout pendiente para no perder su nueva cookie', async (t
   await act(async () => { wait.resolve(response(null)); await exiting; await entering; });
   assert.deepEqual(calls, ['/api/auth/me', '/api/auth/logout', '/api/auth/login']);
   assert.equal(auth().user.id, person.id);
+});
+
+test('401 de un recurso privado retira la sesión sin esperar al sondeo', async (t) => {
+  globalThis.fetch = async (path) => path === '/api/pedidos' ? response({ mensaje: 'Sesión vencida' }, 401) : response(person);
+  const auth = await mount(t);
+  assert.equal(auth().user.id, 1);
+  await act(async () => { await assert.rejects(apiFetch('/api/pedidos')); });
+  assert.equal(auth().user, null);
+});
+
+test('logout fallido mantiene el cierre local, informa y permite reintentar sin restaurar la cookie vieja', async (t) => {
+  let fail = true;
+  globalThis.fetch = async (path) => {
+    if (path.endsWith('/logout') && fail) throw new TypeError('Failed to fetch');
+    return response(person);
+  };
+  const auth = await mount(t);
+  await act(async () => { await auth().logout().catch(() => {}); });
+  assert.equal(auth().user, null);
+  assert.match(auth().sessionError || '', /cerrar.*sesión.*servidor/i);
+  await act(async () => auth().refreshSession());
+  assert.equal(auth().user, null);
+  fail = false;
+  await act(async () => auth().logout());
+  assert.equal(auth().sessionError, '');
 });
