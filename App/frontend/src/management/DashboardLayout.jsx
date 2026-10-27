@@ -10,6 +10,7 @@ import {
   Users, 
   Package, 
   BarChart2, 
+  Banknote,
   ShieldCheck,
   LogOut,
   Bell,
@@ -40,6 +41,7 @@ export default function DashboardLayout() {
     { to: '/dashboard/catalog', icon: Store, label: 'Menú / Catálogo' },
     { to: '/dashboard/customers', icon: Users, label: 'Clientes' },
     { to: '/dashboard/inventory', icon: Package, label: 'Inventario' },
+    { to: '/dashboard/caja', icon: Banknote, label: 'Caja' },
     { to: '/dashboard/analytics', icon: BarChart2, label: 'Reportes' },
     { to: '/dashboard/access', icon: ShieldCheck, label: 'Control de Acceso' },
   ].filter((item) => canVisit(user, item.to));

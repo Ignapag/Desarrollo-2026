@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createTestServer as createServer } from './vite-test-server.js';
 import react from '@vitejs/plugin-react';
 import { installMinimalDom, elements, reactProps, deferred } from './minimal-dom.js';
-import { can, canVisit } from '../src/auth/permissions.js';
+import { can, canVisit, homeFor } from '../src/auth/permissions.js';
 let server, dom, createRoot, editors, NewUserForm;
 const previousFetch = globalThis.fetch;
 const employee = { rol: 'EMPLEADO', nombre: 'Empleado', editable: true, version: 3, permisos: ['pedidos.ver'], disponibles: ['pedidos.ver', 'pedidos.editar'] };
@@ -34,6 +34,15 @@ test('el rol legacy admin no concede permisos ni acceso a administración', () =
   assert.equal(can(user, 'usuarios.administrar_permisos'), false);
   assert.equal(canVisit({ backendRole: 'ADMINISTRADOR' }, '/dashboard/access'), true);
   assert.equal(canVisit({ backendRole: 'REPARTIDOR', permisos: ['delivery.ver'] }, '/delivery'), true);
+});
+
+test('Caja usa caja.ver y es el inicio del empleado que sólo puede consultar caja', () => {
+  const cashier = { backendRole: 'EMPLEADO', permisos: ['caja.ver'] };
+  assert.equal(canVisit(cashier, '/dashboard/caja'), true);
+  assert.equal(homeFor(cashier), '/dashboard/caja');
+  assert.equal(canVisit({ backendRole: 'EMPLEADO', permisos: ['pedidos.ver'] }, '/dashboard/caja'), false);
+  assert.equal(canVisit({ backendRole: 'EMPLEADO', permisos: ['caja.abrir'] }, '/dashboard/caja'), false);
+  assert.equal(canVisit({ backendRole: 'ADMINISTRADOR', permisos: [] }, '/dashboard/caja'), true);
 });
 test('matriz usa acciones API, conserva roles protegidos y limita permisos disponibles', () => {
   const html = renderToStaticMarkup(createElement(editors.RolePermissionsEditor, { role: employee, modules }));

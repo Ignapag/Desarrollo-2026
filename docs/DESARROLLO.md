@@ -151,6 +151,16 @@ o sesiones. `tests/vite-test-server.js` asigna una caché por proceso/servidor b
 `test:validaciones` agrega regresiones de sesión, permisos, cliente HTTP, campos,
 respuestas incompletas, conservación de borradores y privacidad ante 401/403.
 Para ejecutar todos los archivos de pruebas de frontend: `node --test tests/*.test.js`.
+`npm run test:caja` ejecuta las regresiones de contrato, controlador y UI de Caja;
+el CI también las ejecuta. `npm run test:caja-browser` usa Chromium y Playwright
+preparados externamente (o `MONU_PLAYWRIGHT_PATH` apuntando al paquete instalado),
+con fixtures sin backend y caché propia en `.vite-tests`.
+Las pruebas de Caja usan fixtures de `/api/caja` y cubren contrato, permisos,
+concurrencia visible, observaciones y recuperación de respuestas perdidas. No
+simular éxito mediante un acuse parcial ni ejecutar generación/aprobación contra
+la API o base compartida como comprobación. Los comandos y resultados efectivamente
+ejecutados se registran en la entrega y en la
+[matriz de Caja](VALIDACIONES_FRONTEND.md#caja-contrato-y-verificación).
 La [matriz de auditoría](VALIDACIONES_FRONTEND.md) distingue esta cobertura del navegador.
 `node tests/browser-validaciones.mjs` ejecuta la comprobación con Chromium y
 Playwright ya preparados; opcionalmente admite `MONU_PLAYWRIGHT_PATH` para el módulo
@@ -205,7 +215,7 @@ esos resultados ni regenerarlos por una tarea que no cambió el esquema.
 
 [ci.yml](../.github/workflows/ci.yml) corre en push a `main` y en pull requests:
 
-- Frontend: Node 22, `npm ci`, oxlint, pruebas de portales/panel/operación/validaciones y build.
+- Frontend: Node 22, `npm ci`, oxlint, pruebas de portales/panel/caja/operación/validaciones y build.
 - Backend: Python 3.12, PostgreSQL 16 descartable, dependencias, Ruff, migraciones
   con seed, estado, pytest y comprobación del esquema generado.
 

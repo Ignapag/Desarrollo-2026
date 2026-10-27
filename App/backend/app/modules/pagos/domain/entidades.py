@@ -10,8 +10,11 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from enum import StrEnum
+from zoneinfo import ZoneInfo
 
 from app.errores import DatosInvalidos, ReglaDeNegocio
+
+ZONA_CAJA = ZoneInfo("America/Argentina/Buenos_Aires")
 
 
 class TipoPago(StrEnum):
@@ -331,7 +334,12 @@ def determinar_turno_y_ventana(
       corresponde al día anterior.
     """
     if momento is None:
-        momento = datetime.now()
+        momento = datetime.now(ZONA_CAJA)
+    elif momento.tzinfo is None:
+        # Referencias sin offset representan la hora local del negocio.
+        momento = momento.replace(tzinfo=ZONA_CAJA)
+    else:
+        momento = momento.astimezone(ZONA_CAJA)
 
     if momento.hour < 5:
         fecha_caja = momento.date() - timedelta(days=1)
@@ -355,11 +363,14 @@ def determinar_turno_y_ventana(
 
 
 def ventana_para_turno(fecha: date, turno: TurnoCierre) -> tuple[datetime, datetime]:
-    """Calcula el rango [desde, hasta] para una fecha y turno específicos."""
+    """Calcula el rango [desde, hasta] en la zona contable de Argentina.
+
+    Los límites con offset no dependen de TimeZone de PostgreSQL ni del host.
+    """
     if turno == TurnoCierre.MEDIODIA:
-        desde = datetime.combine(fecha, time(10, 0, 0))
-        hasta = datetime.combine(fecha, time(16, 59, 59))
+        desde = datetime.combine(fecha, time(10, 0, 0), tzinfo=ZONA_CAJA)
+        hasta = datetime.combine(fecha, time(16, 59, 59), tzinfo=ZONA_CAJA)
     else:
-        desde = datetime.combine(fecha, time(17, 0, 0))
-        hasta = datetime.combine(fecha + timedelta(days=1), time(4, 59, 59))
+        desde = datetime.combine(fecha, time(17, 0, 0), tzinfo=ZONA_CAJA)
+        hasta = datetime.combine(fecha + timedelta(days=1), time(4, 59, 59), tzinfo=ZONA_CAJA)
     return desde, hasta

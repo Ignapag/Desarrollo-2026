@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import AsyncMock
 
@@ -22,6 +22,8 @@ from app.modules.pagos.domain.entidades import (
 )
 from app.modules.pagos.infrastructure.repositorio_caja_sql import RepositorioCajaSQL
 
+ARGENTINA = timezone(timedelta(hours=-3))
+
 # ---------------------------------------------------------------------------
 # Pruebas de reglas de dominio: turnos y ventanas horarias
 # ---------------------------------------------------------------------------
@@ -34,8 +36,8 @@ def test_determinar_turno_mediodia():
 
     assert turno == TurnoCierre.MEDIODIA
     assert fecha_caja == date(2026, 7, 15)
-    assert desde == datetime(2026, 7, 15, 10, 0, 0)
-    assert hasta == datetime(2026, 7, 15, 16, 59, 59)
+    assert desde == datetime(2026, 7, 15, 10, 0, 0, tzinfo=ARGENTINA)
+    assert hasta == datetime(2026, 7, 15, 16, 59, 59, tzinfo=ARGENTINA)
 
 
 def test_determinar_turno_noche_antes_de_medianoche():
@@ -45,8 +47,8 @@ def test_determinar_turno_noche_antes_de_medianoche():
 
     assert turno == TurnoCierre.NOCHE
     assert fecha_caja == date(2026, 7, 15)
-    assert desde == datetime(2026, 7, 15, 17, 0, 0)
-    assert hasta == datetime(2026, 7, 16, 4, 59, 59)
+    assert desde == datetime(2026, 7, 15, 17, 0, 0, tzinfo=ARGENTINA)
+    assert hasta == datetime(2026, 7, 16, 4, 59, 59, tzinfo=ARGENTINA)
 
 
 def test_determinar_turno_noche_despues_de_medianoche():
@@ -56,20 +58,20 @@ def test_determinar_turno_noche_despues_de_medianoche():
 
     assert turno == TurnoCierre.NOCHE
     assert fecha_caja == date(2026, 7, 15)  # Fecha contable del turno nocturno
-    assert desde == datetime(2026, 7, 15, 17, 0, 0)
-    assert hasta == datetime(2026, 7, 16, 4, 59, 59)
+    assert desde == datetime(2026, 7, 15, 17, 0, 0, tzinfo=ARGENTINA)
+    assert hasta == datetime(2026, 7, 16, 4, 59, 59, tzinfo=ARGENTINA)
 
 
 def test_ventana_para_turno_especifico():
     """Calcula correctamente las ventanas para fechas y turnos históricos."""
     f = date(2026, 8, 1)
     desde_m, hasta_m = ventana_para_turno(f, TurnoCierre.MEDIODIA)
-    assert desde_m == datetime(2026, 8, 1, 10, 0, 0)
-    assert hasta_m == datetime(2026, 8, 1, 16, 59, 59)
+    assert desde_m == datetime(2026, 8, 1, 10, 0, 0, tzinfo=ARGENTINA)
+    assert hasta_m == datetime(2026, 8, 1, 16, 59, 59, tzinfo=ARGENTINA)
 
     desde_n, hasta_n = ventana_para_turno(f, TurnoCierre.NOCHE)
-    assert desde_n == datetime(2026, 8, 1, 17, 0, 0)
-    assert hasta_n == datetime(2026, 8, 2, 4, 59, 59)
+    assert desde_n == datetime(2026, 8, 1, 17, 0, 0, tzinfo=ARGENTINA)
+    assert hasta_n == datetime(2026, 8, 2, 4, 59, 59, tzinfo=ARGENTINA)
 
 
 def test_cierre_aprobado_es_inalterable():

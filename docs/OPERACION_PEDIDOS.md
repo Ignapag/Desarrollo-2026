@@ -88,6 +88,64 @@ reescribir el cierre aprobado. Si los totales históricos aprobados ya son
 inconsistentes, se rechaza la conciliación y se requiere revisión contable; este
 comando no recalcula ese cierre ni registra ajustes ficticios.
 
+## Caja en el panel
+
+La sección **Caja**, en `/dashboard/caja`, consulta el consolidado actual, un turno
+por fecha, el historial filtrado y el detalle de cada cierre. Generar o regenerar
+produce `PENDIENTE_APROBACION`; aprobar lo convierte en `APROBADO` y bloquea su
+modificación. La pantalla no registra cobros ni conciliaciones por sí misma.
+
+| Operación | API existente | Permiso |
+| --- | --- | --- |
+| Turno actual | `GET /api/caja/turnos/actual/consolidado` | `caja.ver` |
+| Turno elegido | `GET /api/caja/turnos/consolidado?fecha=YYYY-MM-DD&turno=MEDIODIA` o `NOCHE` | `caja.ver` |
+| Historial | `GET /api/caja/cierres?desde=YYYY-MM-DD&hasta=YYYY-MM-DD&estado=...` | `caja.ver` |
+| Detalle | `GET /api/caja/cierres/{id}` | `caja.ver` |
+| Generar o regenerar | `POST /api/caja/cierres/generar` con fecha, turno y observaciones | `caja.generar` |
+| Aprobar | `POST /api/caja/cierres/{id}/aprobar` con aprobador y observaciones | `caja.aprobar` |
+
+Los filtros de historial son opcionales; los estados son `ABIERTO`,
+`PENDIENTE_APROBACION` y `APROBADO`. `ABIERTO` se consulta como estado existente;
+no hay endpoint ni acción de apertura en esta pantalla. El aprobador requerido en el cuerpo se toma de la sesión del panel;
+el backend determina el actor efectivo desde su sesión autenticada. No se crean
+endpoints, roles, migraciones ni claves de idempotencia para este recorrido.
+
+La fecha contable `YYYY-MM-DD` pertenece a `America/Argentina/Buenos_Aires`.
+Las ventanas del servidor se serializan con offset `-03:00` y se conservan sin
+conversión UTC del navegador. El turno MEDIODIA va de 10:00 a 16:59:59 y NOCHE
+de 17:00 a 04:59:59 del día siguiente; la madrugada pertenece a la fecha contable
+previa. El turno actual lo determina la API; después de consultarlo,
+fecha y turno concretos identifican el cierre que se confirma. Efectivo, billeteras,
+devoluciones, propinas y cantidades se muestran según los campos recibidos; un
+consolidado con ventana exacta puede diferir de un cierre con arrastre.
+
+Generar, regenerar y aprobar requieren confirmación contextual. Antes de preparar
+la confirmación y antes de aprobar se vuelve a leer el recurso correspondiente.
+Si cambió, se presenta el estado actualizado para revisarlo. Esto reduce el uso de
+datos obsoletos, pero la API no acepta versión ni comparación atómica del snapshot:
+otra persona puede modificar un cierre entre la prelectura y el POST. La validación
+y los bloqueos transaccionales del servidor siguen siendo la autoridad.
+
+Las observaciones vacías se envían como `null`, que conserva las existentes tanto
+al regenerar como al aprobar. Escribir un nuevo texto reemplaza el anterior; la
+confirmación hace explícita esa sustitución. Este contrato no permite borrar una
+observación existente enviando `null`.
+
+Ante pérdida de respuesta, timeout o acuse inválido no se anuncia éxito ni se
+repite el POST automáticamente. Se conserva el intento para consultar el cierre
+por fecha/turno al generar y por ID al aprobar. Encontrarlo tras una generación no
+prueba que lo haya creado o recalculado ese intento: pudo existir o haber sido
+modificado por otra persona; tampoco prueba que se guardaran las notas enviadas.
+El estado aprobado recuperado por ID confirma el estado actual, sin atribuir al
+intento propio la autoría ni el texto de observaciones. Revisar el recurso antes
+de decidir un nuevo comando; Caja no ofrece la garantía UUID de cobros y devoluciones.
+
+Los resultados y los intentos pertenecen a la sesión vigente. Cambiar de cuenta o
+permisos descarta respuestas anteriores; un rechazo 401/403 retira los datos cuya
+lectura dejó de estar autorizada. No se operan cierres de producción para probar
+este circuito. La [matriz de validaciones](VALIDACIONES_FRONTEND.md#caja-contrato-y-verificación)
+separa su contrato de las verificaciones efectivamente ejecutadas.
+
 ## Entrega y correcciones
 
 | Situación | Recorrido |

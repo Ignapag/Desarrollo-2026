@@ -9,6 +9,8 @@
     "build:clientes": "vite build --mode clientes",
     "build:personal": "vite build --mode personal",
     "test:portales": "node --test tests/portal.test.js tests/api-proxy.test.js tests/portal-routes.test.js",
+    "test:caja-browser": "node tests/caja-browser.mjs",
+    "test:caja": "node --test tests/caja.test.js tests/caja-ui.test.js",
     "test:panel": "node --test tests/panel-datos.test.js tests/analytics.test.js tests/clientes-carga.test.js tests/recetas-cantidades.test.js tests/recetas-ui.test.js",
     "test:operacion": "node --test tests/operacion-pedidos.test.js tests/operacion-ui.test.js tests/operacion-regresiones.test.js tests/operacion-segundo-plano.test.js tests/whatsapp-avisos.test.js",
     "test:validaciones": "node --test tests/http-validaciones.test.js tests/login-validaciones.test.js tests/store-validaciones.test.js tests/validaciones-gestion-ui.test.js tests/operaciones-validacion.test.js tests/operacion-privacidad.test.js tests/ordering-validacion.test.js tests/acceso.test.js tests/acceso-sesion.test.js tests/chat-demo.test.js",
