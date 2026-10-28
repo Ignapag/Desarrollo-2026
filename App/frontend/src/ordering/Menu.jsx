@@ -15,6 +15,8 @@ function ProductCard({ product, addToCart }) {
   const notes = removedIngredients.filter((name) => removableIngredients.includes(name))
     .map((name) => `Sin ${name}`).join(', ');
 
+  // La captura de los dips no tiene resolución para un cuadro grande.
+  const compact = product.category === 'Dips Extra';
   const hasVariants = product.variants && product.variants.length > 0;
   const productAvailable = product.active === true && product.available === true;
   const selectedVariant = product.variants?.find((variant) => variant.name === selectedVariantName);
@@ -43,39 +45,52 @@ function ProductCard({ product, addToCart }) {
     if (optionsRef.current) optionsRef.current.open = false;
   };
 
+  const addButton = (
+    <button
+      onClick={handleAdd}
+      disabled={!canOrder}
+      aria-label={`Agregar ${product.name} al carrito`}
+      className={`${compact ? 'shrink-0 ' : 'absolute bottom-3 right-3 '}min-w-11 min-h-11 bg-white text-monu-dark p-2.5 rounded-xl shadow-md hover:bg-monu-dark hover:text-white transition-colors focus-visible:ring-2 focus-visible:ring-monu-green disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none`}
+    >
+      <Plus aria-hidden="true" className="w-5 h-5" />
+    </button>
+  );
+
   return (
-    <div className="bg-white rounded-[2rem] p-4 border border-monu-green/5 shadow-sm hover:shadow-monu-lg transition-all flex flex-col h-full group">
-      <div className="relative aspect-[4/3] rounded-2xl overflow-hidden mb-4 bg-monu-cream flex items-center justify-center">
+    <div className={`bg-white rounded-[2rem] p-4 border border-monu-green/5 shadow-sm hover:shadow-monu-lg transition-all flex group ${compact ? 'flex-row gap-4 self-start' : 'flex-col h-full'}`}>
+      <div className={`relative overflow-hidden bg-monu-cream flex items-center justify-center ${compact ? 'aspect-[138/135] w-24 shrink-0 self-start rounded-xl' : 'aspect-[4/3] rounded-2xl mb-4'}`}>
         {product.image ? (
            <img 
              src={product.image} 
              alt={product.name}
-             className={product.imageFit === 'contain' ? 'max-w-full max-h-full w-auto h-auto object-contain' : 'w-full h-full object-cover group-hover:scale-105 transition duration-500'}
+             className={compact ? 'w-full h-full object-contain' : 'w-full h-full object-cover group-hover:scale-105 transition duration-500'}
            />
         ) : (
            <img src="/favicon.png" className="w-full h-full object-contain" alt="Logo" />
         )}
-        <button 
-          onClick={handleAdd}
-          disabled={!canOrder}
-          aria-label={`Agregar ${product.name} al carrito`}
-          className="absolute bottom-3 right-3 min-w-11 min-h-11 bg-white text-monu-dark p-2.5 rounded-xl shadow-md hover:bg-monu-dark hover:text-white transition-colors focus-visible:ring-2 focus-visible:ring-monu-green disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none"
-        >
-          <Plus className="w-5 h-5" />
-        </button>
-        {!canOrder && <span className="absolute left-3 top-3 rounded-full bg-white px-3 py-1 text-sm font-bold text-monu-text">No disponible</span>}
+        {!compact && addButton}
+        {!compact && !canOrder && <span className="absolute left-3 top-3 rounded-full bg-white px-3 py-1 text-sm font-bold text-monu-text">No disponible</span>}
       </div>
 
-      <div className="flex-1 flex flex-col">
-        <div className="flex justify-between items-start mb-2 gap-2">
-          <h3 className="font-heading font-black text-xl text-monu-dark leading-tight">{product.name}</h3>
-          <span className="font-extrabold text-monu-orange whitespace-nowrap">${currentPrice}</span>
+      <div className="min-w-0 flex-1 flex flex-col">
+        <div className={compact ? 'mb-1' : 'flex justify-between items-start mb-2 gap-2'}>
+          <h3 className={`font-heading font-black text-monu-dark leading-tight ${compact ? 'text-lg' : 'text-xl'}`}>{product.name}</h3>
+          {!compact && <span className="font-extrabold text-monu-orange whitespace-nowrap">${currentPrice}</span>}
         </div>
-        <p className="text-sm text-monu-text/70 mb-4 line-clamp-2 leading-relaxed">
+        <p className={`text-sm text-monu-text/70 line-clamp-2 leading-relaxed ${compact ? 'mb-2' : 'mb-4'}`}>
           {product.description}
         </p>
 
         <div className="mt-auto">
+          {compact && (
+            <>
+              {!canOrder && <span className="mb-2 block text-sm font-bold text-monu-text">No disponible</span>}
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-extrabold text-monu-orange whitespace-nowrap">${currentPrice}</span>
+                {addButton}
+              </div>
+            </>
+          )}
           <div className="flex gap-2">
             {hasVariants ? (
               <select 

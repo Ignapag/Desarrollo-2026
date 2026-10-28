@@ -5,6 +5,39 @@ La API conserva autoridad sobre permisos, importes, stock, estados e idempotenci
 Las secciones de auditoría conservan su evidencia original. La incorporación de
 Caja se describe aparte y no hereda las pruebas aprobadas de otros flujos.
 
+## Encuadre de las salsas en el menú (28/10/2026)
+
+Las fotos de 138 × 135 px aparecían a tamaño nativo en un cuadro 4:3 mucho
+mayor. Se reprodujo el desajuste: la comprobación de cuadro compacto falló
+antes del cambio. Menu.jsx ahora presenta Dips Extra en tarjetas horizontales
+con una miniatura de 96 px de ancho y proporción 138:135; el botón de agregar
+queda junto al precio y no tapa la foto. Las otras categorías conservan sus
+cuadros 4:3. No cambian archivos de imagen, asociaciones, prioridad de imagen_url,
+precios, recetas, disponibilidad ni datos del catálogo.
+
+Verificaciones ejecutadas desde App/frontend:
+
+| Comando | Resultado |
+| --- | --- |
+| npm.cmd run test:portales | 23 aprobadas, sin fallos ni omisiones. |
+| npm.cmd run lint | Aprobado, con las dos advertencias previas de Fast Refresh. |
+| npm.cmd run build | Aprobado. |
+| node tests/salsas-browser.mjs | Ocho escenarios aprobados: clientes y personal a 1440, 390 y 320 px, más 390 px con doble densidad. |
+
+El navegador usa fixtures locales y bloquea servicios externos. Comprueba las
+cinco fotos antes y después de recargar, proporción, ocupación del cuadro,
+ausencia de ampliación, área táctil de 44 px y botón fuera de la imagen.
+Tab y Enter agregan Alioli al carrito en los cuatro escenarios de clientes.
+Las 80 respuestas de imágenes fueron 200, sin errores de página ni solicitudes
+API desconocidas. Se inspeccionaron capturas de escritorio, móvil, doble densidad
+y catálogo. Esta verificación no prueba operaciones sobre una base real.
+
+Limitación pendiente: el detalle perdido en la captura original no se recupera
+con CSS. Para eliminar la falta de nitidez se necesitan los archivos originales
+de las cinco fotografías en mayor resolución. No se generaron reemplazos ni
+se aumentó artificialmente la resolución. Cambios locales, sin commit, push ni
+despliegue; no hubo accesos de escritura a la base.
+
 ## Etiqueta Pagados y fotografías de salsas (28/10/2026)
 
 El tablero muestra **Pagados**, conservando el identificador interno PAGADOS y
