@@ -12,7 +12,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const evidence = path.join(tmpdir(), 'monu-salsas', Date.now() + '-' + process.pid);
 await mkdir(evidence, { recursive: true });
 const names = ['Alioli', 'Barbacoa', 'Mayonesa', 'Ketchup', 'Mostaza'];
-const products = [...names, 'Salsa Monu'].map((nombre, i) => ({ id: i + 1, nombre, categoria_id: 7, categoria: 'Dips Extra', descripcion: 'Dip de prueba', precio_base: '900.00', activo: true, disponible: true, imagen_url: null, variantes: [], ingredientes_quitables: [] }));
+const allSauces = [...names, 'Salsa Monu'];
+const products = allSauces.map((nombre, i) => ({ id: i + 1, nombre, categoria_id: 7, categoria: 'Dips Extra', descripcion: 'Dip de prueba', precio_base: '900.00', activo: true, disponible: true, imagen_url: null, variantes: [], ingredientes_quitables: [nombre] }));
 const user = { id: 1, username: 'fotos-fixture', nombre: 'Fotos', apellido: 'Prueba', rol: 'EMPLEADO', permisos: ['productos.gestionar'] };
 const report = { fixturesOnly: true, results: [], pageErrors: [], unknownRequests: [], images: [] };
 let browser;
@@ -72,6 +73,12 @@ try {
               assert.ok(layout.buttonOutside && layout.buttonWidth >= 44 && layout.buttonHeight >= 44, 'Agregar no tapa la foto y conserva el área táctil');
             }
           }
+          if (mode === 'clientes') {
+            assert.equal(await page.locator('details, input[type=checkbox]').count(), 0, 'Las salsas no permiten personalizar');
+            assert.equal(await page.getByText('Quitar ingredientes', { exact: true }).count(), 0);
+            assert.equal(await page.getByText('Otros cambios se consultan por WhatsApp.', { exact: true }).count(), 0);
+            for (const name of allSauces) await page.getByRole('heading', { name, exact: true }).waitFor();
+          }
           assert.equal(loaded.size, 5);
           assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Sin desborde horizontal');
         }
@@ -82,8 +89,14 @@ try {
           assert.ok(await add.evaluate((node) => node === document.activeElement), 'Tab permite alcanzar Agregar');
           await page.keyboard.press('Enter');
           await page.getByRole('button', { name: 'Abrir carrito, 1 productos', exact: true }).waitFor();
+          for (const name of allSauces.filter((name) => name !== 'Alioli')) await page.getByRole('button', { name: 'Agregar ' + name + ' al carrito', exact: true }).click();
+          await page.getByRole('button', { name: 'Abrir carrito, 6 productos', exact: true }).click();
+          const cart = page.getByRole('dialog'); await cart.waitFor();
+          assert.equal(await cart.locator('li').count(), 6, 'Se agregan las seis salsas completas');
+          assert.equal(await cart.locator('li p').count(), 0, 'Sin notas de ingredientes retirados');
+          for (const name of allSauces) await cart.getByRole('heading', { name, exact: true }).waitFor();
         }
-        report.results.push({ mode, viewport: viewport.width, deviceScaleFactor: viewport.deviceScaleFactor || 1, fivePhotos: true, reload: true, noUpscaling: mode === 'clientes' });
+        report.results.push({ mode, viewport: viewport.width, deviceScaleFactor: viewport.deviceScaleFactor || 1, fivePhotos: true, reload: true, wholeSaucesAdded: mode === 'clientes', noUpscaling: mode === 'clientes' });
         await context.close();
       }
     } finally { await server.close(); }

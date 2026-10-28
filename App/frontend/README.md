@@ -51,6 +51,11 @@ Todas distinguen el estado operativo de la lectura. Los datos se comparten
 con los avisos del panel; alcance y límites en
 [operación de pedidos](../../docs/OPERACION_PEDIDOS.md#centro-de-notificaciones).
 
+En el menú, los productos de **Dips Extra** se agregan completos, sin opciones
+para retirar ingredientes ni notas de personalización, aunque la API entregue
+ingredientes quitables. Las demás categorías conservan sus opciones vigentes.
+Esta regla de presentación no modifica recetas ni datos de la base.
+
 ## Fotografías de salsas
 
 Los productos existentes Alioli, Barbacoa, Mayonesa, Ketchup y Mostaza de
