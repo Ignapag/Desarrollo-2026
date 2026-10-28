@@ -187,3 +187,22 @@ for (const status of [400, 404, 409, 422, 429, 500, 503]) {
     assert.equal(Boolean(c.getSnapshot().uncertain), status >= 500);
   });
 }
+
+test('Caja traduce excepciones y conserva una advertencia segura al perder la escritura', async () => {
+  const secret = 'psycopg SQL /app/private clave_operacion';
+  const c = setup(async (path, opts = {}) => {
+    if (opts.method === 'POST') throw new Error(secret);
+    return path.includes('consolidado') ? consolidado() : [];
+  });
+  await c.loadConsolidado(); await c.prepareGenerate(); c.setNotes('Conservar nota'); await c.confirm();
+  assert.doesNotMatch(c.getSnapshot().notice.text, /psycopg|SQL|\/app\/private|clave_operacion/);
+  assert.match(c.getSnapshot().notice.text, /comprobá.*estado.*antes/i);
+  assert.ok(c.getSnapshot().uncertain);
+  assert.equal(c.getSnapshot().notes['generate:2026-10-26:NOCHE'], 'Conservar nota');
+  const read = setup(async () => { throw new Error(secret); });
+  await read.loadConsolidado(); await read.loadHistory(); await read.loadDetail(31);
+  for (const key of ['consolidado', 'history', 'detail']) {
+    assert.doesNotMatch(read.getSnapshot()[key].error, /psycopg|SQL|\/app\/private|clave_operacion/);
+    assert.match(read.getSnapshot()[key].error, /No pudimos/);
+  }
+});

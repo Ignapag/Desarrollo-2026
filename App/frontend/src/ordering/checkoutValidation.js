@@ -11,7 +11,7 @@ export function validateCheckout(payload, { partial = false } = {}) {
     for (const [key, label] of [['nombre', 'nombre'], ['apellido', 'apellido']]) {
       if (!payload.contacto?.[key]?.trim() || payload.contacto[key].length > 80) return { field: `checkout-${key === 'nombre' ? 'first-name' : 'last-name'}`, message: `Ingresá tu ${label}, hasta 80 caracteres.` };
     }
-    if (!/^[0-9]{11,15}$/.test(payload.contacto?.telefono || '')) return { field: 'checkout-phone', message: 'Ingresá código de área y número, sin 0 ni 15.' };
+    if (!/^[0-9]{11,15}$/.test(payload.contacto?.telefono || '')) return { field: 'checkout-phone', message: 'Ingresá un teléfono válido con código de área y número, sin 0 ni 15.' };
   }
   if (payload.tipo_entrega === 'DELIVERY' && (!partial || payload.direccion_nueva)) {
     for (const [key, field, label, max] of [['calle', 'street', 'la calle', 160], ['numero', 'number', 'el número', 30], ['localidad', 'zone', 'la localidad', 100]]) {

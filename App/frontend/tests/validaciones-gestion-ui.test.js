@@ -53,6 +53,40 @@ test('inventario normaliza decimales locales y bloquea dos altas dentro del mism
   assert.equal(sent.length, 1);
   assert.deepEqual(sent[0], { name: 'Tomate', unit: 'UNIDAD', stock: '0.125', min: '0.25' });
 });
+
+test('inventario oculta excepciones internas y conserva los campos para corregir el alta', async (t) => {
+  data.createIngredient = async () => { throw Error('SQL integrity_error /srv/db password=secreto'); };
+  const container = await inventoryForm(t);
+  await act(async () => reactProps(find(container, 'form')[0]).onSubmit({ preventDefault() {} }));
+  assert.doesNotMatch(container.textContent, /SQL|integrity_error|\/srv|secreto/);
+  assert.match(container.textContent, /No pudimos agregar el insumo/);
+  assert.equal(find(container, 'input')[0].value, ' Tomate ');
+  assert.ok(elements(container, (node) => reactProps(node).role === 'alert').length);
+});
+
+test('receta con respuesta inesperada muestra recuperación sin exponer excepciones', async (t) => {
+  globalThis.fetch = async () => ({ status: 200, ok: true, json: async () => ({}) });
+  const container = await mount(t, RecipeModal, { product: { id: 1, name: 'Cheese' }, onClose() {} });
+  assert.match(container.textContent, /No pudimos cargar la receta/);
+  assert.doesNotMatch(container.textContent, /undefined|map|TypeError|ingredientes/);
+  assert.ok(button(container, 'Volver a cargar receta'));
+});
+
+test('receta con nombre de variante inválido se rechaza antes de renderizar el editor', async (t) => {
+  globalThis.fetch = async () => ({ status: 200, ok: true, json: async () => ({ ingredientes: [], variantes: [{ nombre: null, precio: '100', ingredientes: [] }] }) });
+  const container = await mount(t, RecipeModal, { product: { id: 1, name: 'Cheese' }, onClose() {} });
+  assert.match(container.textContent, /No pudimos cargar la receta/);
+  assert.doesNotMatch(container.textContent, /TypeError|trim|Receta e ingredientes/);
+  assert.ok(button(container, 'Volver a cargar receta'));
+});
+
+test('receta con nombre de ingrediente inválido se rechaza antes de renderizar el editor', async (t) => {
+  const malformed = { ingredientes: [{ ingrediente_id: 1, nombre: null, unidad_medida: 'UNIDAD', cantidad_requerida: '1' }], variantes: [] };
+  globalThis.fetch = async () => ({ status: 200, ok: true, json: async () => malformed });
+  const container = await mount(t, RecipeModal, { product: { id: 1, name: 'Cheese' }, onClose() {} });
+  assert.match(container.textContent, /No pudimos cargar la receta/);
+  assert.doesNotMatch(container.textContent, /TypeError|Receta e ingredientes/);
+});
 test('inventario rechaza blanco, negativo, umbral cero y exceso de precisión conservando el formulario', async (t) => {
   const sent = []; data.createIngredient = async (body) => { sent.push(body); };
   const container = await inventoryForm(t);

@@ -1,4 +1,5 @@
-﻿import { can } from '../auth/permissions';
+import { userErrorMessage, UserFacingError } from '../shared/api/userErrors.js';
+import { can } from '../auth/permissions';
 import { useAuth } from '../auth/AuthContext';
 import { useData } from '../shared/store/DataContext';
 import { useEffect, useRef, useState } from 'react';
@@ -51,6 +52,7 @@ export default function Catalog() {
     setImageLoading(false);
     if (file) {
       if (!file.type.startsWith('image/')) { setCreateError('Seleccioná un archivo de imagen.'); return; }
+      setCreateError('');
       const reader = new FileReader();
       imageReader.current = reader;
       setImageLoading(true);
@@ -60,7 +62,11 @@ export default function Catalog() {
         setImageLoading(false);
       };
       reader.onerror = () => { if (imageReader.current === reader) { setImageLoading(false); setCreateError('No se pudo leer la imagen. Elegila nuevamente.'); } };
-      reader.readAsDataURL(file);
+      try { reader.readAsDataURL(file); }
+      catch {
+        setImageLoading(false);
+        setCreateError('No se pudo leer la imagen. Elegila nuevamente.');
+      }
     }
   };
 
@@ -77,10 +83,10 @@ export default function Catalog() {
     setFieldErrors(errors);
     if (Object.keys(errors).length) return setCreateError(Object.values(errors).join(' '));
     try {
-      if (recipe.ingredients.some((row) => !state.inventory.some((item) => String(item.id) === row.ingredientId))) throw Error('Seleccioná un ingrediente disponible en cada fila.');
+      if (recipe.ingredients.some((row) => !state.inventory.some((item) => String(item.id) === row.ingredientId))) throw new UserFacingError('Seleccioná un ingrediente disponible en cada fila.');
       const ingredients = serializeRecipe(recipe, { includePrices: true });
       const price = ingredients.variantes[0]?.precio || basePrice;
-      if (!/^\d{1,10}(?:\.\d{1,2})?$/.test(price) || Number(price) <= 0) throw Error('Completá un precio válido.');
+      if (!/^\d{1,10}(?:\.\d{1,2})?$/.test(price) || Number(price) <= 0) throw new UserFacingError('Completá un precio válido.');
       savingRef.current = true;
       setSaving(true);
       await createProduct({
@@ -98,7 +104,7 @@ export default function Catalog() {
       setShowRecipeErrors(false);
       setIsAdding(false);
     } catch (error) {
-      if (mounted.current) setCreateError(error.message);
+      if (mounted.current) setCreateError(userErrorMessage(error, 'No pudimos agregar el producto. Comprobá el catálogo antes de repetir el alta.'));
     } finally {
       savingRef.current = false;
       if (mounted.current) setSaving(false);
@@ -115,7 +121,7 @@ export default function Catalog() {
       toast.info('Producto desactivado');
       setDeletingId(null);
     } catch (error) {
-      if (mounted.current) toast.error('No se pudo desactivar el producto', { description: error.message });
+      if (mounted.current) toast.error('No pudimos desactivar el producto', { description: userErrorMessage(error, 'No pudimos desactivar el producto. Comprobá el catálogo antes de repetir la acción.') });
     } finally {
       deleteBusy.current = false;
       if (mounted.current) setDeleting(false);
@@ -180,7 +186,9 @@ export default function Catalog() {
             </div>
           </fieldset>
           <RecipeEditor value={recipe} onChange={setRecipe} inventory={state.inventory} disabled={saving} basePrice={newItem.price} showErrors={showRecipeErrors} />
-          <div ref={errorSummary} tabIndex={-1}><DataError message={createError} /></div>
+          <div ref={errorSummary} tabIndex={-1}><DataError message={createError} />
+            {createError && Object.keys(fieldErrors).length > 0 && <ul className="mt-2 space-y-1 text-sm text-red-800">{Object.entries(fieldErrors).map(([field, message]) => <li key={field}><a href={`#new-product-${field}`} className="underline">{message}</a></li>)}</ul>}
+          </div>
           <div className="flex justify-end gap-2 mt-2 border-t pt-4">
             <button disabled={saving} onClick={() => { imageReader.current?.abort?.(); imageReader.current = null; setImageLoading(false); setIsAdding(false); }} className="min-h-11 px-4 py-2 text-gray-500 font-bold hover:bg-gray-100 rounded-lg">Cancelar</button>
             <button disabled={saving || imageLoading} aria-busy={saving} onClick={handleAdd} className="min-h-11 px-4 py-2 bg-monu-green text-white font-bold rounded-lg hover:bg-[#002b22] flex items-center gap-2 disabled:opacity-60">

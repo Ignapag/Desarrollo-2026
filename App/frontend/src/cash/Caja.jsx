@@ -60,7 +60,7 @@ function Confirmation({ state, controller, returnFocus }) {
       <p className="font-bold">Fecha contable {formatDate(target.fecha)} · Turno {TURNOS[target.turno]}</p>
       <p id="caja-confirm-help">{generating ? 'Esta operación registra o recalcula un cierre pendiente de aprobación. Puede incluir pagos conciliados anteriores sin otro cierre (arrastre); el resultado puede diferir del consolidado de la ventana.' : 'La aprobación vuelve inalterable el cierre. Revisá sus totales y observaciones antes de confirmar.'}</p>
       {record && <RecordInfo data={record} />}
-      <p className="text-sm">Otras personas pueden recalcular o aprobar mientras revisás. Se vuelve a consultar antes de aprobar; la API no ofrece control de versión entre esa lectura y la escritura.</p>
+      <p className="text-sm">Otras personas pueden recalcular o aprobar mientras revisás. Comprobá los datos actualizados antes de confirmar y revisá el resultado al terminar.</p>
       <div><label htmlFor="caja-notes" className="block font-bold mb-1">Observaciones opcionales</label>
         <textarea id="caja-notes" rows={3} value={notes} onChange={(event) => controller.setNotes(event.target.value)} disabled={Boolean(state.busy) || Boolean(state.uncertain)} className={input} aria-describedby="caja-notes-help" />
         <p id="caja-notes-help" className="text-sm mt-1">Dejá el campo vacío para conservar las observaciones registradas. Un texto nuevo reemplaza las observaciones anteriores.</p>
@@ -108,7 +108,7 @@ function CajaSession({ user, refreshSession }) {
         </>}
         <button type="submit" className={secondary} disabled={disabled || state.consolidado.status === 'loading'}>Consultar consolidado</button>
       </form>
-      <p className="text-sm">El turno actual y su fecha contable los determina el servidor. Noche puede terminar al día siguiente.</p>
+      <p className="text-sm">El turno actual y su fecha contable se consultan automáticamente. Noche puede terminar al día siguiente.</p>
       {state.consolidado.error && <div id="caja-selection-error" ref={selectionError} tabIndex={-1}><Status resource={state.consolidado} onRetry={controller.loadConsolidado} /></div>}
       {state.consolidado.status === 'loading' && <Status resource={state.consolidado} />}
       {data && <div className="space-y-4">
@@ -119,7 +119,7 @@ function CajaSession({ user, refreshSession }) {
         <p className="rounded-xl border border-monu-orange/40 bg-monu-cream p-3"><strong>{data.pagos_pendientes_conciliacion} pagos pendientes de conciliación.</strong> No representan dinero confirmado y no se incluyen como ingresos conciliados. Su existencia no impide generar el cierre.</p>
         <h3 className="font-bold">Desglose por método</h3>
         {data.desglose_metodos.length ? <dl className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">{data.desglose_metodos.map((item) => <div className="rounded-xl border border-monu-green/15 p-3" key={item.metodo_pago}><dt className="font-bold">{METODOS[item.metodo_pago]}</dt><dd className="tabular-nums">{formatMoney(item.total)} · {item.cantidad} movimientos</dd></div>)}</dl> : <p>No hay movimientos en esta ventana.</p>}
-        <p className="text-sm">Los importes provienen de la API. El cierre puede incorporar arrastre de conciliados anteriores y diferir de este consolidado.</p>
+        <p className="text-sm">El cierre puede incluir movimientos conciliados de turnos anteriores y diferir de este consolidado.</p>
         {knownApproved ? <p className="font-bold">El cierre de este turno está aprobado y es inalterable.</p> : generating && <button type="button" className={primary} onClick={(event) => { returnFocus.current = event?.currentTarget || document.activeElement; void controller.prepareGenerate(); }} disabled={disabled || Boolean(state.uncertain)}>Generar cierre</button>}
       </div>}
     </section>
@@ -140,7 +140,7 @@ function CajaSession({ user, refreshSession }) {
         <p className="text-sm">Generado por: {item.generado_por ? `Usuario #${item.generado_por}` : 'Sin informar'} · Aprobado por: {item.aprobado_por ? `Usuario #${item.aprobado_por}` : 'Sin aprobación'}</p>
         <button type="button" className={secondary} disabled={disabled} onClick={() => { setDetailRetry(item.id); void controller.loadDetail(item.id); }}>Ver detalle #{item.id}</button>
       </li>)}</ul> : <p>No hay cierres para estos filtros.</p>)}
-      <p className="text-sm">“Abierto” es un estado del contrato existente. Esta pantalla no ofrece apertura de caja.</p>
+      <p className="text-sm">Los cierres abiertos se muestran para consulta.</p>
     </section>
     {state.detail.status !== 'idle' && <section className={`${panel} space-y-4`} aria-labelledby="caja-detail-title">
       <h2 id="caja-detail-title" className="text-xl font-extrabold">Detalle del cierre{detail ? ` #${detail.id}` : ''}</h2>

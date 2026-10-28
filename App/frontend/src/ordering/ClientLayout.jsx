@@ -7,6 +7,7 @@ import ChatDrawer from './ChatDrawer';
 import { getChatConfig } from './chatDemo';
 import { useEffect, useState } from 'react';
 import { portal } from '../shared/portal';
+import { userErrorMessage } from '../shared/api/userErrors';
 
 export default function ClientLayout() {
   const { logout, user } = useAuth();
@@ -21,7 +22,7 @@ export default function ClientLayout() {
   useEffect(() => {
     let active = true;
     getChatConfig().then((data) => { if (active) setChatConfig({ ...data, status: 'ready' }); })
-      .catch((failure) => { if (active) setChatConfig({ status: 'error', error: failure.message || 'No se pudo comprobar la disponibilidad del chat.' }); });
+      .catch((failure) => { if (active) setChatConfig({ status: 'error', error: userErrorMessage(failure, 'No pudimos comprobar la disponibilidad del chat. Intentá nuevamente más tarde.') }); });
     return () => { active = false; };
   }, [configRevision]);
 

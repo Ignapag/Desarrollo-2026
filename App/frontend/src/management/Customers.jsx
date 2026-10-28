@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { Phone, RefreshCw, Search } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { useData } from '../shared/store/DataContext';
+import { userErrorMessage } from '../shared/api/userErrors.js';
 import { buttonClass, inputClass, DataError } from '../fulfillment/operationUi';
 
 const pageSize = 50;
@@ -35,7 +36,7 @@ export default function Customers() {
         if (!controller.signal.aborted) { setSnapshot({ owner: user, path, data: result }); setError(null); }
       } catch (failure) {
         if (!controller.signal.aborted) {
-          setError({ owner: user, path, message: `No se pudieron cargar los clientes. ${failure.message}` });
+          setError({ owner: user, path, message: userErrorMessage(failure, 'No pudimos cargar los clientes. Intentá nuevamente más tarde.') });
           if ([401, 403].includes(failure.status)) {
             setSnapshot({ owner: user, path, data: null });
             void refreshSession?.();

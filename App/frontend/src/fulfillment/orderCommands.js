@@ -1,3 +1,4 @@
+import { UserFacingError } from '../shared/api/userErrors.js';
 export function createOrderCommands(http) {
   const send = (path, body, method = 'POST') => http(path, { method, ...(body ? { body: JSON.stringify(body) } : {}) });
   return {
@@ -42,14 +43,14 @@ function validatePayment(result, attempt, { reconciled = false, id } = {}) {
     && payment.pedido_id === attempt.body.pedido_id && payment.tipo === (attempt.kind === 'devolucion' ? 'DEVOLUCION' : 'COBRO')
     && payment.metodo_pago === expectedMethod && states.includes(payment.estado)
     && expectedAmount !== null && expectedAmount > 0 && cents(payment.monto) === expectedAmount;
-  if (!valid) throw new Error('No se pudo confirmar el resultado del pago. Reintentá la misma operación para verificarlo sin duplicarlo.');
+  if (!valid) throw new UserFacingError('No se pudo confirmar el resultado del pago. Reintentá la misma operación para verificarlo sin duplicarlo.');
   if (cash) {
     const detail = result.detalle;
     const received = cents(attempt.body.monto_recibido);
     const tip = cents(attempt.body.propina ?? '0');
     if (!detail || cents(detail.monto_cobrado) !== expectedAmount || cents(detail.monto_recibido) !== received || cents(detail.propina) !== tip
       || cents(detail.vuelto) !== received - expectedAmount - tip || cents(detail.saldo_restante) === null || cents(detail.total_pedido) === null) {
-      throw new Error('No se pudo confirmar el desglose del cobro. Reintentá la misma operación para verificarlo sin duplicarlo.');
+      throw new UserFacingError('No se pudo confirmar el desglose del cobro. Reintentá la misma operación para verificarlo sin duplicarlo.');
     }
   }
   return payment;
@@ -65,8 +66,8 @@ export async function executePayment(http, attempt, { operativa = false } = {}) 
       const reconciled = await post(`/api/pagos/${result.id}/conciliar${operativa ? '?incluir_pedido=true' : ''}`, {});
       validatePayment(reconciled, attempt, { reconciled: true, id: result.id });
       return reconciled;
-    } catch (error) {
-      throw new Error(`La transferencia quedó registrada para revisión. No registres otro cobro: reintentá esta operación o conciliá el pendiente. ${error.message}`);
+    } catch {
+      throw new UserFacingError(`La transferencia quedó registrada para revisión. No registres otro cobro: reintentá esta operación o conciliá el pendiente.`);
     }
   }
   return result;

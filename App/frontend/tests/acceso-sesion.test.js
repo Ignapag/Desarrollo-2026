@@ -92,10 +92,57 @@ test('logout fallido mantiene el cierre local, informa y permite reintentar sin 
   const auth = await mount(t);
   await act(async () => { await auth().logout().catch(() => {}); });
   assert.equal(auth().user, null);
-  assert.match(auth().sessionError || '', /cerrar.*sesión.*servidor/i);
+  assert.match(auth().sessionError || '', /confirmar.*cierre de sesión/i);
   await act(async () => auth().refreshSession());
   assert.equal(auth().user, null);
   fail = false;
   await act(async () => auth().logout());
+  assert.equal(auth().sessionError, '');
+});
+
+test('login traduce rechazos de autenticación y no revela texto técnico desconocido', async (t) => {
+  let status = 401;
+  globalThis.fetch = async (path) => path.endsWith('/login')
+    ? response({ detail: 'SQL password_hash /app/auth.py' }, status) : response(person);
+  const auth = await mount(t);
+  let result;
+  await act(async () => { result = await auth().login('ana', 'secret'); });
+  assert.match(result.error, /usuario y contraseña/);
+  assert.equal(auth().user, null);
+  status = 500;
+  await act(async () => { result = await auth().login('ana', 'secret'); });
+  assert.match(result.error, /No pudimos iniciar sesión/);
+  assert.doesNotMatch(result.error, /SQL|password_hash|auth\.py/);
+  assert.equal(auth().user, null);
+});
+
+test('una respuesta de login incompleta nunca anuncia una sesión iniciada', async (t) => {
+  globalThis.fetch = async (path) => response(path.endsWith('/login') ? { rol: 'EMPLEADO' } : person);
+  const auth = await mount(t);
+  let result;
+  await act(async () => { result = await auth().login('ana', 'secret'); });
+  assert.match(result.error, /confirmar tu sesión/);
+  assert.equal(result.success, undefined);
+  assert.equal(auth().user, null);
+});
+
+test('la consulta inicial de sesión fallida deja un aviso seguro y una consulta exitosa lo retira', async (t) => {
+  globalThis.fetch = async () => { throw new Error('SQL /app/private'); };
+  const auth = await mount(t);
+  assert.match(auth().sessionError, /No pudimos comprobar tu sesión/);
+  assert.doesNotMatch(auth().sessionError, /SQL|private/);
+  assert.equal(auth().logoutFailed, false);
+  globalThis.fetch = async () => response(person);
+  await act(async () => auth().refreshSession());
+  assert.equal(auth().sessionError, '');
+  assert.equal(auth().user.id, person.id);
+});
+
+test('el fallo de una consulta de fondo conserva la sesión vigente', async (t) => {
+  globalThis.fetch = async () => response(person);
+  const auth = await mount(t);
+  globalThis.fetch = async () => { throw new TypeError('offline'); };
+  await act(async () => auth().refreshSession());
+  assert.equal(auth().user.id, person.id);
   assert.equal(auth().sessionError, '');
 });

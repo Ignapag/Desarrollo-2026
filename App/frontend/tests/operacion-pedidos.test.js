@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ORDER_STATES, mapOrder, ordersPath, stateCommands, hasAssignment, canEditOperation, createFreshnessFence, ageMinutes, money } from '../src/fulfillment/orderModel.js';
+import { ORDER_STATES, mapOrder, ordersPath, stateCommands, stateLabel, hasAssignment, canEditOperation, createFreshnessFence, ageMinutes, money } from '../src/fulfillment/orderModel.js';
 import { createOrderCommands, createPaymentAttempt, executePayment } from '../src/fulfillment/orderCommands.js';
 import { paymentFixture } from './payment-fixtures.js';
 
@@ -21,6 +21,11 @@ test('el modelo conserva número público, contacto, saldo, versión y detalle r
 
 test('todos los estados, incluidos confirmado y cerrados, tienen una columna', () => {
   assert.deepEqual(ORDER_STATES.map(([id]) => id), ['PENDIENTE', 'CONFIRMADO', 'EN_PREPARACION', 'LISTO', 'EN_CAMINO', 'ENTREGADO', 'CANCELADO']);
+});
+
+test('estados ajenos al contrato no filtran diagnósticos ni acceden a prototipos', () => {
+  for (const state of ['SQL /app/private', '__proto__', 'constructor', null, {}, 42]) assert.equal(stateLabel(state), 'Sin informar');
+  assert.equal(stateLabel('pendiente'), 'Nuevos');
 });
 
 test('la búsqueda e historial se filtran en la API sin imponer un límite local', () => {

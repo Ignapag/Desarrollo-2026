@@ -61,8 +61,10 @@ test('guardar permisos envía versión, muestra pendiente y jamás confirma un e
   await act(async () => { pending = reactProps(elements(container, (node) => node.localName === 'form')[0]).onSubmit({ preventDefault() {} }); });
   assert.deepEqual(payload, { permisos: ['pedidos.ver', 'pedidos.editar'], version: 3 });
   assert.match(container.textContent, /Guardando/);
-  await act(async () => { wait.resolve(response({ detail: 'No disponible' }, 500)); await pending; });
-  assert.equal(saved.length, 0); assert.match(container.textContent, /No disponible/); assert.doesNotMatch(container.textContent, /Permisos guardados/);
+  await act(async () => { wait.resolve(response({ detail: 'SQL /srv/private permisos_internos' }, 500)); await pending; });
+  assert.equal(saved.length, 0);
+  assert.match(container.textContent, /No pudimos guardar los permisos/);
+  assert.doesNotMatch(container.textContent, /SQL|\/srv|permisos_internos|Permisos guardados/);
 });
 test('conflicto bloquea reescritura y ofrece actualizar el rol', async (t) => {
   globalThis.fetch = async () => response({ detail: 'Conflicto' }, 409);
@@ -72,6 +74,18 @@ test('conflicto bloquea reescritura y ofrece actualizar el rol', async (t) => {
   assert.match(container.textContent, /Tus cambios no se guardaron/);
   assert.match(container.textContent, /Actualizar permisos del rol/);
   assert.equal(elements(container, (node) => node.localName === 'button' && node.textContent === 'Guardar permisos')[0].disabled, true);
+});
+
+test('acuse con versión nueva y permisos anteriores no anuncia cambios guardados', async (t) => {
+  let saved = 0;
+  globalThis.fetch = async () => response({ ...employee, version: employee.version + 1 });
+  const container = await mount(t, editors.RolePermissionsEditor, { role: employee, modules, onSaved: () => saved++ });
+  await act(async () => reactProps(elements(container, (node) => node.localName === 'input')[1]).onChange({ target: { checked: true } }));
+  await act(async () => reactProps(elements(container, (node) => node.localName === 'form')[0]).onSubmit({ preventDefault() {} }));
+  assert.equal(saved, 0);
+  assert.match(container.textContent, /No pudimos confirmar el cambio de permisos/);
+  assert.doesNotMatch(container.textContent, /Permisos guardados/);
+  assert.equal(reactProps(elements(container, (node) => node.localName === 'input')[1]).checked, true);
 });
 test('asignar rol persiste usuario real por ID y sólo publica respuesta confirmada', async (t) => {
   let called;

@@ -38,7 +38,7 @@ test('render real muestra importes API, pendientes separados, detalle y confirma
   };
   const { container } = await mount(t);
   assert.match(container.textContent, /69,00/); assert.match(container.textContent, /pendiente.*conciliación/i);
-  assert.match(container.textContent, /26\/10\/2026/); assert.match(container.textContent, /arrastre/);
+  assert.match(container.textContent, /26\/10\/2026/); assert.match(container.textContent, /turnos anteriores/);
   await act(async () => reactProps(button(container, 'Generar cierre')).onClick());
   assert.match(container.textContent, /Recalcular cierre/); assert.match(container.textContent, /Nota previa/);
   const dialog = find(container, 'dialog')[0]; assert.equal(dialog.open, true);
@@ -62,7 +62,7 @@ test('403 retira datos y permisos separados no muestran acciones financieras', a
   const { container } = await mount(t, { ...user, permisos: ['caja.ver'] });
   assert.equal(Boolean(button(container, 'Generar cierre')), false);
   revoked = true; await act(async () => reactProps(find(container, 'form')[0]).onSubmit({ preventDefault() {} }));
-  assert.doesNotMatch(container.textContent, /69,00/); assert.match(container.textContent, /rechazó el acceso/);
+  assert.doesNotMatch(container.textContent, /69,00/); assert.match(container.textContent, /No tenés acceso/);
 });
 test('cierre conocido aprobado no ofrece generar ni recalcular', async (t) => {
   const approved = { ...record, estado: 'APROBADO', aprobado_por: 4, aprobado_en: '2026-10-27T03:00:00-03:00' };

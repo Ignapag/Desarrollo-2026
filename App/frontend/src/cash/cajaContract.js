@@ -1,3 +1,4 @@
+import { UserFacingError } from '../shared/api/userErrors.js';
 export const TURNOS = { MEDIODIA: 'Mediodía', NOCHE: 'Noche' };
 export const ESTADOS = { ABIERTO: 'Abierto', PENDIENTE_APROBACION: 'Pendiente de aprobación', APROBADO: 'Aprobado' };
 export const METODOS = { EFECTIVO: 'Efectivo', MERCADO_PAGO: 'Mercado Pago', CUENTA_DNI: 'Cuenta DNI', NARANJA_X: 'Naranja X', OTRA_BILLETERA: 'Otra billetera', TRANSFERENCIA: 'Transferencia' };
@@ -16,13 +17,13 @@ export function validDate(value) {
 }
 export function validateSelection(selection) {
   if (selection.mode === 'actual') return;
-  if (selection.mode !== 'specific' || !validDate(selection.fecha)) throw new Error('Ingresá una fecha contable real (AAAA-MM-DD).');
-  if (!Object.hasOwn(TURNOS, selection.turno)) throw new Error('Seleccioná un turno válido.');
+  if (selection.mode !== 'specific' || !validDate(selection.fecha)) throw new UserFacingError('Ingresá una fecha contable real (AAAA-MM-DD).');
+  if (!Object.hasOwn(TURNOS, selection.turno)) throw new UserFacingError('Seleccioná un turno válido.');
 }
 export function validateFilters({ desde = '', hasta = '', estado = '' }) {
-  if (desde && !validDate(desde) || hasta && !validDate(hasta)) throw new Error('Ingresá fechas reales para el historial.');
-  if (desde && hasta && desde > hasta) throw new Error('El rango es inválido: Hasta debe ser igual o posterior a Desde.');
-  if (estado && !Object.hasOwn(ESTADOS, estado)) throw new Error('Seleccioná un estado válido.');
+  if (desde && !validDate(desde) || hasta && !validDate(hasta)) throw new UserFacingError('Ingresá fechas reales para el historial.');
+  if (desde && hasta && desde > hasta) throw new UserFacingError('El rango es inválido: Hasta debe ser igual o posterior a Desde.');
+  if (estado && !Object.hasOwn(ESTADOS, estado)) throw new UserFacingError('Seleccioná un estado válido.');
 }
 export function consolidadoValido(data) {
   return Boolean(data && validDate(data.fecha) && Object.hasOwn(TURNOS, data.turno)
@@ -42,7 +43,7 @@ export function cierreValido(data) {
     && (data.estado !== 'APROBADO' || id(data.aprobado_por) && timestamp(data.aprobado_en)));
 }
 export function checked(data, valid) {
-  if (!valid(data)) throw new Error('El servidor devolvió datos incompletos o inesperados. No se pudo confirmar la operación.');
+  if (!valid(data)) throw new UserFacingError('No pudimos confirmar la operación. Comprobá su estado antes de reintentar.');
   return data;
 }
 export const sameTarget = (a, b) => a?.fecha === b?.fecha && a?.turno === b?.turno;

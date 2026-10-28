@@ -92,7 +92,7 @@ async function runViewport(name, viewport) {
     await page.getByLabel('Usuario', { exact: true }).focus();
     await page.keyboard.type('auditoria'); await page.keyboard.press('Tab');
     await page.keyboard.type('clave-fixture'); await page.keyboard.press('Enter');
-    await visible(page.getByRole('alert').filter({ hasText: 'Credenciales de prueba rechazadas' }));
+    await visible(page.getByRole('alert').filter({ hasText: 'Revisá tu usuario y contraseña.' }));
     assert.equal(await page.getByLabel('Usuario', { exact: true }).inputValue(), 'auditoria');
     assert.equal(await page.getByLabel('Contraseña', { exact: true }).inputValue(), 'clave-fixture');
     const loginImage = await screenshot(page, name, 'login-error');
@@ -118,7 +118,7 @@ async function runViewport(name, viewport) {
     await inventory.getByLabel('Stock Inicial', { exact: true }).fill('no');
     await inventory.getByLabel('Stock Mínimo', { exact: true }).fill('0');
     await inventory.getByRole('button', { name: 'Guardar Insumo' }).click();
-    await visible(inventory.getByText('Ingresá el nombre del insumo.', { exact: true }));
+    await visible(inventory.locator('#new-ingredient-name-error'));
     assert.equal(state.calls.filter((call) => call.method === 'POST' && call.path === '/api/stock/ingredientes').length, 0);
     assert.ok(await page.evaluate(() => document.activeElement?.textContent.includes('Revisá los campos indicados.')));
     await inventory.getByLabel('Nombre', { exact: true }).fill('Tomate conservado');
@@ -132,10 +132,10 @@ async function runViewport(name, viewport) {
     const stockCall = state.calls.find((call) => call.method === 'POST' && call.path === '/api/stock/ingredientes');
     assert.equal(stockCall.body.cantidad_actual, 1.5); assert.equal(stockCall.body.umbral_minimo, 0.5);
     state.stockWait.resolve();
-    await visible(inventory.getByText('Stock simulado no disponible', { exact: true }));
+    await visible(inventory.getByRole('alert').filter({ hasText: 'No pudimos agregar el insumo.' }));
     assert.equal(await inventory.getByLabel('Nombre', { exact: true }).inputValue(), 'Tomate conservado');
     assert.equal(await inventory.getByLabel('Stock Inicial', { exact: true }).inputValue(), '1,5');
-    assert.ok(await page.evaluate(() => document.activeElement?.textContent.includes('Stock simulado no disponible')));
+    assert.ok(await page.evaluate(() => document.activeElement?.textContent.includes('No pudimos agregar el insumo.')));
     passed('Inventario: validación, doble envío y error', 'Blancos/número inválido/cero rechazados; coma y fracción normalizadas; dos submits generan un POST; 503 conserva formulario y enfoca error.', await screenshot(page, name, 'inventario-error'));
     await inventory.getByRole('button', { name: 'Cerrar formulario de insumo' }).click();
 
@@ -198,11 +198,11 @@ async function runViewport(name, viewport) {
     await cart.locator('form').evaluate((form) => { form.requestSubmit(); form.requestSubmit(); });
     await waitFor(() => state.calls.filter((call) => call.path === '/api/whatsapp/borradores').length === 1, 'un único borrador');
     state.draftWait.resolve();
-    await visible(cart.getByRole('alert').filter({ hasText: 'Borrador simulado no disponible' }));
+    await visible(cart.getByRole('alert').filter({ hasText: 'No pudimos preparar tu pedido para WhatsApp.' }));
     assert.equal(await cart.locator('#checkout-first-name').inputValue(), 'Ana');
     assert.equal(await cart.locator('#checkout-street').inputValue(), 'Calle de prueba');
     await visible(cart.getByText('Sin Cheddar', { exact: true }));
-    assert.ok(await page.evaluate(() => document.activeElement?.textContent.includes('Borrador simulado no disponible')));
+    assert.ok(await page.evaluate(() => document.activeElement?.textContent.includes('No pudimos preparar tu pedido para WhatsApp.')));
     assert.equal(state.calls.find((call) => call.path === '/api/whatsapp/borradores').body.items[0].aclaraciones, 'Sin Cheddar');
     passed('Carrito: blancos, dirección, personalización y error', 'Nombre/calle con espacios enfocan su campo; 503 conserva contacto, dirección y Sin Cheddar; doble submit genera un borrador; error enfocado.', await screenshot(page, name, 'carrito-error'));
     await cart.getByRole('button', { name: 'Cerrar carrito', exact: true }).click();

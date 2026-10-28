@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { act, createElement, useLayoutEffect, useState } from 'react';
+import { MemoryRouter } from 'react-router-dom';
 import { createTestServer as createServer } from './vite-test-server.js';
 import react from '@vitejs/plugin-react';
 import { installMinimalDom, elements, reactProps, deferred } from './minimal-dom.js';
@@ -19,6 +20,7 @@ let useData;
 let WhatsAppInbox;
 let Kitchen;
 let OrderOperationFeedback;
+let DeliveryPanel;
 const originalFetch = globalThis.fetch;
 const order = { id: 17, numero: 88, version: 3, estado: 'PENDIENTE', tipo_entrega: 'DELIVERY', direccion_id: 55, metodo_pago_acordado: 'EFECTIVO', observaciones: 'Timbre 2', direccion: { id: 55, calle: 'Camino', numero: '10', localidad: 'Localidad histórica', referencia: 'Entrada lateral' }, total: '12000', saldo_pendiente: '12000', neto_cobrado: '0', items: [], pagos: [], historial: [] };
 before(async () => {
@@ -26,7 +28,7 @@ before(async () => {
   ({ createRoot } = await import('react-dom/client'));
   server = await createServer({ configFile: false, plugins: [
     { name: 'auth-regresiones', enforce: 'pre', load(id) {
-      if (id.replaceAll('\\', '/').endsWith('/src/auth/AuthContext.jsx')) return `const user = {id: 1, role: 'admin', backendRole: 'EMPLEADO', permisos: ['pedidos.ver','pedidos.editar','pedidos.cambiar_estado','pagos.ver','pagos.registrar','pagos.conciliar','delivery.planificar','whatsapp.ver','whatsapp.gestionar']}; export const useAuth = () => ({user});`;
+      if (id.replaceAll('\\', '/').endsWith('/src/auth/AuthContext.jsx')) return `const user = {id: 1, role: 'admin', backendRole: 'EMPLEADO', permisos: ['pedidos.ver','pedidos.editar','pedidos.cambiar_estado','pagos.ver','pagos.registrar','pagos.conciliar','delivery.planificar','delivery.operar','delivery.ver','whatsapp.ver','whatsapp.gestionar']}; export const useAuth = () => ({user});`;
       return null;
     } }, react(),
   ], server: { middlewareMode: true, hmr: false, ws: false }, optimizeDeps: { noDiscovery: true }, appType: 'custom', logLevel: 'silent' });
@@ -38,6 +40,7 @@ before(async () => {
   ({ default: WhatsAppInbox } = await server.ssrLoadModule('/src/fulfillment/WhatsAppInbox.jsx'));
   ({ default: Kitchen } = await server.ssrLoadModule('/src/kitchen/Kitchen.jsx'));
   ({ default: OrderOperationFeedback } = await server.ssrLoadModule('/src/fulfillment/OrderOperationFeedback.jsx'));
+  ({ default: DeliveryPanel } = await server.ssrLoadModule('/src/fulfillment/DeliveryPanel.jsx'));
 });
 after(async () => { globalThis.fetch = originalFetch; await server?.close(); dom?.restore(); });
 
@@ -56,6 +59,25 @@ async function change(node, value) { await act(async () => reactProps(node).onCh
 async function submit(container) { await act(async () => reactProps(elements(container, (node) => node.localName === 'form')[0]).onSubmit({ preventDefault() {} })); }
 const response = (data) => ({ ok: true, status: 200, json: async () => data });
 const completed = async (predicate) => { for (let i = 0; i < 20 && !predicate(); i += 1) await act(async () => { await new Promise((resolve) => setImmediate(resolve)); }); assert.ok(predicate(), 'La operación React debería completarse'); };
+
+test('reparto no anuncia éxito ante un acuse inesperado y permite comprobar el viaje', async (t) => {
+  let writes = 0;
+  globalThis.fetch = async (path, options = {}) => {
+    if (options.method === 'POST') { writes++; return response({}); }
+    if (path === '/api/delivery/viajes') return response([{ id: 5 }]);
+    if (path === '/api/delivery/viajes/5') return response({ id: 5, estado: 'PLANIFICADO', repartidor_nombre: 'Ana', envios: [] });
+    return response(path === '/api/whatsapp/avisos' ? { comprobantes_pendientes: 0, atenciones_pendientes: 0 } : []);
+  };
+  function Screen() { return createElement(MemoryRouter, null, createElement(DeliveryPanel)); }
+  const container = await mount(t, Screen, {}, true);
+  await completed(() => Boolean(button(container, 'Salir a repartir')));
+  await act(async () => reactProps(button(container, 'Salir a repartir')).onClick());
+  await completed(() => container.textContent.includes('No pudimos confirmar'));
+  assert.equal(writes, 1);
+  assert.match(container.textContent, /revisá el viaje antes de reintentar/);
+  assert.doesNotMatch(container.textContent, /Operación de reparto registrada/);
+  assert.ok(button(container, 'Actualizar viajes'));
+});
 
 test('cambiar sólo pago conserva dirección existente y sus datos logísticos no editados', async (t) => {
   let sent;
@@ -418,7 +440,8 @@ test('un error no queda disfrazado de Guardando y conserva el pago registrado', 
   }
   const container = await mount(t, Screen, {}, true);
   await act(async () => reactProps(button(container, 'Enviar a cocina')).onClick());
-  await completed(() => container.textContent.includes('HTTP 500'));
+  await completed(() => container.textContent.includes('Comprobá su estado'));
+  assert.doesNotMatch(container.textContent, /HTTP 500|HTML/);
   assert.doesNotMatch(container.textContent, /Guardando|Registrando operación/);
   assert.equal(data.orderOperations[0].status, 'error');
   assert.ok(button(container, 'Revisar pedido'));

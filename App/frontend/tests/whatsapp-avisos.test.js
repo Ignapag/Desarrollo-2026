@@ -213,3 +213,60 @@ test('bandeja sin gestionar sólo permite leer las conversaciones', async (t) =>
   assert.match(container.textContent, /Consulta/);
   assert.doesNotMatch(container.textContent, /Encolar respuesta|Marcar como resuelta/);
 });
+
+test('respuesta con error conserva el texto, muestra un aviso seguro y reintenta con el mismo identificador', async (t) => {
+  setTestUser(staff());
+  const bodies = [];
+  let fail = true;
+  const inbox = { comprobantes: [], cambios: [], atenciones: [{ id: 49, motivo: 'SOLICITUD', mensaje: 'Consulta', productos: [], mensajes: [], respuestas: [] }], salidas: [] };
+  globalThis.fetch = async (path, options = {}) => {
+    if (options.method === 'POST') {
+      bodies.push(JSON.parse(options.body));
+      if (fail) return { ok: false, status: 500, json: async () => ({ detail: 'SQL /app/private solicitud_id' }) };
+      return response({ id: 12, atencion_id: 49, estado: 'PENDIENTE' });
+    }
+    return response(inbox);
+  };
+  const container = document.createElement('div'); document.body.appendChild(container);
+  const root = createRoot(container);
+  t.after(async () => { await act(async () => root.unmount()); document.body.removeChild(container); });
+  await act(async () => root.render(createElement(Inbox, { section: 'atenciones', requestKey: 'respuesta-fallida' })));
+  const field = elements(container, (node) => node.localName === 'textarea')[0];
+  await act(async () => reactProps(field).onChange({ target: { value: 'Estamos revisando tu pedido' } }));
+  const submit = () => reactProps(elements(container, (node) => node.localName === 'form')[0]).onSubmit({ preventDefault() {} });
+  await act(async () => submit());
+  assert.equal(field.value, 'Estamos revisando tu pedido');
+  assert.match(container.textContent, /comprobá su estado|Comprobá su estado/);
+  assert.doesNotMatch(container.textContent, /SQL|\/app\/private|solicitud_id|Respuesta registrada/);
+  fail = false;
+  await act(async () => submit());
+  assert.deepEqual(bodies[1], bodies[0]);
+  assert.equal(field.value, '');
+  assert.match(container.textContent, /Respuesta registrada/);
+});
+
+test('bandeja inesperada informa error en forma accesible y no anuncia datos vacíos', async (t) => {
+  setTestUser(staff());
+  globalThis.fetch = async () => response({ detail: 'datos internos' });
+  const container = document.createElement('div'); document.body.appendChild(container);
+  const root = createRoot(container);
+  t.after(async () => { await act(async () => root.unmount()); document.body.removeChild(container); });
+  await act(async () => root.render(createElement(Inbox, { section: 'atenciones', requestKey: 'invalida' })));
+  assert.match(container.textContent, /No pudimos cargar la bandeja/);
+  assert.ok(elements(container, (node) => node.getAttribute?.('role') === 'alert').length);
+  assert.doesNotMatch(container.textContent, /datos internos|No hay conversaciones/);
+});
+
+test('etiquetas de WhatsApp inesperadas usan mensajes cerrados y toleran nombres de prototipos', async (t) => {
+  setTestUser(staff());
+  globalThis.fetch = async () => response({ comprobantes: [], cambios: [], atenciones: [
+    { id: 50, motivo: '__proto__', mensaje: 'Consulta', productos: [], respuestas: [{ id: 1, texto: 'Respuesta', estado: 'constructor' }, { id: 2, texto: 'Otra respuesta', estado: 'SQL /app/private' }], tipo_entrega: 'constructor', metodo_pago: '__proto__' },
+  ], salidas: [{ id: 3, estado: 'SQL /app/private', intentos: 1 }, { id: 4, estado: '__proto__', intentos: 1 }] });
+  const container = document.createElement('div'); document.body.appendChild(container);
+  const root = createRoot(container);
+  t.after(async () => { await act(async () => root.unmount()); document.body.removeChild(container); });
+  await act(async () => root.render(createElement(Inbox, { section: 'atenciones', requestKey: 'etiquetas-desconocidas' })));
+  assert.doesNotMatch(container.textContent, /SQL|\/app\/private|__proto__|constructor/);
+  assert.match(container.textContent, /Sin informar|sin informar/);
+  assert.match(container.textContent, /Requiere atención de personal/);
+});

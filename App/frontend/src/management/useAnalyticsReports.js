@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { can } from '../auth/permissions';
 import { apiFetch } from '../shared/api/http';
+import { userErrorMessage } from '../shared/api/userErrors.js';
+import { validarReportes } from './datosPanel';
 
 // La identidad se comprueba también al renderizar, antes del cleanup del efecto.
 export function useAnalyticsReports(user, consulta, refreshSession) {
@@ -24,10 +26,11 @@ export function useAnalyticsReports(user, consulta, refreshSession) {
         const fallo = respuestas.find((respuesta) => respuesta.status === 'rejected');
         if (fallo) throw fallo.reason;
         const [resumen, ventas, rentabilidad] = respuestas.map((respuesta) => respuesta.value);
+        validarReportes(resumen, ventas, rentabilidad);
         setEstado({ user, consulta, datos: { resumen, ventas, rentabilidad }, error: '' });
       } catch (error) {
         if (!vigente) return;
-        setEstado({ user, consulta, datos: null, error: error.message || 'No se pudieron cargar los reportes.' });
+        setEstado({ user, consulta, datos: null, error: userErrorMessage(error, 'No pudimos cargar los reportes. Intentá nuevamente más tarde.') });
         if ([401, 403].includes(error.status)) void refreshSession?.();
       }
     }

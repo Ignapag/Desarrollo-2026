@@ -105,7 +105,7 @@ test('un conflicto seguido de recarga conserva el borrador y exige rebase explí
   assert.equal(reactProps(field(container, 'Observaciones')).value, 'Mi borrador pendiente');
   await submit(container);
   assert.equal(store.operations.length, 1, 'No debe reenviar sobre una versión nueva sin revisar');
-  const rebase = elements(container, (node) => node.localName === 'button' && node.textContent === 'Conservar borrador sobre la versión actual')[0];
+  const rebase = elements(container, (node) => node.localName === 'button' && node.textContent === 'Conservar borrador con los datos actuales')[0];
   assert.ok(rebase);
   await act(async () => reactProps(rebase).onClick());
   assert.equal(reactProps(field(container, 'Método de pago acordado')).value, 'TRANSFERENCIA', 'Adopta campos que el operador no cambió');
@@ -118,7 +118,7 @@ test('un conflicto seguido de recarga conserva el borrador y exige rebase explí
   assert.equal(Object.hasOwn(sent, 'metodo_pago_acordado'), false);
   await act(async () => store.operations[1].onSuccess({ ...current, version: 3, observaciones: 'Mi borrador pendiente' }));
   assert.equal(reactProps(field(container, 'Observaciones')).value, 'Mi borrador pendiente');
-  assert.doesNotMatch(container.textContent, /Conservar borrador sobre la versión actual/);
+  assert.doesNotMatch(container.textContent, /Conservar borrador con los datos actuales/);
 });
 
 test('un detalle HTTP 200 incompleto muestra un error recuperable y no rompe el render', async (t) => {

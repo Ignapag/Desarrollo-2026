@@ -3,7 +3,9 @@ export const ORDER_STATES = [
   ['EN_PREPARACION', 'En preparación'], ['LISTO', 'Listos'],
   ['EN_CAMINO', 'En camino'], ['ENTREGADO', 'Entregados'], ['CANCELADO', 'Cancelados'],
 ];
-export const stateLabel = (state) => ORDER_STATES.find(([id]) => id === state?.toUpperCase())?.[1] || state || 'Sin informar';
+export const knownLabel = (labels, value, fallback = 'Sin informar') => typeof value === 'string' && Object.hasOwn(labels, value) ? labels[value] : fallback;
+export const stateLabel = (state) => typeof state === 'string' ? ORDER_STATES.find(([id]) => id === state.toUpperCase())?.[1] || 'Sin informar' : 'Sin informar';
+export const paymentMethodLabel = (method) => knownLabel({ EFECTIVO: 'Efectivo', TRANSFERENCIA: 'Transferencia', MERCADO_PAGO: 'Mercado Pago', CUENTA_DNI: 'Cuenta DNI', NARANJA_X: 'Naranja X', OTRA_BILLETERA: 'Otra billetera' }, method);
 export const isStaff = (role) => ['EMPLEADO', 'ADMINISTRADOR', 'DUENIO'].includes(role);
 export const isPrivileged = (role) => ['ADMINISTRADOR', 'DUENIO'].includes(role);
 export const isClosed = (order) => ['ENTREGADO', 'CANCELADO'].includes(order.estado);
