@@ -56,6 +56,8 @@ function mapInventory(item) {
     active: item.activo,
     stock: Number(item.cantidad_actual),
     min: Number(item.umbral_minimo),
+    // Costo actual por unidad de medida; 0 es el valor por defecto de un costo sin cargar.
+    cost: Number(item.costo_unitario ?? 0),
     status: item.nivel === 'NORMAL' ? 'estable' : 'critico',
   };
 }
@@ -128,13 +130,17 @@ function dataReducer(state, action) {
         ...state,
         inventory: [{ ...action.payload }, ...state.inventory], inventoryOwner: action.owner,
       }
+    case 'SET_INVENTORY_COST':
+      // Solo el costo: no pisar un saldo optimista de una reposición en curso.
+      return { ...state, inventory: state.inventory.map((item) => item.id === action.id ? { ...item, cost: action.cost } : item) };
     case 'UPDATE_INVENTORY_STOCK': {
       const { id, delta } = action.payload;
       return {
         ...state,
         inventory: state.inventory.map(item => {
           if (item.id === id) {
-            const newStock = Math.max(0, item.stock + delta); // No permitir stock negativo
+            // No permitir stock negativo ni arrastrar error flotante más allá de 3 decimales.
+            const newStock = Math.round(Math.max(0, item.stock + delta) * 1000) / 1000;
             const newStatus = newStock <= item.min ? 'critico' : 'estable';
             return { ...item, stock: newStock, status: newStatus };
           }
@@ -550,27 +556,44 @@ export function DataProvider({ children }) {
         unidad_medida: payload.unit,
         cantidad_actual: Number(payload.stock),
         umbral_minimo: Number(payload.min),
+        // Texto decimal: el importe llega exacto al NUMERIC del servidor.
+        costo_unitario: payload.cost,
       }),
     });
-    if (!Number.isInteger(created?.id) || typeof created.nombre !== 'string' || created.cantidad_actual == null || created.umbral_minimo == null || !Number.isFinite(Number(created.cantidad_actual)) || !Number.isFinite(Number(created.umbral_minimo))) throw new UserFacingError('No pudimos confirmar el insumo. Actualizá el inventario antes de reintentar.');
+    if (!Number.isInteger(created?.id) || typeof created.nombre !== 'string' || created.cantidad_actual == null || created.umbral_minimo == null || created.costo_unitario == null || !Number.isFinite(Number(created.cantidad_actual)) || !Number.isFinite(Number(created.umbral_minimo)) || !Number.isFinite(Number(created.costo_unitario))) throw new UserFacingError('No pudimos confirmar el insumo. Actualizá el inventario antes de reintentar.');
     const item = mapInventory(created);
     if (userRef.current === user) dispatch({ type: 'ADD_INVENTORY_ITEM', payload: item, owner: user });
     return item;
   }, 'stock.gestionar');
 
+  const updateIngredientCost = async (id, cost) => runResourceMutation('inventory', async () => {
+    const updated = await apiFetch(`/api/stock/ingredientes/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ costo_unitario: cost }),
+    });
+    if (updated?.id !== id || updated.costo_unitario == null || !Number.isFinite(Number(updated.costo_unitario)) || updated.cantidad_actual == null || updated.umbral_minimo == null) throw new UserFacingError('No pudimos confirmar el costo. Actualizá el inventario antes de reintentar.');
+    const item = mapInventory(updated);
+    if (userRef.current === user) dispatch({ type: 'SET_INVENTORY_COST', id, cost: item.cost });
+    return item;
+  }, 'stock.gestionar');
+
+  // quantity admite el texto decimal exacto ("2500.5") para no perder precisión en el JSON.
   const replenishIngredient = async (id, quantity = 1) => runResourceMutation('inventory', async () => {
+    const delta = Number(quantity);
     // Actualizacion optimista: Render y Supabase estan en regiones distintas,
     // pero el operador debe ver el cambio apenas toca el boton.
-    dispatch({ type: 'UPDATE_INVENTORY_STOCK', payload: { id, delta: quantity } });
+    dispatch({ type: 'UPDATE_INVENTORY_STOCK', payload: { id, delta } });
     try {
       const result = await apiFetch(`/api/stock/ingredientes/${id}/reposiciones`, {
         method: 'POST',
         body: JSON.stringify({ cantidad: quantity, origen: 'PANEL_WEB' }),
       });
-      if (result?.ingrediente_id !== id || !Number.isInteger(result.movimiento_id) || result.saldo_resultante == null || !Number.isFinite(Number(result.saldo_resultante))) throw new UserFacingError('No pudimos confirmar la reposición. Consultá el inventario antes de reintentar.');
-      if (userRef.current === user) dispatch({ type: 'CONFIRM_INVENTORY_STOCK', id, stock: Number(result.saldo_resultante) });
+      if (result?.ingrediente_id !== id || !Number.isInteger(result.movimiento_id) || result.saldo_resultante == null || !Number.isFinite(Number(result.saldo_resultante))) throw new UserFacingError('No pudimos confirmar la reposición. Consultá el inventario antes de reintentar.', { uncertain: true });
+      const stock = Number(result.saldo_resultante);
+      if (userRef.current === user) dispatch({ type: 'CONFIRM_INVENTORY_STOCK', id, stock });
+      return { stock, movementId: result.movimiento_id };
     } catch (error) {
-      if (userRef.current === user) dispatch({ type: 'UPDATE_INVENTORY_STOCK', payload: { id, delta: -quantity } });
+      if (userRef.current === user) dispatch({ type: 'UPDATE_INVENTORY_STOCK', payload: { id, delta: -delta } });
       throw error;
     }
   }, 'stock.reponer');
@@ -603,6 +626,7 @@ export function DataProvider({ children }) {
       dismissOrderOperation,
       orderOperations: operations.owner === user ? operations.entries : [],
       createIngredient,
+      updateIngredientCost,
       replenishIngredient,
     }}>
       {children}

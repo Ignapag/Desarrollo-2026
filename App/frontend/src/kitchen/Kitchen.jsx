@@ -25,7 +25,7 @@ export default function Kitchen() {
     success: order.tipo_entrega === 'RETIRO' ? 'Listo para retirar.' : 'Listo para reparto.',
   });
   return <div className="space-y-6">
-    <div className="flex flex-wrap justify-between items-start gap-3"><div><h1 className="text-3xl font-extrabold font-heading text-monu-dark">Cocina / KDS</h1><p className="text-monu-text/80">Comandas confirmadas y en preparación, ordenadas por su fecha real.</p></div><button type="button" onClick={() => { void refreshOrders(undefined, true).catch(() => undefined); }} className={buttonClass}>Actualizar cocina</button></div>
+    <div className="flex flex-wrap justify-between items-start gap-3"><div><h1 className="text-3xl font-extrabold font-heading text-monu-dark">Cocina</h1><p className="text-monu-text/80">Comandas confirmadas y en preparación, ordenadas por su fecha real.</p></div><button type="button" onClick={() => { void refreshOrders(undefined, true).catch(() => undefined); }} className={buttonClass}>Actualizar cocina</button></div>
     <DataError message={state.ordersError} />
     {state.ordersStatus === 'loading' && <p role="status">Consultando comandas...</p>}
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">

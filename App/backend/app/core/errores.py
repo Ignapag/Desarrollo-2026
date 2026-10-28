@@ -8,15 +8,20 @@ los manejadores que ``app.main`` registra.
 from __future__ import annotations
 
 from fastapi import Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
 from app.errores import ErrorDominio
 
 
 async def manejador_error_dominio(_: Request, exc: ErrorDominio) -> JSONResponse:
+    # Los detalles pueden traer Decimal (cantidades de stock, importes): sin
+    # convertirlos, json.dumps falla y un 409 previsto termina como 500.
     return JSONResponse(
         status_code=exc.codigo_http,
-        content={"codigo": exc.codigo, "mensaje": exc.mensaje, "detalles": exc.detalles},
+        content=jsonable_encoder(
+            {"codigo": exc.codigo, "mensaje": exc.mensaje, "detalles": exc.detalles}
+        ),
     )
 
 

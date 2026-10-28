@@ -29,14 +29,16 @@ class Settings(BaseSettings):
     db_timeout_conexion: float = 5.0
 
     # --- CORS ---------------------------------------------------------
-    # El frontend lo desarrolla otro integrante; este origen es el puerto
-    # por defecto de Vite, para cuando se integre.
+    # Vite local y los dos portales publicados de este repositorio de Desarrollo.
+    # ORIGENES_PERMITIDOS reemplaza esta lista cuando se configura en el hosting.
     # NoDecode: sin esto pydantic-settings intenta leer la variable de entorno
     # como JSON y falla con la lista separada por comas del .env.example,
     # antes de que corra _parsear_origenes.
     origenes_permitidos: Annotated[list[str], NoDecode] = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "https://monu-burger-desarrollo.pages.dev",
+        "https://monu-burger-clientes-desarrollo.pages.dev",
     ]
 
     # --- Autenticacion (EDT 1.8 - Usuarios y Seguridad) ----------------

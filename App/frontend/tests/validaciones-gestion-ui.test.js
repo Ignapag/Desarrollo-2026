@@ -41,9 +41,10 @@ async function inventoryForm(t) {
   const container = await mount(t, Inventory);
   await act(async () => reactProps(button(container, 'Añadir Insumo')).onClick());
   const inputs = find(container, 'input');
-  await change(inputs[0], ' Tomate '); await change(inputs[1], '0,125'); await change(inputs[2], '0,25');
+  await change(inputs[0], ' Tomate '); await change(inputs[1], '0,125'); await change(inputs[2], '0,25'); await change(inputs[3], '$ 4,5');
   return container;
 }
+const byId = (container, id) => elements(container, (node) => node.getAttribute?.('id') === id)[0];
 test('inventario normaliza decimales locales y bloquea dos altas dentro del mismo evento', async (t) => {
   const wait = deferred(); const sent = [];
   data.createIngredient = async (body) => { sent.push(body); return wait.promise; };
@@ -51,7 +52,72 @@ test('inventario normaliza decimales locales y bloquea dos altas dentro del mism
   await act(async () => { const submit = reactProps(find(container, 'form')[0]).onSubmit; first = submit({ preventDefault() {} }); second = submit({ preventDefault() {} }); });
   await act(async () => { wait.resolve({}); await Promise.all([first, second]); });
   assert.equal(sent.length, 1);
-  assert.deepEqual(sent[0], { name: 'Tomate', unit: 'UNIDAD', stock: '0.125', min: '0.25' });
+  assert.deepEqual(sent[0], { name: 'Tomate', unit: 'UNIDAD', stock: '0.125', min: '0.25', cost: '4.5' });
+});
+
+test('alta de insumo nombra la unidad del costo y rechaza importes inválidos en su campo', async (t) => {
+  const sent = []; data.createIngredient = async (body) => { sent.push(body); };
+  const container = await inventoryForm(t);
+  await change(byId(container, 'new-ingredient-unit'), 'GR');
+  assert.match(container.textContent, /Costo unitario \(\$ por GR\)/);
+  const cost = byId(container, 'new-ingredient-cost');
+  for (const invalid of ['', '-1', 'abc', '4,555', '1.234,50', '12345678901']) {
+    await change(cost, invalid);
+    await act(async () => reactProps(find(container, 'form')[0]).onSubmit({ preventDefault() {} }));
+    assert.equal(sent.length, 0, invalid);
+    assert.equal(reactProps(byId(container, 'new-ingredient-cost'))['aria-invalid'], true, invalid);
+  }
+  await change(cost, '0');
+  await act(async () => reactProps(find(container, 'form')[0]).onSubmit({ preventDefault() {} }));
+  assert.equal(sent[0].cost, '0');
+  assert.equal(sent[0].unit, 'GR');
+});
+
+test('inventario muestra el costo por unidad y marca los insumos sin costo cargado', async (t) => {
+  data.state.inventory = [
+    { id: 12, name: 'Pan', category: 'UNIDAD', stock: 10, min: 1, cost: 600 },
+    { id: 13, name: 'Tomate', category: 'GR', stock: 10, min: 1, cost: 0 },
+  ];
+  t.after(() => { data.state.inventory = []; });
+  const container = await mount(t, Inventory);
+  const text = container.textContent.replace(/\s/g, ' ');
+  assert.match(text, /\$ 600,00 por UNIDAD/);
+  assert.match(text, /Sin costo cargado/);
+  assert.match(text, /1 insumo sin costo cargado/);
+  assert.ok(button(container, 'Editar costo de Pan'));
+});
+
+test('editar costo envía un único PATCH con el decimal y conserva el diálogo ante un rechazo', async (t) => {
+  data.state.inventory = [{ id: 13, name: 'Tomate', category: 'GR', stock: 10, min: 1, cost: 4.5 }];
+  t.after(() => { data.state.inventory = []; });
+  const wait = deferred(); const sent = [];
+  data.updateIngredientCost = async (...args) => { sent.push(args); return wait.promise; };
+  const container = await mount(t, Inventory);
+  await act(async () => reactProps(button(container, 'Editar costo de Tomate')).onClick());
+  assert.match(container.textContent, /Costo unitario \(\$ por GR\)/);
+  assert.equal(reactProps(byId(container, 'ingredient-cost')).value, '4,5');
+  await change(byId(container, 'ingredient-cost'), '6,25');
+  const form = () => find(container, 'form').find((node) => elements(node, (child) => child.getAttribute?.('id') === 'ingredient-cost').length);
+  let first, second;
+  await act(async () => { const submit = reactProps(form()).onSubmit; first = submit({ preventDefault() {} }); second = submit({ preventDefault() {} }); });
+  await act(async () => { wait.reject(Error('SQL password=secreto')); await Promise.all([first, second]); });
+  assert.deepEqual(sent, [[13, '6.25']]);
+  assert.match(container.textContent, /No pudimos guardar el costo/);
+  assert.doesNotMatch(container.textContent, /SQL|secreto/);
+  assert.equal(reactProps(byId(container, 'ingredient-cost')).value, '6,25');
+  await change(byId(container, 'ingredient-cost'), '-2');
+  await act(async () => reactProps(form()).onSubmit({ preventDefault() {} }));
+  assert.equal(sent.length, 1);
+  assert.match(container.textContent, /no puede ser negativo/);
+});
+
+test('sin stock.gestionar no se ofrece editar el costo', async (t) => {
+  data.state.inventory = [{ id: 12, name: 'Pan', category: 'UNIDAD', stock: 10, min: 1, cost: 0 }];
+  t.after(() => { data.state.inventory = []; });
+  const ReadOnly = () => { globalThis.__validationArea.user = { id: 6, backendRole: 'EMPLEADO', permisos: ['stock.ver'] }; return createElement(Inventory); };
+  const container = await mount(t, ReadOnly);
+  assert.equal(button(container, 'Editar costo de Pan'), undefined);
+  assert.match(container.textContent, /Sin costo cargado/);
 });
 
 test('inventario oculta excepciones internas y conserva los campos para corregir el alta', async (t) => {
@@ -136,7 +202,9 @@ test('reposición bloquea dos clics simultáneos y permite reintentar un rechazo
   const container = await mount(t, Inventory);
   let first, second;
   await act(async () => { const click = reactProps(button(container, 'Reponer una unidad de Pan')).onClick; first = click(); second = click(); });
-  await act(async () => { wait.reject(Error('Stock no guardado')); await Promise.all([first, second]); });
+  // Un rechazo definitivo de la API admite reintentar; uno incierto pasa por el diálogo.
+  const { UserFacingError } = await server.ssrLoadModule('/src/shared/api/userErrors.js');
+  await act(async () => { wait.reject(new UserFacingError('La información cambió.', { status: 409 })); await Promise.all([first, second]); });
   assert.equal(calls, 1);
   data.replenishIngredient = async () => { calls++; };
   await act(async () => reactProps(button(container, 'Reponer una unidad de Pan')).onClick());
@@ -241,7 +309,7 @@ test('alta de insumo no anuncia éxito a otra sesión después de desmontarse', 
   const container = await mount(t, Inventory, {}, (value) => { root = value; });
   await act(async () => reactProps(button(container, 'Añadir Insumo')).onClick());
   const inputs = find(container, 'input');
-  await change(inputs[0], 'Pan'); await change(inputs[1], '1'); await change(inputs[2], '1');
+  await change(inputs[0], 'Pan'); await change(inputs[1], '1'); await change(inputs[2], '1'); await change(inputs[3], '600');
   let saving; await act(async () => { saving = reactProps(find(container, 'form')[0]).onSubmit({ preventDefault() {} }); });
   await act(async () => root.unmount());
   await act(async () => { wait.resolve({}); await saving; });

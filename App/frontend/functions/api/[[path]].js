@@ -1,6 +1,6 @@
-// Pages Functions mantiene la API y su cookie HttpOnly bajo el dominio del personal.
+// Pages Functions mantiene la API y sus cookies HttpOnly bajo cada dominio de Pages.
 export async function onRequest({ request, env }) {
-  const origen = new URL(env.API_ORIGIN || 'https://proyecto-seminario-integrador-2026.onrender.com');
+  const origen = new URL(env.API_ORIGIN || 'https://monu-burger-desarrollo.onrender.com');
   const destino = new URL(request.url);
   destino.protocol = origen.protocol;
   destino.host = origen.host;

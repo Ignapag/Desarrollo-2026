@@ -8,6 +8,26 @@ from decimal import Decimal
 from app.core.db import UnidadDeTrabajo
 from app.modules.stock.domain.entidades import DatosIngrediente, nivel_stock
 
+# Proyeccion de IngredienteSalida; listado, alta y modificacion la comparten.
+_CONSULTA_INVENTARIO = """
+    SELECT id, nombre, unidad_medida, cantidad_actual, umbral_minimo,
+           costo_unitario, dias_reposicion, responsable_id, responsable,
+           fecha_ultima_reposicion, activo, nivel,
+           EXISTS (
+               SELECT 1 FROM alerta_stock a
+               WHERE a.ingrediente_id = inventario.id AND a.estado = 'ACTIVA'
+           ) AS indicador_alerta
+    FROM (
+        SELECT i.*,
+               u.nombre || ' ' || u.apellido AS responsable,
+               CASE WHEN i.cantidad_actual = 0 THEN 'SIN_STOCK'
+                    WHEN i.cantidad_actual <= i.umbral_minimo THEN 'BAJO_UMBRAL'
+                    ELSE 'NORMAL' END AS nivel
+        FROM ingrediente i
+        LEFT JOIN usuario u ON u.id = i.responsable_id
+    ) inventario
+"""
+
 
 class RepositorioStockSQL:
     def __init__(self, uow: UnidadDeTrabajo) -> None:
@@ -206,23 +226,8 @@ class RepositorioStockSQL:
         nivel: str | None,
     ) -> list[dict]:
         return await self.uow.todos(
-            """
-            SELECT id, nombre, unidad_medida, cantidad_actual, umbral_minimo,
-                   costo_unitario, dias_reposicion, responsable_id, responsable,
-                   fecha_ultima_reposicion, activo, nivel,
-                   EXISTS (
-                       SELECT 1 FROM alerta_stock a
-                       WHERE a.ingrediente_id = inventario.id AND a.estado = 'ACTIVA'
-                   ) AS indicador_alerta
-            FROM (
-                SELECT i.*,
-                       u.nombre || ' ' || u.apellido AS responsable,
-                       CASE WHEN i.cantidad_actual = 0 THEN 'SIN_STOCK'
-                            WHEN i.cantidad_actual <= i.umbral_minimo THEN 'BAJO_UMBRAL'
-                            ELSE 'NORMAL' END AS nivel
-                FROM ingrediente i
-                LEFT JOIN usuario u ON u.id = i.responsable_id
-            ) inventario
+            _CONSULTA_INVENTARIO
+            + """
             WHERE (%s::text IS NULL OR nombre ILIKE '%%' || %s || '%%')
               AND (%s::bigint IS NULL OR responsable_id = %s)
               AND (%s::boolean IS NULL OR activo = %s)
@@ -294,7 +299,7 @@ class RepositorioStockSQL:
             ),
         )
         await self._sincronizar_alerta(fila)
-        return fila
+        return await self._fila_inventario(fila["id"])
 
     async def modificar(self, ingrediente_id: int, datos: DatosIngrediente) -> dict:
         fila = await self.uow.uno(
@@ -316,7 +321,13 @@ class RepositorioStockSQL:
             ),
         )
         await self._sincronizar_alerta(fila)
-        return fila
+        return await self._fila_inventario(ingrediente_id)
+
+    async def _fila_inventario(self, ingrediente_id: int) -> dict:
+        """Misma proyeccion que el listado, leida despues de sincronizar la alerta."""
+        return await self.uow.uno(
+            _CONSULTA_INVENTARIO + " WHERE id = %s", (ingrediente_id,)
+        )
 
     async def reponer(
         self, ingrediente_id: int, cantidad: Decimal, *, usuario_id: int | None, origen: str

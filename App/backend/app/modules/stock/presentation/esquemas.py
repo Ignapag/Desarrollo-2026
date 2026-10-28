@@ -32,7 +32,7 @@ class IngredienteModificar(BaseModel):
     nombre: str | None = Field(default=None, min_length=1)
     unidad_medida: Unidad | None = None
     umbral_minimo: Decimal | None = Field(default=None, gt=0)
-    costo_unitario: Decimal | None = Field(default=None, ge=0)
+    costo_unitario: Decimal | None = Field(default=None, ge=0, max_digits=12, decimal_places=2)
     dias_reposicion: list[str] | None = None
     responsable_id: int | None = Field(default=None, gt=0)
     activo: bool | None = None
@@ -63,6 +63,7 @@ class IngredienteSalida(BaseModel):
     unidad_medida: Unidad
     cantidad_actual: Decimal
     umbral_minimo: Decimal
+    costo_unitario: Decimal
     indicador_alerta: bool
     responsable_id: int | None
     responsable: str | None

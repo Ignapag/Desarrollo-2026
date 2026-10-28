@@ -32,6 +32,12 @@ JavaScript, escrituras API ni consultas API desconocidas. Se inspeccionaron
 capturas de escritorio y móvil. La regresión incluye una marca global que
 abarca también los comprobantes revisados de Todas.
 
+Después de incorporar las mejoras de main en pedidos, inventario y despliegue,
+se repitieron el 28/10/2026 test:operacion, test:validaciones (189 aprobadas),
+lint, build:personal y notificaciones-browser.mjs: todos aprobados. Se conservaron
+el tablero compacto, los costos y las reposiciones manuales junto con los accesos
+de la campanita.
+
 Estas pruebas no usan la API desplegada ni una base real y no demuestran
 integración con proveedores. No se ejecutó SQL, seed, migración ni despliegue.
 La lectura se conserva en este navegador; no hay historial completo ni
@@ -125,7 +131,8 @@ comprueba rol y permiso y remonta el árbol cuando cambia la identidad o sus per
   gestiona usuarios/matrices; Dueño, Empleado y Repartidor tienen permisos por rol;
   Cliente conserva recorridos propios. La API vuelve a comprobarlos por petición.
 - Catálogo/recetas: productos y `/{id}/receta`, `/{id}/estado`; stock autorizado
-  `/api/stock/ingredientes` y `/{id}/reposiciones`.
+  `/api/stock/ingredientes`, `PATCH /{id}` (solo costo unitario, con `stock.gestionar`)
+  y `/{id}/reposiciones`.
 - Pedidos/cocina: `/api/pedidos`, detalle, `/operacion` y `/estado`; versión esperada,
   estados físicos y tratamiento de stock establecidos por el backend.
 - Reparto: `/api/delivery/repartidores`, viajes, asignación y envíos; el repartidor
@@ -232,6 +239,8 @@ separada en la sección anterior.
 Las altas de producto/insumo y reposiciones no exponen una clave idempotente en su
 API. El guard evita doble clic y no hay reenvío HTTP automático, pero tras perder
 la respuesta se debe consultar el recurso antes de repetir. No se garantiza ausencia
-de duplicados en un reintento manual incierto. Los pagos y envíos de chat conservan
+de duplicados en un reintento manual incierto. En la reposición con cantidad manual,
+tras un resultado incierto el siguiente envío exige confirmar el resumen con el stock
+ya refrescado; desde 200 unidades, 5000 g/ml o 50 kg/l siempre se confirma. Los pagos y envíos de chat conservan
 sus identificadores de reintento. No se agregaron límites de archivo inventados que
 el backend no define; se comprueba lectura y MIME para la selección de imagen.
