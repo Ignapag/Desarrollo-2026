@@ -26,8 +26,8 @@ try {
     });
     try {
       await server.listen(); const origin = 'http://127.0.0.1:' + server.httpServer.address().port;
-      for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }, { width: 320, height: 740 }]) {
-        const context = await browser.newContext({ viewport }); const page = await context.newPage();
+      for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }, { width: 320, height: 740 }, { width: 390, height: 844, deviceScaleFactor: 2 }]) {
+        const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height }, deviceScaleFactor: viewport.deviceScaleFactor || 1 }); const page = await context.newPage();
         page.on('pageerror', (error) => report.pageErrors.push(error.message));
         const loaded = new Set();
         page.on('response', (response) => {
@@ -65,13 +65,25 @@ try {
             if (mode === 'clientes') {
               assert.ok(dimensions.renderedWidth <= 138 && dimensions.renderedHeight <= 135, 'No amplía la foto original');
               assert.ok(Math.abs(dimensions.renderedWidth / dimensions.renderedHeight - 138 / 135) < 0.01, 'Conserva proporción');
+              const layout = await img.evaluate((node) => { const frame = node.parentElement.getBoundingClientRect(); const card = node.parentElement.parentElement.getBoundingClientRect(); const button = node.parentElement.parentElement.querySelector('button').getBoundingClientRect(); return { frameWidth: frame.width, frameHeight: frame.height, cardHeight: card.height, imageWidth: node.getBoundingClientRect().width, imageHeight: node.getBoundingClientRect().height, buttonWidth: button.width, buttonHeight: button.height, buttonOutside: button.left >= frame.right }; });
+              assert.ok(layout.frameWidth <= 100 && layout.frameHeight <= 100, 'Cuadro compacto para una foto pequeña');
+              assert.ok(layout.imageWidth / layout.frameWidth >= 0.98 && layout.imageHeight / layout.frameHeight >= 0.98, 'La foto aprovecha el cuadro sin márgenes grandes');
+              assert.ok(layout.cardHeight < 250, 'La tarjeta no conserva el espacio vacío del cuadro grande');
+              assert.ok(layout.buttonOutside && layout.buttonWidth >= 44 && layout.buttonHeight >= 44, 'Agregar no tapa la foto y conserva el área táctil');
             }
           }
           assert.equal(loaded.size, 5);
           assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Sin desborde horizontal');
         }
-        await page.screenshot({ path: path.join(evidence, mode + '-' + viewport.width + '.png'), fullPage: true, animations: 'disabled' });
-        report.results.push({ mode, viewport: viewport.width, fivePhotos: true, reload: true, noUpscaling: mode === 'clientes' });
+        await page.screenshot({ path: path.join(evidence, mode + '-' + viewport.width + '-dpr' + (viewport.deviceScaleFactor || 1) + '.png'), fullPage: true, animations: 'disabled' });
+        if (mode === 'clientes') {
+          const add = page.getByRole('button', { name: 'Agregar Alioli al carrito', exact: true });
+          await add.focus(); await page.keyboard.press('Shift+Tab'); await page.keyboard.press('Tab');
+          assert.ok(await add.evaluate((node) => node === document.activeElement), 'Tab permite alcanzar Agregar');
+          await page.keyboard.press('Enter');
+          await page.getByRole('button', { name: 'Abrir carrito, 1 productos', exact: true }).waitFor();
+        }
+        report.results.push({ mode, viewport: viewport.width, deviceScaleFactor: viewport.deviceScaleFactor || 1, fivePhotos: true, reload: true, noUpscaling: mode === 'clientes' });
         await context.close();
       }
     } finally { await server.close(); }

@@ -62,9 +62,12 @@ vigentes del producto. Menú y catálogo consumen la misma resolución de fotos.
 
 Son recortes de 138 × 135 px de la captura original provista `salsas monu.png`
 (402 × 798 px), guardados como WebP sin pérdida, sin texto y sin redimensionar.
-El menú los presenta como máximo a tamaño original; el catálogo los ajusta a
-su miniatura conservando proporción. Los recursos se incluyen en ambos portales
-y la asociación se reconstruye al recargar.
+El menú presenta Dips Extra en tarjetas horizontales con miniatura de 96 px de
+ancho, proporcionada y sin ampliación, con el botón de agregar fuera de la foto.
+El catálogo conserva sus miniaturas. Los recursos se incluyen en ambos portales
+y la asociación se reconstruye al recargar. El encuadre no recupera detalle
+perdido: para mejorar la nitidez, especialmente en pantallas de doble densidad,
+se necesitan fotografías originales de mayor resolución que esta captura.
 
 ## Verificación
 
