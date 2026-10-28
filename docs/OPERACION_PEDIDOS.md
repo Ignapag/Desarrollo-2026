@@ -52,9 +52,30 @@ conciliado vigente; una marca histórica del borrador de WhatsApp no acredita di
 ni bloquea un ingreso confirmado desde el panel. Un error deja visible la acción
 y permite actualizar; no se presenta como una operación que continúa guardándose.
 
+## Nuevos y PAGADOS en gestión
+
+El tablero agrupa los pedidos todavía en PENDIENTE o CONFIRMADO por su situación
+financiera. **Nuevos** reúne los no pagados, pagos parciales y cobros pendientes
+de conciliación; **PAGADOS** reúne los que tienen el total vigente cubierto por
+el neto conciliado y saldo cero. Confirmar el pedido, seleccionar efectivo o
+adjuntar un comprobante no demuestran un pago. Los importes ausentes o inválidos
+no se interpretan como saldo cancelado.
+
+Es una agrupación de gestión: los estados persistidos y enviados a la API siguen
+siendo PENDIENTE y CONFIRMADO. La etiqueta operativa e historial de confirmación
+no se renombran como pagos. Preparación, listos, reparto y cerrados conservan
+su etapa, aunque se cobre después. La respuesta confirmada del cobro actualiza
+el grupo y sus contadores sin recargar ni duplicar la tarjeta; mientras se espera
+el acuse no se inventa un pago. Una devolución o cambio de total vuelve a evaluar
+la agrupación de los pedidos que aún no entraron a cocina. Búsquedas y vistas
+responsive usan el mismo selector; la API ya entrega neto_cobrado y saldo_pendiente,
+sin agregar datos financieros al contrato ni alterar permisos.
+
 ## Centro de notificaciones
 
-La campanita del panel abre un diálogo con **Pendientes** y **Todas**. Incluye
+La campanita del panel abre un diálogo con dos solapas principales:
+**STOCK** (faltantes y stock bajo) y **CLIENTES** (comprobantes y atención humana).
+Cada solapa conserva los filtros secundarios **Pendientes** y **Todas**. Incluye
 comprobantes por verificar (también los recibidos sin compra vinculada), atención
 humana por solicitud del cliente o fallo del proveedor, y stock bajo o agotado.
 Los niveles de inventario provienen del backend: SIN_STOCK y BAJO_UMBRAL, con
@@ -62,7 +83,9 @@ el umbral mínimo configurado para cada ingrediente. No se agregan umbrales loca
 
 El contador indica avisos disponibles sin leer, incluidos los comprobantes
 revisados visibles en Todas. Abrir el panel no marca avisos automáticamente;
-se pueden marcar individualmente, todos juntos o al abrir su destino. Leer no
+se pueden marcar individualmente, los de la solapa seleccionada o al abrir su destino.
+Cambiar de solapa no marca lecturas. El contador global suma los no leídos de
+las categorías autorizadas; cada solapa muestra su propio contador. Leer no
 aprueba transferencias, no resuelve conversaciones ni repone inventario. Los
 pendientes leídos siguen en Pendientes hasta que cambie su estado operativo.
 Los accesos abren y enfocan el comprobante, atención o ingrediente concreto,
@@ -90,8 +113,23 @@ la lectura funciona en memoria y el panel informa la limitación. Cuando se
 observa una recuperación de stock confirmada, se retira la marca de lectura
 de ese faltante para avisar si vuelve a ocurrir. Los datos y respuestas de otra
 sesión se descartan. Los errores conservan la última instantánea con un aviso
-de posible desactualización; un 401/403 retira los datos sin acceso. Una carga
+de posible desactualización en la categoría afectada; un 401/403 retira los datos sin acceso. Una carga
 fallida nunca se anuncia como ausencia de pendientes.
+
+## Retiro en el local
+
+Un pedido RETIRO en LISTO puede pasar a ENTREGADO cuando el total vigente está
+cubierto por pagos conciliados o el método acordado es EFECTIVO, para cobrar al
+retirar. La selección de efectivo no registra un ingreso ni convierte el pedido
+en pagado. El personal conserva el flujo de cobro cuando recibe el dinero.
+Un pedido ya pagado se entrega sin otro cobro; una transferencia pendiente,
+parcial o respaldada sólo por un comprobante no habilita el retiro.
+
+La pantalla y el servicio de pedidos verifican la condición. El servicio reutiliza
+el indicador de cobertura calculado por el repositorio después de bloquear el
+pedido, considerando cobros menos devoluciones conciliadas. El comando conserva
+la versión esperada y no crea pagos, reconcilia dinero ni consume stock de nuevo.
+No habilita retiros antes de LISTO ni cambia la entrega por viaje de delivery.
 
 ## Cobrar y preparar
 

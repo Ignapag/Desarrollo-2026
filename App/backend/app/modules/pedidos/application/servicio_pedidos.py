@@ -490,6 +490,13 @@ class ServicioPedidos:
                 raise ReglaDeNegocio("Debe explicitar conservar la entrega erronea o reconsumir")
         if not (puede_transicionar(actual, nuevo) or retroceso or recuperacion or retiro_entregado):
             raise ReglaDeNegocio(f"No se puede cambiar un pedido de {actual.value} a {nuevo.value}")
+        # El indicador se lee después del bloqueo del pedido, igual que al preparar:
+        # efectivo acordado o total cubierto por cobros netos conciliados vigentes.
+        if retiro_entregado and not (
+            pedido.get("metodo_pago_acordado") == "EFECTIVO"
+            or pedido.get("puede_preparar") is True
+        ):
+            raise ReglaDeNegocio("El retiro requiere pago completo o cobro en efectivo")
         if nuevo == EstadoPedido.EN_PREPARACION and pedido.get("puede_preparar") is False:
             raise ReglaDeNegocio("La transferencia debe estar aprobada antes de preparar el pedido")
         if nuevo == EstadoPedido.EN_CAMINO and not (

@@ -5,6 +5,39 @@ La API conserva autoridad sobre permisos, importes, stock, estados e idempotenci
 Las secciones de auditoría conservan su evidencia original. La incorporación de
 Caja se describe aparte y no hereda las pruebas aprobadas de otros flujos.
 
+## PAGADOS, retiro y solapas STOCK/CLIENTES (28/10/2026)
+
+El tablero separa la agrupación financiera de los estados operativos, y la
+campanita divide stock y clientes conservando lectura, permisos y filtros.
+Contrato vigente en [operación de pedidos](OPERACION_PEDIDOS.md).
+
+Verificaciones ejecutadas el 28/10/2026, después de los cambios:
+
+| Comando | Resultado |
+| --- | --- |
+| npm.cmd run test:operacion | Aprobado; incluye clasificación, actualización de contadores, retiro y lectura por solapa. |
+| npm.cmd run test:validaciones | 189 aprobadas, 0 fallos, 0 omitidas. |
+| npm.cmd run lint | Aprobado, con las dos advertencias previas de Fast Refresh. |
+| npm.cmd run build | Aprobado. |
+| node tests/notificaciones-browser.mjs | Chrome con fixtures: STOCK/CLIENTES, contadores, marcado independiente, teclado, permisos, errores y destinos a 1440, 390 y 320 px. Aprobado. |
+| node tests/pagados-retiro-browser.mjs | Chrome con fixtures: acuse de cobro, reclasificación sin recargar, retiro pagado/efectivo y transferencia bloqueada a 1440, 390 y 320 px. Aprobado. |
+
+Desde App/backend, con DATABASE_URL explícita a un puerto local de pruebas:
+
+- .venv/Scripts/python.exe -m pytest tests/test_retiro_pedido.py tests/test_pedidos_privacidad_pagos.py tests/test_arquitectura.py -q: 26 aprobadas. Conserva una advertencia de deprecación de Starlette/AnyIO.
+- .venv/Scripts/python.exe -m ruff check app/modules/pedidos/application/servicio_pedidos.py tests/test_retiro_pedido.py: aprobado.
+
+Las pruebas del backend usan dobles de repositorio y dependencias de prueba;
+no se ejecutaron casos SQL ni se conectó a una base real. Se reutiliza el
+indicador existente leído tras el bloqueo del pedido, sin cambiar consultas,
+esquema o migraciones. El navegador intercepta toda la API, bloquea servicios
+externos y verifica que el retiro sólo envía el comando de estado, sin inventar
+cobros. Las capturas de escritorio y móvil se inspeccionaron. Esto no acredita
+integración con la base compartida ni constituye un despliegue.
+
+Los resultados de la sección siguiente corresponden a la incorporación inicial
+de la campanita; el alcance actual es el registrado aquí.
+
 ## Campanita de notificaciones (28/10/2026)
 
 Implementación local del centro con comprobantes, atención humana y niveles

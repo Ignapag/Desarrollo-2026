@@ -217,6 +217,22 @@ ante error. Escribe capturas y report.json en la carpeta temporal del sistema.
 La cobertura lógica y de DOM está incluida en npm run test:operacion.
 Resultados reales en [validaciones](VALIDACIONES_FRONTEND.md#campanita-de-notificaciones-28102026).
 
+## Comprobar PAGADOS y retiro en navegador
+
+Desde App/frontend, con las mismas variables opcionales de Playwright y Chromium:
+
+```powershell
+node tests/pagados-retiro-browser.mjs
+```
+
+El servidor y todas las respuestas de API son locales y ficticios. El script
+comprueba que el pago confirmado mueve una sola tarjeta a PAGADOS, sin hacerlo
+antes del acuse, y que un retiro pagado o en efectivo no genera otro cobro.
+Comprueba también transferencia sin conciliar, versión del comando, aislamiento
+de solicitudes externas y tamaños 1440, 390 y 320 px. No usa una base de datos.
+notificaciones-browser.mjs comprueba ahora las solapas STOCK/CLIENTES, sus
+contadores, filtros secundarios y marcado independiente por categoría.
+
 ## Esquema generado
 
 Después de un cambio SQL, desde `App/backend`:

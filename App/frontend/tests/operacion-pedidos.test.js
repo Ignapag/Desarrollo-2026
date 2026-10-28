@@ -19,7 +19,7 @@ test('el modelo conserva número público, contacto, saldo, versión y detalle r
   assert.equal(mapOrder({ ...base, tipo_entrega: 'RETIRO' }).address, 'Retiro en local');
 });
 
-test('todos los estados, incluidos confirmado y cerrados, tienen una columna', () => {
+test('el contrato conserva los estados operativos, incluidos confirmado y cerrados', () => {
   assert.deepEqual(ORDER_STATES.map(([id]) => id), ['PENDIENTE', 'CONFIRMADO', 'EN_PREPARACION', 'LISTO', 'EN_CAMINO', 'ENTREGADO', 'CANCELADO']);
 });
 
@@ -61,7 +61,7 @@ test('repartidor y cliente no reciben comandos de estado, edición ni pagos loca
 
 test('retiro listo puede entregarse; delivery nunca salta el viaje', () => {
   const ready = { ...base, estado: 'LISTO' };
-  assert.ok(commandsFor({ ...ready, tipo_entrega: 'RETIRO' }).some((command) => command.estado === 'ENTREGADO'));
+  assert.ok(commandsFor({ ...ready, tipo_entrega: 'RETIRO', metodo_pago_acordado: 'EFECTIVO' }).some((command) => command.estado === 'ENTREGADO'));
   assert.ok(!commandsFor(ready).some((command) => ['EN_CAMINO', 'ENTREGADO'].includes(command.estado)));
 });
 

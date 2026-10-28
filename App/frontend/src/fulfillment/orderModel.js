@@ -40,6 +40,26 @@ export function ageMinutes(value, now = Date.now()) {
   return Number.isFinite(start) ? Math.max(0, Math.floor((now - start) / 60000)) : null;
 }
 
+// La clasificación usa importes confirmados por la API, en centavos exactos.
+// Ausencia de saldo/neto no es prueba de pago; elegir efectivo tampoco lo es.
+function paymentCents(value) {
+  if (!['number', 'string'].includes(typeof value)) return null;
+  const text = String(value);
+  if (!/^-?[0-9]{1,15}(?:[.][0-9]{1,2})?$/.test(text)) return null;
+  const negative = text.startsWith('-');
+  const [whole, fraction = ''] = (negative ? text.slice(1) : text).split('.');
+  const amount = BigInt(whole) * 100n + BigInt(fraction.padEnd(2, '0'));
+  return negative ? -amount : amount;
+}
+export function isOrderPaid(order) {
+  const total = paymentCents(order.total);
+  const net = paymentCents(order.neto_cobrado);
+  const balance = paymentCents(order.saldo_pendiente);
+  return total !== null && total >= 0n && net !== null && net >= total
+    && balance !== null && balance <= 0n;
+}
+export const allowsPickup = (order) => order.metodo_pago_acordado === 'EFECTIVO' || isOrderPaid(order);
+
 // Solo ofrece comandos compatibles con el estado físico conocido. La API vuelve a validarlos.
 export function stateCommands(order, role, can = null) {
   if ((can ? !can('pedidos.cambiar_estado') && !can('pedidos.recuperar') : !isStaff(role)) || hasAssignment(order)) return [];
@@ -50,7 +70,7 @@ export function stateCommands(order, role, can = null) {
   if (order.estado === 'EN_PREPARACION') add('LISTO', 'Marcar listo');
   if (['CONFIRMADO', 'EN_PREPARACION'].includes(order.estado)) add('PENDIENTE', 'Corregir a pendiente (conservar insumos)', { correccion: true, tratamiento_stock: 'CONSERVAR' });
   if (order.estado === 'EN_PREPARACION') add('CONFIRMADO', 'Corregir a confirmado (conservar insumos)', { correccion: true, tratamiento_stock: 'CONSERVAR' });
-  if (order.estado === 'LISTO' && order.tipo_entrega === 'RETIRO') add('ENTREGADO', 'Registrar retiro entregado');
+  if (order.estado === 'LISTO' && order.tipo_entrega === 'RETIRO' && allowsPickup(order)) add('ENTREGADO', 'Registrar retiro entregado');
   if (order.estado === 'LISTO') add('EN_PREPARACION', 'Volver a preparación', { correccion: true, tratamiento_stock: 'CONSERVAR' });
   if (!isClosed(order) && order.estado !== 'EN_CAMINO') {
     const cooked = Boolean(order.preparacion_en) || ['EN_PREPARACION', 'LISTO'].includes(order.estado);

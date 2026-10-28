@@ -78,3 +78,13 @@ export function saveNotificationKeys(storage, id, keys) {
   try { storage?.setItem(storageKey(id), JSON.stringify([...new Set(keys.filter(validReadKey))].slice(-500))); return Boolean(storage); }
   catch { return false; }
 }
+
+export const NOTIFICATION_CATEGORIES = [
+  { id: 'stock', label: 'STOCK', permission: 'stock.ver' },
+  { id: 'clientes', label: 'CLIENTES', permission: 'whatsapp.ver' },
+];
+const categoryByKind = { stock: 'stock', comprobante: 'clientes', atencion: 'clientes' };
+export const notificationCategory = (item) => Object.hasOwn(categoryByKind, item.kind) ? categoryByKind[item.kind] : null;
+export function categoryUnreadCount(items, category) {
+  return items.filter((item) => notificationCategory(item) === category && !item.read).length;
+}
