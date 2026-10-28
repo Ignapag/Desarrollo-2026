@@ -52,6 +52,47 @@ conciliado vigente; una marca histórica del borrador de WhatsApp no acredita di
 ni bloquea un ingreso confirmado desde el panel. Un error deja visible la acción
 y permite actualizar; no se presenta como una operación que continúa guardándose.
 
+## Centro de notificaciones
+
+La campanita del panel abre un diálogo con **Pendientes** y **Todas**. Incluye
+comprobantes por verificar (también los recibidos sin compra vinculada), atención
+humana por solicitud del cliente o fallo del proveedor, y stock bajo o agotado.
+Los niveles de inventario provienen del backend: SIN_STOCK y BAJO_UMBRAL, con
+el umbral mínimo configurado para cada ingrediente. No se agregan umbrales locales.
+
+El contador indica avisos disponibles sin leer, incluidos los comprobantes
+revisados visibles en Todas. Abrir el panel no marca avisos automáticamente;
+se pueden marcar individualmente, todos juntos o al abrir su destino. Leer no
+aprueba transferencias, no resuelve conversaciones ni repone inventario. Los
+pendientes leídos siguen en Pendientes hasta que cambie su estado operativo.
+Los accesos abren y enfocan el comprobante, atención o ingrediente concreto,
+respetando permisos de lectura y de navegación; las decisiones operativas
+siguen protegidas por las guardas y confirmaciones existentes.
+
+La sesión del panel comparte una instantánea de /api/whatsapp/bandeja con los
+avisos superiores y las revisiones. Se actualiza cada ocho segundos mientras
+la pestaña está visible, al recuperar foco y mediante reintento manual; no se
+superponen solicitudes. Tras una revisión se invalida cualquier GET anterior.
+Inventario reutiliza la consulta y caché de treinta segundos del DataProvider,
+además de su reconciliación después de escrituras. Reparto, fuera de este
+layout, conserva su resumen liviano /api/whatsapp/avisos.
+
+Todas muestra la instantánea disponible, no un historial completo: el endpoint
+existente devuelve hasta cien comprobantes y hasta cien atenciones pendientes
+por grupo (comprobantes y otras atenciones). Los contadores integrados en el
+centro corresponden a esos registros disponibles. Las atenciones resueltas y
+los faltantes recuperados dejan de figurar al actualizar sus fuentes.
+
+Se guardan únicamente claves de lectura, hasta quinientas por usuario, en
+localStorage de este navegador. No hay sincronización entre dispositivos ni
+se almacenan textos, teléfonos o importes. Si el almacenamiento está bloqueado,
+la lectura funciona en memoria y el panel informa la limitación. Cuando se
+observa una recuperación de stock confirmada, se retira la marca de lectura
+de ese faltante para avisar si vuelve a ocurrir. Los datos y respuestas de otra
+sesión se descartan. Los errores conservan la última instantánea con un aviso
+de posible desactualización; un 401/403 retira los datos sin acceso. Una carga
+fallida nunca se anuncia como ausencia de pendientes.
+
 ## Cobrar y preparar
 
 | Modalidad de pago | Acción del personal | Cocina |

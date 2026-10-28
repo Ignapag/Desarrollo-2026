@@ -45,6 +45,12 @@ Algunas vistas de analítica, clientes y acceso todavía muestran contenido
 demostrativo; no considerar la interfaz completamente validada para producción.
 Ver [deuda técnica](../../docs/DEUDA_TECNICA.md).
 
+La campanita de gestión reúne comprobantes, solicitudes de atención humana y
+stock bajo/agotado, con lectura por usuario en este navegador. Pendientes y
+Todas distinguen el estado operativo de la lectura. Los datos se comparten
+con los avisos del panel; alcance y límites en
+[operación de pedidos](../../docs/OPERACION_PEDIDOS.md#centro-de-notificaciones).
+
 ## Verificación
 
 ```powershell

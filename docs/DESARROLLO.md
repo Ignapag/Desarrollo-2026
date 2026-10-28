@@ -167,7 +167,7 @@ Playwright ya preparados; opcionalmente admite `MONU_PLAYWRIGHT_PATH` para el m�
 y `MONU_CHROMIUM_PATH` para el ejecutable. Usa sólo fixtures, bloquea API externas,
 deshabilita el proxy al backend y escribe evidencias en la carpeta temporal del sistema.
 `test:operacion` cubre comandos HTTP, reintentos financieros,
-versiones, frescura y renderizado de formularios operativos; no reemplaza una
+versiones, frescura, notificaciones y renderizado de formularios operativos; no reemplaza una
 prueba interactiva en navegador. Para las variantes `build:clientes` y `build:personal`, la
 configuración de Pages y los checks posteriores, ver [despliegue](DESPLIEGUE.md).
 
@@ -198,6 +198,24 @@ base local explícita y el mismo worker. Está desactivado por defecto; la
 [publicación autorizada](WHATSAPP_DESARROLLO.md#publicación-autorizada-en-la-base-compartida)
 permite usar la base compartida mediante un parámetro persistido sin ejecutar
 pruebas ni seed en ella.
+
+## Comprobar la campanita en navegador
+
+Desde App/frontend, con Playwright preparado externamente:
+
+```powershell
+node tests/notificaciones-browser.mjs
+```
+
+MONU_PLAYWRIGHT_PATH permite indicar el paquete instalado fuera del repositorio;
+MONU_CHROMIUM_PATH permite usar un ejecutable local de Chrome/Chromium.
+El script administra su servidor Vite y caché propia, usa fixtures, desactiva el
+proxy y bloquea accesos externos. No requiere backend, credenciales ni base.
+Comprueba 1440, 390 y 320 px: teclado, Escape y retorno de foco, filtros,
+contador, lectura por cuenta, accesos a registros, permisos y recuperación
+ante error. Escribe capturas y report.json en la carpeta temporal del sistema.
+La cobertura lógica y de DOM está incluida en npm run test:operacion.
+Resultados reales en [validaciones](VALIDACIONES_FRONTEND.md#campanita-de-notificaciones-28102026).
 
 ## Esquema generado
 

@@ -5,6 +5,37 @@ La API conserva autoridad sobre permisos, importes, stock, estados e idempotenci
 Las secciones de auditoría conservan su evidencia original. La incorporación de
 Caja se describe aparte y no hereda las pruebas aprobadas de otros flujos.
 
+## Campanita de notificaciones (28/10/2026)
+
+Implementación local del centro con comprobantes, atención humana y niveles
+reales de inventario. Contrato y límites en
+[operación de pedidos](OPERACION_PEDIDOS.md#centro-de-notificaciones).
+No modifica backend, esquema, pagos ni procesos de revisión.
+
+Verificaciones ejecutadas el 28/10/2026 desde App/frontend:
+
+| Comando | Resultado |
+| --- | --- |
+| npm.cmd run test:operacion | 103 aprobadas, 0 fallos, 0 omitidas. Incluye modelo, recurso compartido, lectura, permisos, sesión, reintento y preservación del aviso de Reparto. |
+| npm.cmd run test:panel | 54 aprobadas, 0 fallos, 0 omitidas. |
+| npm.cmd run test:portales | 16 aprobadas, 0 fallos, 0 omitidas. |
+| npm.cmd run lint | Aprobado; conserva dos advertencias previas de Fast Refresh en AuthContext y DataContext. |
+| npm.cmd run build | Aprobado. |
+| node tests/notificaciones-browser.mjs | Aprobado en Chrome sin ventana visible, con fixtures locales, a 1440, 390 y 320 px. |
+
+El navegador comprobó recorrido de Tab dentro del diálogo, Escape y retorno a
+la campanita, contador y filtros, lectura frente a resolución, persistencia
+al recargar y aislamiento entre cuentas, acceso y foco al comprobante e
+ingrediente, permisos, errores y reintento. El reporte terminó sin errores
+JavaScript, escrituras API ni consultas API desconocidas. Se inspeccionaron
+capturas de escritorio y móvil. La regresión incluye una marca global que
+abarca también los comprobantes revisados de Todas.
+
+Estas pruebas no usan la API desplegada ni una base real y no demuestran
+integración con proveedores. No se ejecutó SQL, seed, migración ni despliegue.
+La lectura se conserva en este navegador; no hay historial completo ni
+sincronización entre dispositivos. No hubo decisiones nuevas sobre umbrales.
+
 ## Mensajes para usuarios finales (28/10/2026)
 
 El cliente HTTP traduce rechazos por estado y una lista cerrada de mensajes de

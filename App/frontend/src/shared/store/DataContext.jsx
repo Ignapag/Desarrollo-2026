@@ -52,6 +52,8 @@ function mapInventory(item) {
     id: item.id,
     name: item.nombre,
     category: item.unidad_medida,
+    level: item.nivel,
+    active: item.activo,
     stock: Number(item.cantidad_actual),
     min: Number(item.umbral_minimo),
     status: item.nivel === 'NORMAL' ? 'estable' : 'critico',
