@@ -18,6 +18,7 @@ Verificaciones ejecutadas el 28/10/2026 desde App/frontend:
 | --- | --- |
 | npm.cmd run test:operacion | 103 aprobadas, 0 fallos, 0 omitidas. Incluye modelo, recurso compartido, lectura, permisos, sesión, reintento y preservación del aviso de Reparto. |
 | npm.cmd run test:panel | 54 aprobadas, 0 fallos, 0 omitidas. |
+| npm.cmd run test:validaciones | 160 aprobadas, 0 fallos, 0 omitidas; prueba del layout preparada con el DataProvider real, conservando sus aserciones de permisos. |
 | npm.cmd run test:portales | 16 aprobadas, 0 fallos, 0 omitidas. |
 | npm.cmd run lint | Aprobado; conserva dos advertencias previas de Fast Refresh en AuthContext y DataContext. |
 | npm.cmd run build | Aprobado. |

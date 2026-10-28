@@ -108,9 +108,10 @@ test('ruta directa de acceso rechaza empleado y navegación omite módulos revoc
   const { MemoryRouter } = await import('react-router-dom');
   const { default: ProtectedRoute } = await scoped.ssrLoadModule('/src/auth/ProtectedRoute.jsx');
   const { default: Layout } = await scoped.ssrLoadModule('/src/management/DashboardLayout.jsx');
+  const { DataProvider } = await scoped.ssrLoadModule('/src/shared/store/DataContext.jsx');
   const denied = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(ProtectedRoute, { path: '/dashboard/access' }, 'Contenido privado')));
   assert.match(denied, /Sin acceso a esta sección/); assert.doesNotMatch(denied, /Contenido privado/);
-  const nav = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(Layout)));
+  const nav = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(DataProvider, null, createElement(Layout))));
   assert.match(nav, /href="\/dashboard\/orders"/);
   assert.doesNotMatch(nav, /href="\/dashboard\/access"|href="\/dashboard\/inventory"|href="\/dashboard\/customers"/);
 });
