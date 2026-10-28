@@ -51,6 +51,21 @@ Todas distinguen el estado operativo de la lectura. Los datos se comparten
 con los avisos del panel; alcance y límites en
 [operación de pedidos](../../docs/OPERACION_PEDIDOS.md#centro-de-notificaciones).
 
+## Fotografías de salsas
+
+Los productos existentes Alioli, Barbacoa, Mayonesa, Ketchup y Mostaza de
+**Dips Extra** usan sus archivos homónimos en `public/images/salsas/*.webp`
+cuando la API no trae `imagen_url`. La asociación compartida está en
+`src/shared/store/productImages.js`: una foto explícita de la API tiene prioridad.
+No modifica IDs, precios, recetas, stock ni la base; depende del nombre y categoría
+vigentes del producto. Menú y catálogo consumen la misma resolución de fotos.
+
+Son recortes de 138 × 135 px de la captura original provista `salsas monu.png`
+(402 × 798 px), guardados como WebP sin pérdida, sin texto y sin redimensionar.
+El menú los presenta como máximo a tamaño original; el catálogo los ajusta a
+su miniatura conservando proporción. Los recursos se incluyen en ambos portales
+y la asociación se reconstruye al recargar.
+
 ## Verificación
 
 ```powershell

@@ -5,6 +5,41 @@ La API conserva autoridad sobre permisos, importes, stock, estados e idempotenci
 Las secciones de auditoría conservan su evidencia original. La incorporación de
 Caja se describe aparte y no hereda las pruebas aprobadas de otros flujos.
 
+## Etiqueta Pagados y fotografías de salsas (28/10/2026)
+
+El tablero muestra **Pagados**, conservando el identificador interno PAGADOS y
+las reglas financieras. Las cinco fotos originales se vinculan como respaldo a
+los dips existentes; contrato en el [frontend](../App/frontend/README.md#fotografías-de-salsas).
+No hubo cambios de backend, base, precios, recetas, stock ni disponibilidad.
+
+Verificaciones ejecutadas el 28/10/2026 desde App/frontend:
+
+| Comando | Resultado |
+| --- | --- |
+| npm.cmd run test:operacion | 120 aprobadas; encabezados, etiquetas accesibles y reclasificación por pago. |
+| npm.cmd run test:portales | 23 aprobadas; incluye cinco asociaciones, archivos WebP, prioridad de imagen_url y aislamiento de otros productos/categorías. |
+| npm.cmd run test:panel | 54 aprobadas; consultas compartidas y recorridos de catálogo. |
+| npm.cmd run lint | Aprobado; conserva dos advertencias previas de Fast Refresh. |
+| npm.cmd run build | Aprobado. |
+| node tests/pagados-retiro-browser.mjs | Chrome con fixtures: etiqueta Pagados, pago y retiro a 1440, 390 y 320 px. Aprobado. |
+| node tests/salsas-browser.mjs | Chrome con fixtures en modos clientes y personal: cinco fotos en menú y catálogo a 1440, 390 y 320 px, antes y después de recargar. Aprobado en la ejecución final. |
+| git diff --check | Aprobado. |
+
+Los scripts de navegador requieren Playwright y Chrome; admiten
+MONU_PLAYWRIGHT_PATH y MONU_CHROMIUM_PATH para instalaciones externas.
+El primer intento del script de salsas detectó que faltaba interceptar la
+configuración del chat. Se agregó el fixture deshabilitado y se repitió: la
+ejecución final completó los seis escenarios sin solicitudes desconocidas ni
+errores de página; las 60 respuestas de fotos fueron 200.
+Se comprobaron texto alternativo, proporción, dimensiones originales y ausencia
+de ampliación en el menú. Se inspeccionaron capturas de escritorio y móvil.
+Cada WebP decodificado coincide con los píxeles del recorte RGB original.
+
+Las pruebas usan fixtures interceptados y bloquean servicios externos. La
+consulta pública previa del catálogo confirmó nombres, categoría y ausencia de
+fotos; no acredita integración con la base. No hubo seeds, pruebas de backend
+ni escrituras en la base compartida. Cambios locales, sin commit, push ni despliegue.
+
 ## PAGADOS, retiro y solapas STOCK/CLIENTES (28/10/2026)
 
 El tablero separa la agrupación financiera de los estados operativos, y la
