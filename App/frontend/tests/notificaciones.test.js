@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createInboxResource } from '../src/notifications/inboxResource.js';
-import { inboxNotifications, stockNotifications, sortNotifications, elapsedTime, validateInbox, readNotificationKeys } from '../src/notifications/notificationModel.js';
+import { categoryUnreadCount, notificationCategory, inboxNotifications, stockNotifications, sortNotifications, elapsedTime, validateInbox, readNotificationKeys } from '../src/notifications/notificationModel.js';
 import { createNotificationReading } from '../src/notifications/notificationReading.js';
 
 const empty = () => ({ comprobantes: [], atenciones: [], cambios: [], salidas: [] });
@@ -113,4 +113,19 @@ test('el tiempo usa sólo fechas existentes y tolera fechas inválidas', () => {
   assert.equal(elapsedTime('2026-10-28T15:00:00-03:00', now), 'Hace 5 minutos');
   assert.equal(elapsedTime(null, now), null);
   assert.equal(elapsedTime('inválida', now), null);
+});
+
+
+test('STOCK y CLIENTES separan clases y sus contadores suman el global sin marcar lectura', () => {
+  const items = [
+    { key: 'stock:1:SIN_STOCK', kind: 'stock', read: false },
+    { key: 'comprobante:2', kind: 'comprobante', read: false },
+    { key: 'atencion:3', kind: 'atencion', read: true },
+  ];
+  assert.equal(notificationCategory(items[0]), 'stock');
+  assert.equal(notificationCategory(items[1]), 'clientes');
+  assert.equal(notificationCategory(items[2]), 'clientes');
+  assert.equal(categoryUnreadCount(items, 'stock'), 1);
+  assert.equal(categoryUnreadCount(items, 'clientes'), 1);
+  assert.equal(items[0].read, false);
 });

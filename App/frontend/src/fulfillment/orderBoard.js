@@ -1,11 +1,17 @@
 import { useCallback, useSyncExternalStore } from 'react';
-import { ORDER_STATES, ageMinutes } from './orderModel';
+import { ORDER_STATES, ageMinutes, isOrderPaid } from './orderModel';
 
 export const CLOSED_STATES = ['ENTREGADO', 'CANCELADO'];
 // Referencia visual del tablero, no una regla de la API: resalta esperas largas desde la creación.
 export const LONG_WAIT_MINUTES = 30;
 
-export const scopeStates = (scope) => ORDER_STATES.filter(([id]) => scope === 'history' ? CLOSED_STATES.includes(id)
+// Grupos de gestión: no son estados que se envíen a la API ni cambian cocina.
+export const ORDER_GROUPS = [['PENDIENTE', 'Nuevos'], ['PAGADOS', 'PAGADOS'],
+  ...ORDER_STATES.filter(([id]) => !['PENDIENTE', 'CONFIRMADO'].includes(id))];
+export const orderGroup = (order) => ['PENDIENTE', 'CONFIRMADO'].includes(order.estado)
+  ? isOrderPaid(order) ? 'PAGADOS' : 'PENDIENTE' : order.estado;
+
+export const scopeStates = (scope) => ORDER_GROUPS.filter(([id]) => scope === 'history' ? CLOSED_STATES.includes(id)
   : scope === 'active' ? !CLOSED_STATES.includes(id) : true);
 
 const timestamp = (value) => { const time = Date.parse(value); return Number.isFinite(time) ? time : null; };
@@ -55,7 +61,7 @@ export function orderAlerts(order, { now, pending = false } = {}) {
 
 export function groupOrders(orders, states, now) {
   return Object.fromEntries(states.map(([id]) => {
-    const list = sortOrders(orders.filter((order) => order.estado === id), id);
+    const list = sortOrders(orders.filter((order) => orderGroup(order) === id), id);
     return [id, { orders: list, count: list.length, longWait: list.filter((order) => isLongWait(waitMinutes(order, now))).length }];
   }));
 }

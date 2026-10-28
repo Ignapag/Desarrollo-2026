@@ -1,6 +1,6 @@
 import { AlertTriangle, ArrowUp, Bike, Clock, Store } from 'lucide-react';
 import { buttonClass } from './operationUi';
-import { money } from './orderModel';
+import { isOrderPaid, money } from './orderModel';
 import { CLOSED_STATES, closedAt, countLabel, formatWait, isLongWait, itemsSummary, orderAlerts, shortDateTime, stateSummaryLabel, waitMinutes } from './orderBoard';
 
 const toneClass = {
@@ -66,9 +66,8 @@ function OrderCard({ order, now, pending, compact, onOpen, registerOpener }) {
       <p className="truncate text-monu-text/80">{itemsSummary(order, compact)}</p>
       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 pt-1">
         <span><span className="text-monu-text/75">Total </span><strong className="text-monu-dark">{money(order.total)}</strong></span>
-        {saldo > 0 ? <span className="rounded-full bg-monu-yellow/25 px-2 py-0.5 text-xs font-bold text-monu-burnt">Saldo {money(saldo)}</span>
-          : Number.isFinite(saldo) && order.saldo_pendiente != null ? <span className="text-xs font-bold text-monu-green">Pagado</span>
-            : <span className="text-xs text-monu-text/75">Saldo no disponible</span>}
+        {isOrderPaid(order) ? <span className="text-xs font-bold text-monu-green">Pagado</span> : saldo > 0 ? <span className="rounded-full bg-monu-yellow/25 px-2 py-0.5 text-xs font-bold text-monu-burnt">Saldo {money(saldo)}</span>
+          : <span className="text-xs text-monu-text/75">Pago sin verificar</span>}
       </div>
       {alerts.length > 0 && <ul aria-label="Alertas" className="flex flex-wrap gap-1 pt-1">
         {alerts.map((alert) => <li key={alert.id} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold ${toneClass[alert.tone]}`}>{alert.tone !== 'info' && <AlertTriangle aria-hidden="true" className="h-3.5 w-3.5" />}{alert.label}</li>)}

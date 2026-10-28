@@ -78,6 +78,12 @@ function NotificationSession({ user, children }) {
   return <NotificationContext.Provider value={{
     items, unreadCount: items.filter((item) => !item.read).length,
     loading, refreshing: inbox.loading, errors, storageError, refresh, refreshInbox, markRead,
+    categoryStatus: {
+      stock: { loading: stockEnabled && ['idle', 'loading'].includes(state.inventoryStatus),
+        error: stockEnabled && state.inventoryStatus === 'error' ? 'No se pudieron actualizar los avisos de inventario.' : null },
+      clientes: { loading: whatsappEnabled && !inbox.data && !inbox.error,
+        error: whatsappEnabled && inbox.error ? 'No se pudieron actualizar los avisos de WhatsApp.' : null },
+    },
     enabled: whatsappEnabled || stockEnabled,
     whatsappAvailable: whatsappEnabled && Boolean(inbox.data),
   }}>{children}</NotificationContext.Provider>;

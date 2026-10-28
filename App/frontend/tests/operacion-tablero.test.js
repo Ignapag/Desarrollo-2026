@@ -36,6 +36,7 @@ async function mount(t, entry = '/dashboard/orders') {
   const root = createRoot(container);
   await act(async () => root.render(createElement(MemoryRouter, { initialEntries: [entry] }, createElement(Orders))));
   t.after(async () => { await act(async () => root.unmount()); document.body.removeChild(container); });
+  container.rerender = () => act(async () => root.render(createElement(MemoryRouter, { initialEntries: [entry] }, createElement(Orders))));
   return container;
 }
 const buttons = (container) => elements(container, (node) => node.localName === 'button');
@@ -65,13 +66,13 @@ test('alertas de transferencia, saldo al cerrar y espera alta', () => {
 
 test('50 pedidos: conteos por estado, columnas y tarjetas compactas', async (t) => {
   const states = ['PENDIENTE', 'CONFIRMADO', 'EN_PREPARACION', 'LISTO', 'EN_CAMINO'];
-  useOrders(Array.from({ length: 50 }, (_, index) => raw(index + 1, states[index % 5], { creado_en: minutes(index + 1) })));
+  useOrders(Array.from({ length: 50 }, (_, index) => raw(index + 1, states[index % 5], { creado_en: minutes(index + 1), ...(states[index % 5] === 'CONFIRMADO' ? { neto_cobrado: '1000', saldo_pendiente: '0' } : {}) })));
   const container = await mount(t);
   assert.equal(statusButton(container, 'Todos').getAttribute('aria-label'), 'Todos: 50 pedidos, 21 con 30 minutos o más de espera');
   assert.equal(statusButton(container, 'Nuevos').getAttribute('aria-label'), 'Nuevos: 10 pedidos, 4 con 30 minutos o más de espera');
   assert.equal(reactProps(statusButton(container, 'Todos'))['aria-pressed'], true);
   const columns = sections(container);
-  assert.deepEqual(columns.map((section) => section.textContent.match(/^[^,]+/)[0]), ['Nuevos', 'Confirmados', 'En preparación', 'Listos', 'En camino']);
+  assert.deepEqual(columns.map((section) => section.textContent.match(/^[^,]+/)[0]), ['Nuevos', 'PAGADOS', 'En preparación', 'Listos', 'En camino']);
   for (const section of columns) assert.equal(cardNumbers(section).length, 10);
   assert.deepEqual(cardNumbers(columns[0]).slice(0, 3), ['Abrir pedido #46', 'Abrir pedido #41', 'Abrir pedido #36']);
   const card = elements(container, (node) => node.localName === 'article' && node.getAttribute('aria-labelledby') === 'order-card-46')[0];
@@ -178,4 +179,62 @@ test('cargando y error se distinguen de un estado vacío', async (t) => {
   const failed = await mount(t);
   assert.match(failed.textContent, /No pudimos actualizar los pedidos/);
   assert.match(sections(failed)[0].textContent, /Información sin actualizar/);
+});
+
+
+test('la agrupación usa pagos completos y no confunde confirmar, efectivo o un comprobante con pagar', () => {
+  const paid = { neto_cobrado: '1000', saldo_pendiente: '0' };
+  const orders = [
+    raw(1, 'PENDIENTE', paid), raw(2, 'CONFIRMADO'),
+    raw(3, 'PENDIENTE', { neto_cobrado: '500', saldo_pendiente: '500' }),
+    raw(4, 'PENDIENTE', { metodo_pago_acordado: 'TRANSFERENCIA', pagos: [{ estado: 'PENDIENTE', monto: '1000' }] }),
+    raw(5, 'PENDIENTE', { metodo_pago_acordado: 'EFECTIVO' }),
+    raw(6, 'EN_PREPARACION', paid), raw(7, 'LISTO', paid), raw(8, 'EN_CAMINO', paid),
+  ].map(model.mapOrder);
+  const groups = board.groupOrders(orders, board.scopeStates('active'), Date.now());
+  assert.deepEqual(groups.PAGADOS.orders.map((order) => order.id), [1]);
+  assert.deepEqual(groups.PENDIENTE.orders.map((order) => order.id).sort(), [2, 3, 4, 5]);
+  assert.equal(groups.EN_PREPARACION.count, 1); assert.equal(groups.LISTO.count, 1); assert.equal(groups.EN_CAMINO.count, 1);
+  assert.equal(Object.values(groups).reduce((sum, group) => sum + group.count, 0), 8);
+  assert.equal(orders[0].estado, 'PENDIENTE');
+  assert.equal(model.ORDER_STATES.some(([id]) => id === 'PAGADOS'), false, 'Pagados no es un estado API');
+});
+
+test('pago exacto requiere importes presentes, conciliados y consistentes, sin errores de decimales', () => {
+  assert.equal(model.isOrderPaid(raw(1, 'PENDIENTE', { total: '0.30', neto_cobrado: '0.30', saldo_pendiente: '0' })), true);
+  for (const extra of [
+    { total: '0.30', neto_cobrado: '0.29', saldo_pendiente: '0.01' },
+    { neto_cobrado: null, saldo_pendiente: '0' }, { total: null, neto_cobrado: '1000', saldo_pendiente: '0' },
+    { neto_cobrado: '1000', saldo_pendiente: null }, { neto_cobrado: '', saldo_pendiente: '0' },
+    { neto_cobrado: '1000', saldo_pendiente: '1' }, { neto_cobrado: 'Infinity', saldo_pendiente: '0' },
+  ]) assert.equal(model.isOrderPaid(raw(1, 'PENDIENTE', extra)), false);
+});
+
+test('pagar o devolver reagrupa sin recargar ni duplicar tarjetas y conserva la etapa física', async (t) => {
+  useOrders([raw(41, 'PENDIENTE')]);
+  const container = await mount(t);
+  assert.match(statusButton(container, 'Nuevos').getAttribute('aria-label'), /1 pedido/);
+  assert.match(statusButton(container, 'PAGADOS').getAttribute('aria-label'), /0 pedidos/);
+  useOrders([raw(41, 'PENDIENTE', { version: 2, neto_cobrado: '1000', saldo_pendiente: '0' })]);
+  await container.rerender();
+  assert.match(statusButton(container, 'Nuevos').getAttribute('aria-label'), /0 pedidos/);
+  assert.match(statusButton(container, 'PAGADOS').getAttribute('aria-label'), /1 pedido/);
+  assert.equal(buttons(container).filter((node) => node.textContent === 'Abrir pedido #41').length, 1);
+  useOrders([raw(41, 'PENDIENTE', { version: 3, neto_cobrado: '500', saldo_pendiente: '500' })]);
+  await container.rerender();
+  assert.match(statusButton(container, 'Nuevos').getAttribute('aria-label'), /1 pedido/);
+  useOrders([raw(41, 'EN_PREPARACION', { version: 4, neto_cobrado: '1000', saldo_pendiente: '0' })]);
+  await container.rerender();
+  assert.match(statusButton(container, 'PAGADOS').getAttribute('aria-label'), /0 pedidos/);
+  assert.match(statusButton(container, 'En preparación').getAttribute('aria-label'), /1 pedido/);
+});
+
+test('el retiro listo requiere cobertura conciliada o efectivo, sin saltar cocina ni delivery', () => {
+  const options = (order) => model.stateCommands(order, 'EMPLEADO').map((command) => command.estado);
+  assert.ok(options(raw(1, 'LISTO', { metodo_pago_acordado: 'EFECTIVO' })).includes('ENTREGADO'));
+  assert.ok(options(raw(1, 'LISTO', { metodo_pago_acordado: 'TRANSFERENCIA', neto_cobrado: '1000', saldo_pendiente: '0' })).includes('ENTREGADO'));
+  assert.equal(options(raw(1, 'LISTO', { metodo_pago_acordado: 'TRANSFERENCIA' })).includes('ENTREGADO'), false);
+  assert.equal(options(raw(1, 'LISTO', { metodo_pago_acordado: 'TRANSFERENCIA', neto_cobrado: '500', saldo_pendiente: '500' })).includes('ENTREGADO'), false);
+  assert.equal(options(raw(1, 'PENDIENTE', { neto_cobrado: '1000', saldo_pendiente: '0' })).includes('ENTREGADO'), false);
+  assert.equal(options(raw(1, 'LISTO', { tipo_entrega: 'DELIVERY' })).includes('ENTREGADO'), false);
 });

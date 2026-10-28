@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { canEditOperation, stateCommands } from './orderModel';
+import { allowsPickup, canEditOperation, stateCommands } from './orderModel';
 import { buttonClass, inputClass, Field, Reason } from './operationUi';
 
 export function EditOperation({ order, role, commands, run, busy, can = null }) {
@@ -74,6 +74,7 @@ export function StateOperation({ order, role, commands, run, busy, can = null })
     void run(() => commands.state(order, command, reason.trim() || `Acción desde el panel: ${command.label}.`), 'Pedido actualizado.', { optimisticOrder: { ...order, estado: command.estado } });
   };
   return <section aria-label="Acciones del pedido" className="space-y-3">
+    {order.estado === 'LISTO' && order.tipo_entrega === 'RETIRO' && !allowsPickup(order) && <p role="status" className="text-sm">Para registrar el retiro, confirmá el pago completo o acordá el cobro en efectivo al retirar. Un comprobante pendiente no acredita el pago.</p>}
     {primary && <button type="button" disabled={busy || (primary.estado === 'EN_PREPARACION' && needsPayment)} onClick={() => apply(primary)} className={`${buttonClass} w-full bg-monu-dark text-white`}>{label(primary)}</button>}
     {primary?.estado === 'EN_PREPARACION' && needsPayment && <p className="text-sm">Confirmá el ingreso de la transferencia para enviarlo a cocina.</p>}
     {others.length > 0 && <details><summary className="cursor-pointer min-h-11 flex items-center text-sm font-bold text-monu-green">Más acciones</summary><div className="space-y-3 pt-2">
