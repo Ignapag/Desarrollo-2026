@@ -4,6 +4,49 @@ import { once } from 'node:events';
 import { test } from 'node:test';
 import { onRequest } from '../functions/api/[[path]].js';
 
+const portales = [
+  'https://monu-burger-desarrollo.pages.dev',
+  'https://monu-burger-clientes-desarrollo.pages.dev',
+];
+
+for (const portal of portales) {
+  test(`sin API_ORIGIN usa el backend de Desarrollo desde ${portal}`, async (t) => {
+    let destino;
+    t.mock.method(globalThis, 'fetch', async (request) => {
+      destino = request.url;
+      return Response.json({});
+    });
+    const respuesta = await onRequest({ env: {}, request: new Request(`${portal}/api/chat-demo/sesion`, {
+      method: 'POST', headers: { Cookie: 'monu_chat_demo=prueba', Origin: portal, 'X-Chat-Demo': '1' },
+    }) });
+    assert.equal(destino, 'https://monu-burger-desarrollo.onrender.com/api/chat-demo/sesion');
+    assert.equal(respuesta.status, 200);
+    assert.equal(respuesta.headers.get('cache-control'), 'private, no-store');
+    assert.deepEqual(await respuesta.json(), {});
+  });
+
+  test(`el proxy conserva origen y protección del bot desde ${portal}`, async (t) => {
+    const env = await backend(t, (request, response) => {
+      assert.equal(request.url, '/api/chat-demo/sesion');
+      assert.equal(request.method, 'POST');
+      assert.equal(request.headers.origin, portal);
+      assert.equal(request.headers['x-chat-demo'], '1');
+      assert.equal(request.headers.cookie, 'monu_chat_demo=prueba');
+      response.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Set-Cookie': 'monu_chat_demo=prueba; HttpOnly; Secure; SameSite=Strict; Path=/api/chat-demo',
+      });
+      response.end('{}');
+    });
+    const respuesta = await onRequest({ env, request: new Request(`${portal}/api/chat-demo/sesion`, {
+      method: 'POST', headers: { Cookie: 'monu_chat_demo=prueba', Origin: portal, 'X-Chat-Demo': '1' },
+    }) });
+    assert.equal(respuesta.status, 200);
+    assert.match(respuesta.headers.get('set-cookie'), /HttpOnly; Secure; SameSite=Strict/);
+    assert.deepEqual(await respuesta.json(), {});
+  });
+}
+
 async function backend(t, handler) {
   const servidor = createServer(handler);
   servidor.listen(0, '127.0.0.1');
@@ -27,7 +70,7 @@ test('el proxy conserva login, cookie HttpOnly, metodo, cuerpo y errores JSON', 
     response.end(JSON.stringify({ mensaje: 'Credenciales inválidas' }));
   });
   const respuesta = await onRequest({ env, request: new Request(
-    'https://monu-burger.pages.dev/api/auth/login?ejemplo=1', {
+    'https://monu-burger-desarrollo.pages.dev/api/auth/login?ejemplo=1', {
       method: 'POST', headers: { Cookie: 'monu_session=prueba', 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: 'empleado' }),
     },
@@ -44,7 +87,7 @@ test('el proxy no sigue redirecciones externas llevando cookies del personal', a
     response.end();
   });
   const respuesta = await onRequest({ env, request: new Request(
-    'https://monu-burger.pages.dev/api/prueba', { headers: { Cookie: 'monu_session=prueba' } },
+    'https://monu-burger-desarrollo.pages.dev/api/prueba', { headers: { Cookie: 'monu_session=prueba' } },
   ) });
   assert.equal(respuesta.status, 302);
   assert.equal(respuesta.headers.get('location'), 'https://example.invalid/no-se-debe-visitar');

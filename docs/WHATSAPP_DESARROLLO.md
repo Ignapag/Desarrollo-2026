@@ -373,7 +373,7 @@ La activación se guarda en la tabla existente `parametro`, sin claves de provee
 
 | Clave | Valor JSON de activación |
 | --- | --- |
-| `chat_demo_publico` | `{"habilitado":true,"gemini_modo":"real","origenes":["https://monu-burger-clientes.pages.dev","https://monu-burger.pages.dev"]}` |
+| `chat_demo_publico` | `{"habilitado":true,"gemini_modo":"real","origenes":["https://monu-burger-clientes-desarrollo.pages.dev","https://monu-burger-desarrollo.pages.dev"]}` |
 
 `python -m scripts.serve --migrar` consulta ese parámetro al arrancar. Únicamente
 un objeto válido con `habilitado` booleano verdadero permite el canal público,
@@ -395,6 +395,12 @@ sin comodines, rutas ni credenciales. Es necesario incluir el dominio de Pages
 desde el que navega el cliente: el proxy conserva su cabecera `Origin`. El dominio
 de Render por sí solo no autoriza el POST del carrito. Se mantiene el rechazo de
 orígenes ajenos y la protección `X-Chat-Demo`.
+
+Para este repositorio, el destino es `https://monu-burger-desarrollo.onrender.com`.
+Si el parámetro compartido conserva los dominios de Seminario, configurar los
+dos dominios de Desarrollo en `ORIGENES_PERMITIDOS` del nuevo servicio Render
+y reiniciarlo; se combinan con los orígenes del parámetro sin modificar la base.
+Ver [despliegue](DESPLIEGUE.md) para las variables de ambos proyectos Pages.
 
 El worker se ejecuta con el ciclo de esa misma API. Si `WHATSAPP_MODO=simulado`,
 el worker integrado filtra inbox, reclamos y recuperación de salidas abandonadas
@@ -946,7 +952,7 @@ token del handshake dentro de la query string.
 Para la instalación actual, la callback pública es:
 
 ```text
-https://proyecto-seminario-integrador-2026.onrender.com/api/whatsapp/webhook
+https://monu-burger-desarrollo.onrender.com/api/whatsapp/webhook
 ```
 
 Después del despliegue comprobar `/api/salud` y la presencia de WhatsApp en
