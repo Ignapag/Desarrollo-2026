@@ -11,10 +11,18 @@ from app.modules.whatsapp.domain.textos import resultado_transferencia
 
 
 class RepositorioBotSQL:
+    """Implementación SQL de RepositorioBot: mensajes, conversaciones, pedidos, comprobantes,
+    cambios, atenciones humanas y salidas, siempre dentro de la unidad de trabajo del caso de uso.
+    """
+
     def __init__(self, uow: UnidadDeTrabajo):
+        """Recibe la unidad de trabajo usada para las consultas SQL."""
         self.uow = uow
 
     async def memoria(self, telefono, referencia_hash):
+        """Memoria resumida de los últimos cuatro turnos procesados en los últimos 30 minutos, del
+        más antiguo al más reciente.
+        """
         filas = await self.uow.todos(
             """SELECT memoria_ia FROM whatsapp_entrada
             WHERE telefono=%s AND referencia_hash=%s AND estado='PROCESADO'
@@ -24,6 +32,9 @@ class RepositorioBotSQL:
         return [fila["memoria_ia"] for fila in reversed(filas)]
 
     async def recuperar_proveedor(self, b):
+        """Cierra automáticamente una atención abierta solo por falla del proveedor, si el personal
+        todavía no respondió, y devuelve la conversación al bot.
+        """
         fila = await self.uow.uno(
             """WITH elegible AS (
                 SELECT a.id FROM whatsapp_atencion a WHERE a.referencia_hash=%s
@@ -40,6 +51,9 @@ class RepositorioBotSQL:
         return fila is not None
 
     async def atencion_humana(self, referencia_hash):
+        """Indica si hay una atención pendiente pedida por el cliente o ya respondida por el
+        personal.
+        """
         return await self.uow.valor(
             """SELECT EXISTS (SELECT 1 FROM whatsapp_atencion a
             WHERE a.referencia_hash=%s AND a.estado='PENDIENTE'
@@ -49,6 +63,8 @@ class RepositorioBotSQL:
         )
 
     async def sesion(self, telefono, bloquear=False):
+        """Sesión de chat vigente del teléfono; con bloquear serializa los mensajes de ese teléfono.
+        """
         if bloquear:
             await self.uow.valor("SELECT pg_advisory_xact_lock(hashtext(%s))", (telefono,))
         return await self.uow.uno(
@@ -56,6 +72,9 @@ class RepositorioBotSQL:
         )
 
     async def conversaciones(self, telefono):
+        """Conversaciones activas del teléfono (borradores vigentes o pedidos abiertos) con una
+        descripción de sus productos.
+        """
         return await self.uow.todos(
             """SELECT b.referencia_hash,p.numero,
                 COALESCE((SELECT string_agg(it.cantidad || ' × ' || it.nombre_producto, ', '
@@ -70,6 +89,9 @@ class RepositorioBotSQL:
         )
 
     async def guardar_contexto(self, entrada, b):
+        """Guarda la sesión del teléfono: conversación en foco y pregunta de selección pendiente,
+        con vencimiento de 30 minutos.
+        """
         pregunta = entrada.get("_pregunta")
         if not pregunta and not (b and b["telefono"]):
             return
@@ -85,6 +107,9 @@ class RepositorioBotSQL:
         )
 
     async def crear_borrador(self, referencia_hash, cliente_id, datos):
+        """Inserta el borrador; si ya existe uno con la misma huella de inicio devuelve el
+        existente.
+        """
         return await self.uow.uno(
             """INSERT INTO whatsapp_borrador
             (referencia_hash,cliente_id,telefono,items,tipo_entrega,metodo_pago,direccion,contacto,
@@ -106,6 +131,7 @@ class RepositorioBotSQL:
         )
 
     async def recibir(self, identificador, telefono, texto, media_id, nombre_remitente=None):
+        """Registra el mensaje entrante; un ID repetido del webhook se ignora."""
         await self.uow.ejecutar(
             """INSERT INTO whatsapp_entrada (id,telefono,texto,media_id,nombre_remitente)
             VALUES (%s,%s,%s,%s,%s) ON CONFLICT (id) DO NOTHING""",
@@ -113,6 +139,7 @@ class RepositorioBotSQL:
         )
 
     async def entrada(self, identificador, bloquear=False):
+        """Mensaje entrante por ID, opcionalmente bloqueado para procesarlo."""
         sql = "SELECT * FROM whatsapp_entrada WHERE id=%s"
         if bloquear:
             sql += " FOR UPDATE"
@@ -122,9 +149,14 @@ class RepositorioBotSQL:
         self, telefono, referencia_hash=None, bloquear=False, nombre_remitente=None,
         inicio_hash=None, numero_pedido=None,
     ):
+        """Busca la conversación del teléfono por huella de inicio, número de pedido, referencia o,
+        sin selector, la única activa. Con bloquear toma los bloqueos en orden y vincula un borrador
+        sin dueño al remitente verificado, creando su cliente si hace falta.
+        """
         # Todas las mutaciones de una conversación se serializan también entre workers.
         if bloquear:
             await self.uow.valor("SELECT pg_advisory_xact_lock(hashtext(%s))", (telefono,))
+        # Elige la consulta según el selector disponible.
         if inicio_hash:
             sql = """SELECT * FROM whatsapp_borrador WHERE inicio_hash=%s
                 AND (telefono=%s OR telefono IS NULL)"""
@@ -219,6 +251,7 @@ class RepositorioBotSQL:
         return b
 
     async def actualizar_borrador(self, b):
+        """Persiste el estado completo de la conversación y marca la hora del último mensaje."""
         await self.uow.ejecutar(
             """UPDATE whatsapp_borrador SET items=%s,tipo_entrega=%s,metodo_pago=%s,direccion=%s,
             estado=%s,pedido_id=%s,version=%s,propuesta=%s,estado_pago=%s,
@@ -240,6 +273,9 @@ class RepositorioBotSQL:
         )
 
     async def finalizar(self, entrada, b, respuesta):
+        """Marca el mensaje como procesado con su respuesta y memoria, guarda la conversación y
+        encola la respuesta para enviar.
+        """
         if b:
             await self.actualizar_borrador(b)
         await self.uow.ejecutar(
@@ -252,6 +288,7 @@ class RepositorioBotSQL:
         await self.encolar("respuesta:" + entrada["id"], entrada["telefono"], respuesta)
 
     async def encolar(self, clave, telefono, texto):
+        """Encola un mensaje saliente; la clave evita duplicarlo."""
         await self.uow.ejecutar(
             """INSERT INTO whatsapp_salida (clave,telefono,texto) VALUES (%s,%s,%s)
             ON CONFLICT (clave) DO NOTHING""",
@@ -259,6 +296,7 @@ class RepositorioBotSQL:
         )
 
     async def pedido(self, pedido_id):
+        """Pedido bloqueado con sus ítems, envío activo, pagos y el neto cobrado conciliado."""
         # La foto de asignación/fondos se obtiene con un snapshot posterior al bloqueo.
         await self.uow.uno("SELECT id FROM pedido WHERE id=%s FOR UPDATE", (pedido_id,))
         pedido = await self.uow.uno(
@@ -279,6 +317,7 @@ class RepositorioBotSQL:
             "SELECT id,tipo,metodo_pago,monto,estado FROM pago WHERE pedido_id=%s ORDER BY id",
             (pedido_id,),
         )
+        # Neto cobrado: cobros menos devoluciones conciliadas.
         pedido["pagado"] = sum(
             (p["monto"] if p["tipo"] == "COBRO" else -p["monto"]
              for p in pedido["fondos"] if p["estado"] == "CONCILIADO"), Decimal("0"),
@@ -286,6 +325,9 @@ class RepositorioBotSQL:
         return pedido
 
     async def cotizar_operacion(self, pedido, cambios):
+        """Total del pedido con la entrega indicada, usando el costo de envío de la zona de
+        cobertura.
+        """
         costo = 0
         if cambios.get("tipo_entrega", pedido["tipo_entrega"]) == "DELIVERY":
             direccion = cambios.get("direccion_nueva")
@@ -305,6 +347,9 @@ class RepositorioBotSQL:
         return pedido["subtotal"] + costo - pedido["descuento_total"]
 
     async def refrescar_operacion(self, b):
+        """Recarga entrega, pago y dirección del borrador tras editar el pedido, sin retroceder la
+        versión.
+        """
         actual = await self.uow.uno(
             "SELECT tipo_entrega,metodo_pago,direccion,version FROM whatsapp_borrador "
             "WHERE referencia_hash=%s", (b["referencia_hash"],),
@@ -313,6 +358,7 @@ class RepositorioBotSQL:
         b.update(actual)
 
     async def ingredientes(self, producto_id):
+        """Ingredientes de la receta vigente del producto."""
         return await self.uow.todos(
             """SELECT i.nombre, pi.es_base FROM producto_ingrediente pi
             JOIN ingrediente i ON i.id=pi.ingrediente_id WHERE pi.producto_id=%s
@@ -321,12 +367,14 @@ class RepositorioBotSQL:
         )
 
     async def direccion_pedido(self, pedido):
+        """Dirección registrada del pedido, si pertenece a su cliente."""
         return await self.uow.uno(
             "SELECT calle,numero,localidad,referencia FROM direccion WHERE id=%s AND cliente_id=%s",
             (pedido.get("direccion_id"), pedido["cliente_id"]),
         )
 
     async def ingredientes_snapshot(self, receta_snapshot):
+        """Ingredientes de una receta congelada en el ítem."""
         return await self.uow.todos(
             """SELECT i.nombre, r.es_base FROM jsonb_to_recordset(%s::jsonb)
             AS r(ingrediente_id bigint, es_base boolean)
@@ -362,6 +410,9 @@ class RepositorioBotSQL:
         return resultado
 
     async def historial(self, b, accion, anterior, posterior, estado, empleado_id=None):
+        """Registra una solicitud de cambio del pedido con su estado anterior y posterior; si la
+        aplica un empleado queda marcada como revisada.
+        """
         return await self.uow.uno(
             """INSERT INTO whatsapp_cambio
             (pedido_id,version,accion,anterior,posterior,estado,revisado_por,revisado_en)
@@ -380,6 +431,9 @@ class RepositorioBotSQL:
         )
 
     async def aplicar_item(self, pedido, item, cantidad, aclaraciones, empleado_id=None):
+        """Actualiza cantidad y aclaraciones del ítem, recalcula los totales del pedido y deja
+        constancia en su historial.
+        """
         await self.uow.ejecutar(
             """UPDATE pedido_item SET cantidad=%s,aclaraciones=%s,
             subtotal=(precio_unitario+costo_opciones)*%s WHERE id=%s""",
@@ -405,6 +459,7 @@ class RepositorioBotSQL:
         )
 
     async def comprobante(self, entrada, pedido_id):
+        """Registra el comprobante adjunto para revisión; una entrada repetida se ignora."""
         await self.uow.ejecutar(
             """INSERT INTO whatsapp_comprobante (entrada_id,pedido_id,media_id)
             VALUES (%s,%s,%s) ON CONFLICT (entrada_id) DO NOTHING""",
@@ -412,6 +467,7 @@ class RepositorioBotSQL:
         )
 
     async def revision(self, comprobante_id):
+        """Comprobante bloqueado junto con su pedido y borrador, en el orden de bloqueo común."""
         # Orden común con el panel: pedido -> borrador -> comprobante.
         fila = await self.uow.uno(
             "SELECT * FROM whatsapp_comprobante WHERE id=%s", (comprobante_id,)
@@ -428,6 +484,9 @@ class RepositorioBotSQL:
         )
 
     async def revisar(self, comprobante, aprobar, empleado_id, motivo):
+        """Aprueba o rechaza el comprobante. Al aprobar con saldo pendiente registra el cobro por
+        transferencia conciliado; siempre avisa el resultado al cliente.
+        """
         pedido = await self.pedido(comprobante["pedido_id"])
         estado = "APROBADO" if aprobar else "RECHAZADO"
         await self.uow.ejecutar(
@@ -460,6 +519,8 @@ class RepositorioBotSQL:
         return {"id": comprobante["id"], "estado": estado, "pedido_id": pedido["id"]}
 
     async def cambio(self, cambio_id):
+        """Solicitud de cambio y su conversación, bloqueadas en el orden pedido, borrador, cambio.
+        """
         fila = await self.uow.uno("SELECT * FROM whatsapp_cambio WHERE id=%s", (cambio_id,))
         if not fila:
             return None, None
@@ -473,6 +534,7 @@ class RepositorioBotSQL:
         return fila, b
 
     async def cerrar_cambio(self, cambio_id, estado, empleado_id, motivo):
+        """Cierra la solicitud de cambio con su resultado y motivo."""
         await self.uow.ejecutar(
             """UPDATE whatsapp_cambio SET estado=%s,revisado_por=%s,revisado_en=now(),
             accion=accion || jsonb_build_object('revision_motivo',%s::text) WHERE id=%s""",
@@ -488,6 +550,7 @@ class RepositorioBotSQL:
         )
 
     async def derivar(self, referencia_hash, entrada_id, motivo):
+        """Abre una atención humana para la conversación si no hay otra pendiente."""
         # A lo sumo una atención pendiente por conversación; la nueva solicitud queda
         # en el historial de mensajes que la bandeja muestra junto a la atención.
         await self.uow.ejecutar(
@@ -498,6 +561,7 @@ class RepositorioBotSQL:
         )
 
     async def atencion_pendiente(self, referencia_hash):
+        """Indica si la conversación tiene una atención pendiente."""
         return bool(
             await self.uow.valor(
                 """SELECT EXISTS (SELECT 1 FROM whatsapp_atencion
@@ -507,6 +571,7 @@ class RepositorioBotSQL:
         )
 
     async def derivar_general(self, entrada_id, motivo):
+        """Abre una atención humana para un mensaje sin conversación, serializada por teléfono."""
         await self.uow.valor(
             "SELECT pg_advisory_xact_lock(hashtext(telefono)) FROM whatsapp_entrada WHERE id=%s",
             (entrada_id,),
@@ -519,6 +584,9 @@ class RepositorioBotSQL:
         )
 
     async def atencion(self, atencion_id, bloquear=False):
+        """Atención por ID con el teléfono de contacto; con bloquear respeta el orden teléfono,
+        conversación, atención.
+        """
         fila = await self.uow.uno(
             """SELECT a.*,COALESCE(a.telefono,b.telefono) telefono FROM whatsapp_atencion a
             LEFT JOIN whatsapp_borrador b ON b.referencia_hash=a.referencia_hash WHERE a.id=%s""",
@@ -541,11 +609,13 @@ class RepositorioBotSQL:
         )
 
     async def respuesta_atencion(self, clave):
+        """Salida ya encolada con esa clave, para responder reintentos sin duplicar."""
         return await self.uow.uno(
             "SELECT id,atencion_id,estado FROM whatsapp_salida WHERE clave=%s", (clave,)
         )
 
     async def encolar_respuesta(self, clave, atencion, texto, empleado_id):
+        """Encola la respuesta del personal asociada a la atención."""
         return await self.uow.uno(
             """INSERT INTO whatsapp_salida (clave,telefono,texto,atencion_id,enviado_por)
             VALUES (%s,%s,%s,%s,%s) RETURNING id,atencion_id,estado""",
@@ -553,6 +623,9 @@ class RepositorioBotSQL:
         )
 
     async def resolver_atencion(self, atencion, empleado_id, resolucion):
+        """Cierra la atención y, si corresponde, devuelve la conversación al bot limpiando su
+        contexto.
+        """
         await self.uow.ejecutar(
             """UPDATE whatsapp_atencion SET estado='RESUELTA',resolucion=%s,
             resuelta_por=%s,resuelta_en=now() WHERE id=%s""",
@@ -573,4 +646,5 @@ class RepositorioBotSQL:
         )
 
     async def saldo_pedido(self, pedido_id):
+        """Total actual del pedido."""
         return await self.uow.valor("SELECT total FROM pedido WHERE id=%s", (pedido_id,))

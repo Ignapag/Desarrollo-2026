@@ -1,3 +1,5 @@
+// Menú público: productos del catálogo filtrables por categoría y búsqueda, con
+// variantes, personalización (quitar ingredientes) y botón para agregar al carrito.
 import { Plus, LoaderCircle, RefreshCw } from 'lucide-react';
 import { useData } from '../shared/store/DataContext';
 import { useEffect, useRef, useState } from 'react';
@@ -5,9 +7,15 @@ import { Settings2 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
+// Categorías del menú en el orden en que se muestran las pestañas.
 const CATEGORIES = ['Todas', 'Nuestras Burgers', 'Monufusión', 'Opciones Individuales', 'Combos', 'Acompañamientos', 'Bebidas', 'Dips Extra'];
 
+/**
+ * Tarjeta de producto. Permite elegir variante y quitar ingredientes; `addToCart`
+ * devuelve false si el carrito alcanzó sus límites.
+ */
 function ProductCard({ product, addToCart }) {
+  // Variante elegida (la primera disponible) e ingredientes quitados por el cliente.
   const [selectedVariantName, setSelectedVariantName] = useState(() => product.variants?.find((variant) => variant.available !== false)?.name || '');
   const [removedIngredients, setRemovedIngredients] = useState([]);
   const optionsRef = useRef(null);
@@ -25,6 +33,7 @@ function ProductCard({ product, addToCart }) {
   const canOrder = productAvailable && !changedOptions && (!hasVariants || (selectedVariant && selectedVariant.available !== false));
   const currentPrice = hasVariants ? selectedVariant?.price : product.price;
 
+  // Agrega el producto (con su variante y aclaraciones) al carrito y reinicia la personalización.
   const handleAdd = () => {
     if (!canOrder) return;
     const itemToAdd = hasVariants ? {
@@ -46,6 +55,7 @@ function ProductCard({ product, addToCart }) {
     if (optionsRef.current) optionsRef.current.open = false;
   };
 
+  // Botón de agregar, ubicado sobre la foto o junto al precio según el formato de la tarjeta.
   const addButton = (
     <button
       onClick={handleAdd}
@@ -59,6 +69,7 @@ function ProductCard({ product, addToCart }) {
 
   return (
     <div className={`bg-white rounded-[2rem] p-4 border border-monu-green/5 shadow-sm hover:shadow-monu-lg transition-all flex group ${compact ? 'flex-row gap-4 self-start' : 'flex-col h-full'}`}>
+      {/* Foto del producto (o logo si no tiene) */}
       <div className={`relative overflow-hidden bg-monu-cream flex items-center justify-center ${compact ? 'aspect-[138/135] w-24 shrink-0 self-start rounded-xl' : 'aspect-[4/3] rounded-2xl mb-4'}`}>
         {product.image ? (
            <img 
@@ -73,6 +84,7 @@ function ProductCard({ product, addToCart }) {
         {!compact && !canOrder && <span className="absolute left-3 top-3 rounded-full bg-white px-3 py-1 text-sm font-bold text-monu-text">No disponible</span>}
       </div>
 
+      {/* Nombre, precio y descripción */}
       <div className="min-w-0 flex-1 flex flex-col">
         <div className={compact ? 'mb-1' : 'flex justify-between items-start mb-2 gap-2'}>
           <h3 className={`font-heading font-black text-monu-dark leading-tight ${compact ? 'text-lg' : 'text-xl'}`}>{product.name}</h3>
@@ -82,6 +94,7 @@ function ProductCard({ product, addToCart }) {
           {product.description}
         </p>
 
+        {/* Precio compacto, selector de variante y personalización */}
         <div className="mt-auto">
           {compact && (
             <>
@@ -109,7 +122,9 @@ function ProductCard({ product, addToCart }) {
             ) : null}
           </div>
           
+          {/* Aviso si cambiaron los ingredientes removibles desde que se personalizó */}
           {changedOptions && <div role="alert" className="mt-3 text-sm text-red-800"><p>Las opciones cambiaron. Revisá la personalización antes de agregar.</p><button type="button" onClick={() => setRemovedIngredients((previous) => previous.filter((name) => removableIngredients.includes(name)))} className="min-h-11 underline focus-visible:ring-2 focus-visible:ring-monu-green">Revisar opciones vigentes</button></div>}
+          {/* Personalización: quitar ingredientes (otros cambios se piden por WhatsApp) */}
           {productAvailable && removableIngredients.length > 0 && (
             <details ref={optionsRef} className="mt-3 rounded-xl border border-monu-green/10 bg-monu-cream/25">
               <summary aria-label={`Personalizar ${product.name}`} className="min-h-11 cursor-pointer rounded-xl px-3 py-3 text-sm font-bold text-monu-green focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-monu-green">
@@ -142,13 +157,16 @@ function ProductCard({ product, addToCart }) {
   );
 }
 
+/** Pantalla de menú del cliente. */
 export default function Menu() {
   const { state, dispatch, refreshCatalog } = useData();
+  // Carga el catálogo al montar.
   useEffect(() => {
     const controller = new AbortController();
     Promise.resolve().then(() => { if (!controller.signal.aborted) return refreshCatalog(controller.signal); }).catch(() => undefined);
     return () => controller.abort();
   }, [refreshCatalog]);
+  // Filtros del menú: búsqueda (?q=) y categoría (?categoria=).
   const [searchParams, setSearchParams] = useSearchParams();
   const query = (searchParams.get('q') || '').toLowerCase();
   const currentCategory = searchParams.get('categoria') || 'Todas';
@@ -161,6 +179,7 @@ export default function Menu() {
     return matchCat && matchQuery;
   });
 
+  // Agrega al carrito respetando los límites del pedido (50 productos y 50 unidades por ítem).
   const addToCart = (product) => {
     const existing = state.cart.find((item) => item.id === product.id);
     if ((existing?.quantity || 0) >= 50 || (!existing && state.cart.length >= 50)) {
@@ -171,6 +190,7 @@ export default function Menu() {
     return true;
   };
 
+  // Estados de carga y error del catálogo.
   if (state.catalogStatus === 'loading') {
     return (
       <div role="status" className="flex min-h-64 items-center justify-center gap-3 rounded-3xl border border-monu-green/10 bg-monu-bone p-6 text-monu-dark">
@@ -193,6 +213,7 @@ export default function Menu() {
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
+      {/* Pestañas de categorías */}
       <div className="flex overflow-x-auto hide-scrollbar gap-2 pb-2 -mx-4 px-4 sm:mx-0 sm:px-0">
         {CATEGORIES.map(cat => (
           <button
@@ -209,6 +230,7 @@ export default function Menu() {
         ))}
       </div>
 
+      {/* Grilla de productos */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
         {filteredProducts.map(product => (
           <ProductCard 
@@ -219,6 +241,7 @@ export default function Menu() {
         ))}
       </div>
       
+      {/* Estado vacío */}
       {filteredProducts.length === 0 && (
         <div className="text-center py-20 bg-white rounded-3xl border border-dashed border-monu-green/20">
           <span className="text-6xl mb-4 block">🔍</span>

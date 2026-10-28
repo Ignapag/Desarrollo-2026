@@ -55,22 +55,28 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 
 
 def _migraciones() -> list[Path]:
+    """Archivos .sql de migracion en orden de nombre; falla si no existe el directorio."""
     if not DIR_MIGRACIONES.exists():
         raise SystemExit(f"No existe el directorio de migraciones: {DIR_MIGRACIONES}")
     return sorted(DIR_MIGRACIONES.glob("*.sql"))
 
 
 def _checksum(archivo: Path) -> str:
+    """Checksum corto (16 hex) del contenido de la migracion."""
     return hashlib.sha256(archivo.read_bytes()).hexdigest()[:16]
 
 
 def _aplicadas(conn: psycopg.Connection) -> dict[str, str]:
+    """Migraciones ya registradas en schema_migrations con su checksum."""
     with conn.cursor() as cur:
         cur.execute("SELECT version, checksum FROM schema_migrations")
         return {fila[0]: fila[1] for fila in cur.fetchall()}
 
 
 def aplicar(conn: psycopg.Connection, *, solo_estado: bool = False) -> int:
+    """Aplica las migraciones pendientes, cada una en su propia transaccion; con solo_estado solo
+    las lista. Avisa si una ya aplicada cambio. Devuelve la cantidad de pendientes.
+    """
     with conn.cursor() as cur:
         cur.execute(TABLA_CONTROL)
     conn.commit()
@@ -78,6 +84,7 @@ def aplicar(conn: psycopg.Connection, *, solo_estado: bool = False) -> int:
     ya_aplicadas = _aplicadas(conn)
     pendientes = 0
 
+    # Recorre en orden: las aplicadas se verifican y las pendientes se ejecutan.
     for archivo in _migraciones():
         version = archivo.stem
         checksum = _checksum(archivo)
@@ -95,6 +102,7 @@ def aplicar(conn: psycopg.Connection, *, solo_estado: bool = False) -> int:
             continue
 
         print(f"  [>] aplicando {version} ...")
+        # Ejecuta el SQL y lo registra en la misma transaccion.
         with conn.cursor() as cur:
             cur.execute(archivo.read_text(encoding="utf-8"))
             cur.execute(
@@ -110,6 +118,7 @@ def aplicar(conn: psycopg.Connection, *, solo_estado: bool = False) -> int:
 
 
 def sembrar(conn: psycopg.Connection) -> None:
+    """Carga los datos de desarrollo de seed.sql si existe."""
     if not ARCHIVO_SEED.exists():
         print("  No hay archivo de seed.")
         return
@@ -132,6 +141,7 @@ def es_base_local() -> bool:
 
 
 def resetear(conn: psycopg.Connection) -> None:
+    """Borra y recrea el schema public. Operacion destructiva."""
     print("  [!] DROP SCHEMA public CASCADE")
     with conn.cursor() as cur:
         cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
@@ -139,6 +149,9 @@ def resetear(conn: psycopg.Connection) -> None:
 
 
 def main() -> int:
+    """Punto de entrada CLI: aplica migraciones y opcionalmente seed o reset, protegiendo la base
+    compartida.
+    """
     parser = argparse.ArgumentParser(description="Migraciones SQL de Monu Burger")
     parser.add_argument("--seed", action="store_true", help="cargar datos de desarrollo")
     parser.add_argument("--status", action="store_true", help="solo informar pendientes")
@@ -152,6 +165,7 @@ def main() -> int:
 
     print(f"Base de datos: {settings.dsn_visible}")
 
+    # Proteccion: el reset contra una base remota requiere un permiso explicito.
     if args.reset and not es_base_local() and not args.permitir_reset_remoto:
         print(
             "\n  [!] CANCELADO. El DSN no apunta a una base local, y el grupo comparte\n"
@@ -162,6 +176,7 @@ def main() -> int:
         return 1
 
     with psycopg.connect(settings.database_url) as conn:
+        # El reset siempre pide confirmacion escrita.
         if args.reset:
             destino = "LOCAL" if es_base_local() else "COMPARTIDA (remota)"
             confirmacion = input(

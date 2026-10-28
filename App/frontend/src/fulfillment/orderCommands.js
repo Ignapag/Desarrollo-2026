@@ -1,5 +1,9 @@
+// Comandos HTTP de pedidos, reparto y pagos. Los cambios envían la versión y el
+// estado esperados para que la API rechace operaciones sobre datos desactualizados.
 import { UserFacingError } from '../shared/api/userErrors.js';
+/** Crea los comandos de pedidos/reparto sobre el cliente HTTP recibido. */
 export function createOrderCommands(http) {
+  // Envía un cuerpo JSON con el método indicado (POST por defecto).
   const send = (path, body, method = 'POST') => http(path, { method, ...(body ? { body: JSON.stringify(body) } : {}) });
   return {
     detail: (id, signal) => http(`/api/pedidos/${id}`, { signal }),
@@ -27,12 +31,15 @@ export function createPaymentAttempt(body, kind, uuid = () => crypto.randomUUID(
   return { kind, body: { ...body, clave_operacion: uuid() } };
 }
 
+// Convierte un importe con hasta 2 decimales a centavos enteros (null si es inválido).
 function cents(value) {
   if (!['string', 'number'].includes(typeof value) || !/^\d+(?:\.\d{1,2})?$/.test(String(value))) return null;
   const result = Math.round(Number(value) * 100);
   return Number.isSafeInteger(result) && result >= 0 ? result : null;
 }
 
+// Valida que el acuse del pago coincida con lo enviado (pedido, tipo, método, estado e
+// importe) y, en efectivo, que el desglose de recibido, propina y vuelto sea coherente.
 function validatePayment(result, attempt, { reconciled = false, id } = {}) {
   const cash = attempt.kind === 'efectivo';
   const payment = cash ? result?.pago : result;
@@ -56,6 +63,8 @@ function validatePayment(result, attempt, { reconciled = false, id } = {}) {
   return payment;
 }
 
+// Registra un pago (efectivo, transferencia, billetera o devolución) y valida el acuse.
+// Una transferencia operativa se concilia enseguida; si eso falla queda pendiente de revisión.
 export async function executePayment(http, attempt, { operativa = false } = {}) {
   const post = (path, body) => http(path, { method: 'POST', body: JSON.stringify(body) });
   const query = operativa ? `?incluir_pedido=true${attempt.kind === 'transferencia' ? '&confirmar_ingreso=true' : ''}` : '';

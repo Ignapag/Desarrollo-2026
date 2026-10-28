@@ -35,7 +35,10 @@ def _mapear_pago(fila: dict) -> Pago:
 
 
 class RepositorioPagosSQL:
+    """Acceso SQL a pagos, pedidos a cobrar y claves de operación idempotentes."""
+
     def __init__(self, uow: UnidadDeTrabajo) -> None:
+        """Recibe la unidad de trabajo cuya transacción comparten las consultas."""
         self.uow = uow
 
     async def pedido_pertenece_a_usuario(self, pedido_id: int, usuario_id: int) -> bool:
@@ -96,6 +99,7 @@ class RepositorioPagosSQL:
         )
 
     async def obtener_operacion(self, clave: str) -> tuple[Pago, dict] | None:
+        """Busca el pago registrado con una clave de operación y sus datos guardados."""
         fila = await self.uow.uno(
             """
             SELECT id, pedido_id, cierre_caja_id, tipo, metodo_pago, monto, propina,
@@ -108,6 +112,7 @@ class RepositorioPagosSQL:
         return (_mapear_pago(fila), fila["datos_operacion"]) if fila else None
 
     async def bloquear_pedidos_de_pagos(self, pago_ids: list[int]) -> None:
+        """Bloquea, en orden de id, los pedidos a los que pertenecen los pagos."""
         await self.uow.todos(
             "SELECT id FROM pedido WHERE id IN "
             "(SELECT pedido_id FROM pago WHERE id = ANY(%s)) ORDER BY id FOR UPDATE",
@@ -191,6 +196,7 @@ class RepositorioPagosSQL:
         self, pago_id: int, referencia_externa: str | None = None
     ) -> Pago | None:
         """Marca un pago como CONCILIADO fijando timestamp actual."""
+        # Solo un pago PENDIENTE puede pasar a conciliado.
         sql = """
             UPDATE pago
             SET estado = 'CONCILIADO',

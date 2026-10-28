@@ -68,6 +68,7 @@ async def verificar_conexion(timeout: float | None = None) -> None:
 
 
 async def cerrar_pool() -> None:
+    """Cierra el pool de conexiones al apagar la API, si estaba abierto."""
     global _pool
     if _pool is not None:
         await _pool.close()
@@ -75,6 +76,7 @@ async def cerrar_pool() -> None:
 
 
 def pool() -> AsyncConnectionPool:
+    """Devuelve el pool global; falla si todavía no se abrió con ``abrir_pool``."""
     if _pool is None:
         raise RuntimeError("El pool de conexiones no esta inicializado")
     return _pool
@@ -96,25 +98,30 @@ class UnidadDeTrabajo:
     """
 
     def __init__(self, conn: AsyncConnection) -> None:
+        """Recibe la conexión (con su transacción) que comparten los repositorios."""
         self.conn = conn
 
     async def uno(self, sql: str, parametros: Sequence[Any] | None = None) -> dict | None:
+        """Ejecuta la consulta y devuelve la primera fila como dict, o ``None``."""
         async with self.conn.cursor() as cur:
             await cur.execute(sql, parametros)
             return await cur.fetchone()
 
     async def todos(self, sql: str, parametros: Sequence[Any] | None = None) -> list[dict]:
+        """Ejecuta la consulta y devuelve todas las filas como lista de dicts."""
         async with self.conn.cursor() as cur:
             await cur.execute(sql, parametros)
             return list(await cur.fetchall())
 
     async def valor(self, sql: str, parametros: Sequence[Any] | None = None) -> Any:
+        """Devuelve la primera columna de la primera fila (útil para COUNT, RETURNING id)."""
         fila = await self.uno(sql, parametros)
         if fila is None:
             return None
         return next(iter(fila.values()))
 
     async def ejecutar(self, sql: str, parametros: Sequence[Any] | None = None) -> int:
+        """Ejecuta una sentencia de escritura y devuelve la cantidad de filas afectadas."""
         async with self.conn.cursor() as cur:
             await cur.execute(sql, parametros)
             return cur.rowcount

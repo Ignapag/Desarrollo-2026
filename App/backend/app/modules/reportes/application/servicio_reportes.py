@@ -13,6 +13,8 @@ from app.modules.stock.application.servicio_stock import ServicioStock
 
 
 class RepositorioReportes(Protocol):
+    """Puerto de consultas agregadas que implementa el repositorio SQL de reportes."""
+
     async def clientes(self, *, q: str | None, limite: int, desplazamiento: int) -> dict: ...
     async def resumen_pedidos(self) -> dict: ...
     async def ventas(
@@ -32,7 +34,13 @@ class RepositorioReportes(Protocol):
 
 
 class ServicioReportes:
+    """Casos de uso de reportes: directorio de clientes, dashboard, ventas y rentabilidad.
+
+    Los datos financieros solo se incluyen cuando el rol o el permiso lo habilitan.
+    """
+
     def __init__(self, repositorio: RepositorioReportes, stock: ServicioStock) -> None:
+        """Recibe el repositorio de reportes y el servicio de stock (para alertas)."""
         self.repo = repositorio
         self.stock = stock
 
@@ -45,6 +53,7 @@ class ServicioReportes:
         desplazamiento: int = 0,
         autorizado: bool | None = None,
     ) -> dict:
+        """Devuelve una página del directorio de clientes, solo para personal del local."""
         if not (
             rol in {"EMPLEADO", "ADMINISTRADOR", "DUENIO"} if autorizado is None else autorizado
         ):
@@ -60,9 +69,14 @@ class ServicioReportes:
         autorizado: bool | None = None,
         financieros: bool | None = None,
     ) -> dict:
+        """Arma el tablero: pedidos del día/semana/mes, ranking y stock crítico.
+
+        Con permiso financiero agrega el ingreso neto confirmado y su desglose por método de pago.
+        """
         validar_rol(rol, autorizado=autorizado)
         financieros = rol == "DUENIO" if financieros is None else financieros
         validar_periodo(fecha_desde, fecha_hasta)
+        # Las ventas se piden sin montos: el ranking del tablero solo usa cantidades.
         resumen = await self.repo.resumen_pedidos()
         ventas = await self.ventas(
             rol="ADMINISTRADOR",
@@ -116,6 +130,7 @@ class ServicioReportes:
             "alertas_stock": [fila for fila in ingredientes if fila["indicador_alerta"]],
             "actualizado_en": resumen["actualizado_en"],
         }
+        # Bloque financiero: ingresos netos conciliados en el período, por método.
         if financieros:
             metodos = await self.repo.pagos_por_metodo(fecha_desde, fecha_hasta)
             resultado["ingreso_neto_confirmado"] = sum(
@@ -136,6 +151,11 @@ class ServicioReportes:
         autorizado: bool | None = None,
         financieros: bool | None = None,
     ) -> list[dict]:
+        """Reporte de ventas por período y producto, con ranking dentro de cada período.
+
+        Con permiso financiero incluye monto y participación sobre el total del período; si no, la
+        cantidad de pedidos.
+        """
         validar_rol(rol, autorizado=autorizado)
         financieros = rol == "DUENIO" if financieros is None else financieros
         validar_periodo(fecha_desde, fecha_hasta)
@@ -148,10 +168,12 @@ class ServicioReportes:
             producto_id,
             incluir_montos=financieros,
         )
+        # Total vendido por período, para calcular la participación de cada producto.
         totales: dict[date, Decimal] = defaultdict(lambda: Decimal("0"))
         if financieros:
             for fila in filas:
                 totales[fila["periodo"]] += fila["monto_total"]
+        # Ordena por período y cantidad vendida para numerar el ranking de cada período.
         ordenadas = sorted(
             filas, key=lambda f: (f["periodo"], -f["cantidad_vendida"], f["producto_id"])
         )
@@ -196,6 +218,7 @@ class ServicioReportes:
         validar_periodo(fecha_desde, fecha_hasta)
         filas = await self.repo.rentabilidad(fecha_desde, fecha_hasta, categoria_id, producto_id)
         resultado = []
+        # Margen estimado y su porcentaje sobre el ingreso de cada producto.
         for fila in filas:
             ingreso = fila["ingreso_estimado"]
             costo = fila["costo_estimado"]

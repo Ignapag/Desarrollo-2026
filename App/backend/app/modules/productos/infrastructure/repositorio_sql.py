@@ -8,10 +8,17 @@ from app.modules.productos.domain.entidades import CambioReceta, DatosProducto
 
 
 class RepositorioProductosSQL:
+    """Acceso SQL al catálogo: productos, recetas, variantes y disponibilidad."""
+
     def __init__(self, uow: UnidadDeTrabajo) -> None:
+        """Recibe la unidad de trabajo cuya transacción comparten las consultas."""
         self.uow = uow
 
     async def listar(self, *, solo_activos: bool) -> list[dict]:
+        """Lista productos con categoría, variantes, disponibilidad e ingredientes de receta.
+
+        Con ``solo_activos`` excluye productos inactivos o de categorías inactivas.
+        """
         return await self.uow.todos(
             """
             SELECT p.id, p.categoria_id, c.nombre AS categoria, p.nombre,
@@ -35,6 +42,7 @@ class RepositorioProductosSQL:
         )
 
     async def categoria_existe(self, categoria_id: int) -> bool:
+        """Indica si la categoría existe y está activa."""
         return bool(
             await self.uow.valor(
                 "SELECT EXISTS (SELECT 1 FROM categoria WHERE id = %s AND activa)",
@@ -43,6 +51,8 @@ class RepositorioProductosSQL:
         )
 
     async def nombre_existe(self, categoria_id: int, nombre: str) -> bool:
+        """Indica si ya hay un producto con ese nombre (sin distinguir mayúsculas) en la categoría.
+        """
         return bool(
             await self.uow.valor(
                 """
@@ -56,12 +66,14 @@ class RepositorioProductosSQL:
         )
 
     async def ingredientes_validos(self, ids: list[int]) -> bool:
+        """Indica si todos los ingredientes indicados existen y están activos."""
         cantidad = await self.uow.valor(
             "SELECT count(*) FROM ingrediente WHERE id = ANY(%s) AND activo", (ids,)
         )
         return cantidad == len(ids)
 
     async def crear(self, datos: DatosProducto) -> dict:
+        """Inserta el producto con su receta base y de variantes, y lo devuelve completo."""
         fila = await self.uow.uno(
             """
             INSERT INTO producto
@@ -82,6 +94,7 @@ class RepositorioProductosSQL:
             ),
         )
         producto_id = fila["id"]
+        # Receta base: una fila por ingrediente.
         for ingrediente in datos.ingredientes:
             await self.uow.ejecutar(
                 """
@@ -119,6 +132,7 @@ class RepositorioProductosSQL:
         )
 
     async def _guardar_variantes(self, producto_id: int, variantes) -> None:
+        """Inserta la receta de cada variante del producto."""
         for variante in variantes:
             for item in variante.ingredientes:
                 await self.uow.ejecutar(
@@ -137,6 +151,10 @@ class RepositorioProductosSQL:
                 )
 
     async def obtener_receta(self, producto_id: int, *, bloquear: bool = False) -> dict | None:
+        """Devuelve la receta base y la de cada variante del producto.
+
+        Con ``bloquear`` toma FOR UPDATE (para editar); si no, FOR SHARE.
+        """
         if bloquear:
             producto = await self.uow.uno(
                 "SELECT id, actualizado_en, variantes FROM producto WHERE id=%s FOR UPDATE",
@@ -151,6 +169,7 @@ class RepositorioProductosSQL:
             return None
         ingredientes = await self._leer_ingredientes(producto_id, None)
         variantes = []
+        # Para cada variante se indica si tiene receta propia configurada.
         for variante in producto["variantes"]:
             nombre = variante["nombre"]
             configurada = await self.uow.valor(
@@ -174,6 +193,7 @@ class RepositorioProductosSQL:
         }
 
     async def _leer_ingredientes(self, producto_id: int, variante: str | None) -> list[dict]:
+        """Lee la receta efectiva (base o de una variante) con nombre y unidad."""
         return await self.uow.todos(
             """SELECT r.ingrediente_id, i.nombre, i.unidad_medida,
                       r.cantidad_requerida, r.es_base
@@ -191,6 +211,7 @@ class RepositorioProductosSQL:
         )
         if fila is None:
             raise ReglaDeNegocio("La receta fue modificada; recargala antes de guardar")
+        # Reemplaza la receta completa: borra la anterior y vuelve a insertar base y variantes.
         await self.uow.ejecutar(
             "DELETE FROM producto_variante_ingrediente WHERE producto_id=%s", (producto_id,)
         )
@@ -207,6 +228,7 @@ class RepositorioProductosSQL:
         return await self.obtener_receta(producto_id)
 
     async def cambiar_estado(self, producto_id: int, activo: bool) -> dict | None:
+        """Activa o desactiva el producto y lo devuelve completo, o ``None`` si no existe."""
         fila = await self.uow.uno(
             """
             UPDATE producto SET activo = %s, actualizado_en = now()

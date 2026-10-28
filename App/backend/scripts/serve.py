@@ -58,6 +58,9 @@ def migrar() -> None:
 
 @asynccontextmanager
 async def ciclo_servicio(api, *, con_worker: bool, solo_demo=False):
+    """Ciclo de vida del servidor: envuelve el de la API y, si corresponde, corre el worker de
+    WhatsApp como tarea en segundo plano que se cancela al apagar.
+    """
     async with ciclo_api(api):
         tarea = None
         if con_worker:
@@ -75,7 +78,11 @@ async def ciclo_servicio(api, *, con_worker: bool, solo_demo=False):
 
 
 def iniciar_servidor(*, con_worker: bool) -> None:
+    """Valida la configuración, decide si corre el worker integrado y levanta uvicorn en el puerto
+    de Render.
+    """
     cargar_demo_publica()
+    # En WhatsApp real se exige la configuración completa antes de arrancar.
     if settings.whatsapp_modo == "real":
         campos = (
             "whatsapp_token",
@@ -104,6 +111,7 @@ def iniciar_servidor(*, con_worker: bool) -> None:
 
 
 def main(argv=None) -> int:
+    """Punto de entrada CLI: opcionalmente migra y luego inicia el servidor."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--migrar", action="store_true", help="aplicar solo migraciones pendientes")
     parser.add_argument("--sin-worker", action="store_true", help="usar un worker externo")

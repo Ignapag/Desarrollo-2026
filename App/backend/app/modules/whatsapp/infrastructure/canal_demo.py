@@ -18,16 +18,27 @@ MAX_ARCHIVO = 2 * 1024 * 1024
 
 
 def huella(datos):
+    """Hash SHA-256 estable del contenido JSON de un intento, para detectar reutilizaciones con otro
+    contenido.
+    """
     return hashlib.sha256(
         json.dumps(datos, sort_keys=True, ensure_ascii=False).encode()
     ).hexdigest()
 
 
 class CanalDemoSQL:
+    """Persistencia del chat de demostración web: sesiones con cookie, cupos diarios, intentos
+    idempotentes, adjuntos e historial visible.
+    """
+
     def __init__(self, uow):
+        """Recibe la unidad de trabajo usada para las consultas SQL."""
         self.uow = uow
 
     async def sesion(self, token, bloquear=False):
+        """Valida el token de la cookie y devuelve la sesión vigente; con bloquear serializa las
+        operaciones de esa sesión.
+        """
         if not token or len(token) > 100:
             raise NoAutenticado("Abrí una sesión de demostración para continuar")
         token_hash = hash_referencia(token)
@@ -45,6 +56,9 @@ class CanalDemoSQL:
         return sesion
 
     async def crear_sesion(self):
+        """Crea una sesión de demostración con un teléfono y un cliente ficticios, respetando el
+        cupo diario global. Devuelve el token en claro.
+        """
         await self._presupuesto()
         cantidad = await self.uow.valor(
             "SELECT count(*) FROM chat_demo_sesion WHERE creado_en>now()-interval '1 day'"
@@ -65,6 +79,7 @@ class CanalDemoSQL:
         return token
 
     async def _presupuesto(self):
+        """Toma el bloqueo transaccional que serializa los cupos globales de la demostración."""
         # Serializa el presupuesto global, sin llamadas a proveedores en este alcance.
         await self.uow.valor("SELECT pg_advisory_xact_lock(hashtext('chat-demo-presupuesto'))")
 
@@ -77,10 +92,12 @@ class CanalDemoSQL:
             WHERE o.sesion_hash=%s AND o.solicitud_id=%s""",
             (sesion["token_hash"], solicitud_id),
         )
+        # Reintento del mismo UUID: devuelve el resultado anterior si el contenido coincide.
         if anterior:
             if anterior["huella"] != firma:
                 raise ReglaDeNegocio("Ese intento ya se usó con otro contenido")
             return {"id": anterior["id"], "estado": anterior["estado"]}
+        # Intento nuevo: se aplican los cupos diarios globales y por sesión.
         await self._presupuesto()
         cuenta = await self.uow.uno(
             """SELECT count(*) total,
@@ -100,9 +117,11 @@ class CanalDemoSQL:
 
     @staticmethod
     def identificador(sesion, solicitud_id):
+        """Identificador del mensaje entrante derivado de la sesión y del UUID del intento."""
         return "web:" + sesion["token_hash"] + ":" + str(solicitud_id)
 
     async def registrar(self, sesion, solicitud_id, contenido, entrada_id):
+        """Registra el intento con su huella vinculado al mensaje entrante creado."""
         await self.uow.ejecutar(
             """INSERT INTO chat_demo_operacion(sesion_hash,solicitud_id,huella,entrada_id)
             VALUES (%s,%s,%s,%s)""",
@@ -111,6 +130,9 @@ class CanalDemoSQL:
         return {"id": entrada_id, "estado": "PENDIENTE"}
 
     async def vincular_borrador(self, sesion, referencia, contacto):
+        """Asocia el borrador creado en la web al teléfono y cliente de la sesión, y guarda el
+        contacto declarado.
+        """
         # El teléfono declarado es comercial. Jamás fija whatsapp_verificado.
         await self.uow.ejecutar(
             """UPDATE whatsapp_borrador SET telefono=%s,cliente_id=%s,contacto=%s
@@ -122,6 +144,7 @@ class CanalDemoSQL:
                 hash_referencia(referencia[3:]),
             ),
         )
+        # Actualiza el nombre y teléfono comercial del cliente ficticio.
         if contacto:
             await self.uow.ejecutar(
                 "UPDATE cliente SET nombre=%s,telefono_contacto=%s WHERE id=%s",
@@ -133,6 +156,7 @@ class CanalDemoSQL:
             )
 
     async def guardar_archivo(self, sesion, entrada_id, media_id, contenido, mime):
+        """Guarda el archivo adjuntado en la demostración, ligado a la sesión y al mensaje."""
         await self.uow.ejecutar(
             """INSERT INTO chat_demo_archivo(media_id,sesion_hash,entrada_id,contenido,mime)
             VALUES (%s,%s,%s,%s,%s)""",
@@ -140,6 +164,7 @@ class CanalDemoSQL:
         )
 
     async def archivo(self, entrada_id, sesion):
+        """Devuelve un adjunto solo si pertenece a la sesión que lo pide."""
         archivo = await self.uow.uno(
             "SELECT contenido,mime FROM chat_demo_archivo WHERE entrada_id=%s AND sesion_hash=%s",
             (entrada_id, sesion["token_hash"]),
@@ -149,7 +174,11 @@ class CanalDemoSQL:
         return archivo
 
     async def conversacion(self, sesion):
+        """Historial visible del chat de demostración: mensajes entrantes y salientes en orden y
+        borradores de la sesión, sin exponer referencias de acceso.
+        """
         telefono = sesion["telefono"]
+        # Últimos 200 mensajes del teléfono, entrantes y salientes, en una sola lista.
         mensajes = await self.uow.todos(
             """SELECT * FROM (
                 SELECT id,'cliente' direccion,texto,estado,creado_en,
@@ -161,6 +190,7 @@ class CanalDemoSQL:
             ) m ORDER BY creado_en DESC,(direccion='bot') DESC,orden DESC LIMIT 200""",
             (telefono, telefono),
         )
+        # Borradores del teléfono con los nombres de producto y el estado de su pedido.
         borradores = await self.uow.todos(
             """SELECT b.referencia_hash,b.pedido_id,b.estado,b.expira_en,
                 (SELECT jsonb_agg(i || jsonb_build_object('nombre',pr.nombre))
@@ -172,6 +202,7 @@ class CanalDemoSQL:
             (telefono,),
         )
         por_referencia = {b.pop("referencia_hash"): b for b in borradores}
+        # El mensaje con referencia se muestra como el carrito que continúa; el resto se oculta.
         for mensaje in mensajes:
             mensaje.pop("orden")
             referencia = referencia_en(mensaje["texto"])

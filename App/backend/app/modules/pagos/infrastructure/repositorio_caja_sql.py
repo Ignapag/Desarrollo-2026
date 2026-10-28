@@ -19,6 +19,7 @@ from app.modules.pagos.infrastructure.repositorio_sql import _mapear_pago
 
 
 def _mapear_cierre(fila: dict) -> CierreCaja:
+    """Convierte una fila de ``cierre_caja`` en la entidad de dominio ``CierreCaja``."""
     return CierreCaja(
         id=fila["id"],
         fecha=fila["fecha"],
@@ -39,11 +40,15 @@ def _mapear_cierre(fila: dict) -> CierreCaja:
 
 
 class RepositorioCajaSQL:
+    """Acceso SQL a cierres de caja, cortes de pagos y locks por turno."""
+
     def __init__(self, uow: UnidadDeTrabajo) -> None:
+        """Recibe la unidad de trabajo cuya transacción comparten las consultas."""
         self.uow = uow
 
     async def bloquear_turno(self, fecha: date, turno: TurnoCierre) -> None:
         """Generación, aprobación y conciliación preceden a los locks de pago."""
+        # Lock consultivo de transacción, identificado por la fecha y el turno del cierre.
         await self.uow.ejecutar(
             "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
             (f"caja:{fecha.isoformat()}:{turno.value}",),
@@ -55,16 +60,19 @@ class RepositorioCajaSQL:
         Un pendiente solo puede perder su vínculo mientras esperamos: generación
         no asigna pendientes. El lote toma todos los turnos antes de tocar pagos.
         """
+        # Solo interesan los cierres que tienen pagos pendientes de los ids indicados.
         cierres = await self.uow.todos(
             "SELECT DISTINCT c.fecha,c.turno FROM cierre_caja c JOIN pago p "
             "ON p.cierre_caja_id=c.id WHERE p.id=ANY(%s) AND p.estado='PENDIENTE' "
             "ORDER BY c.fecha,c.turno",
             (pago_ids,),
         )
+        # Se bloquean en orden por fecha y turno para evitar interbloqueos.
         for cierre in cierres:
             await self.bloquear_turno(cierre["fecha"], TurnoCierre(cierre["turno"]))
 
     async def desvincular_no_conciliados(self, cierre_id: int) -> list[int]:
+        """Quita del cierre los pagos no conciliados y devuelve sus ids."""
         # El turno ya está bloqueado. Orden de filas estable antes del UPDATE.
         filas = await self.uow.todos(
             "SELECT id FROM pago WHERE cierre_caja_id=%s AND estado<>'CONCILIADO' "
@@ -80,6 +88,10 @@ class RepositorioCajaSQL:
         return ids
 
     async def capturar_turno(self, desde: datetime, hasta: datetime) -> CorteCaja:
+        """Calcula el corte de un turno con los pagos no anulados de su ventana horaria.
+
+        La fecha de referencia es la de conciliación o, si falta, la de registro. No bloquea filas.
+        """
         filas = await self.uow.todos(
             "SELECT id,pedido_id,cierre_caja_id,tipo,metodo_pago,monto,propina,estado,"
             "referencia_externa,registrado_por,registrado_en,conciliado_en,motivo "
@@ -110,6 +122,7 @@ class RepositorioCajaSQL:
         return calcular_corte_caja([_mapear_pago(f) for f in filas])
 
     async def capturar_cierre_vinculado(self, cierre_id: int) -> CorteCaja:
+        """Bloquea y totaliza los pagos ya vinculados a un cierre."""
         filas = await self.uow.todos(
             "SELECT id,pedido_id,cierre_caja_id,tipo,metodo_pago,monto,propina,estado,"
             "referencia_externa,registrado_por,registrado_en,conciliado_en,motivo "
@@ -124,6 +137,7 @@ class RepositorioCajaSQL:
         return valor if valor is not None else por_defecto
 
     async def consolidar_totales_turno(self, desde: datetime, hasta: datetime) -> dict:
+        """Devuelve solo los totales del corte de un turno."""
         return (await self.capturar_turno(desde, hasta)).totales
 
     async def desglose_por_metodo(
@@ -131,6 +145,7 @@ class RepositorioCajaSQL:
         desde: datetime,
         hasta: datetime,
     ) -> list[TotalesMetodoPago]:
+        """Devuelve solo el desglose por método de pago del corte de un turno."""
         return (await self.capturar_turno(desde, hasta)).desglose
 
     async def obtener_cierre_por_fecha_turno(
@@ -164,6 +179,7 @@ class RepositorioCajaSQL:
 
         Si ya existía un cierre aprobado, no permite modificación alguna.
         """
+        # Recalcula un cierre existente, salvo que ya esté aprobado (entonces no devuelve fila).
         sql = """
             INSERT INTO cierre_caja (
                 fecha, turno, cerrado_en, total_efectivo, total_billeteras,
@@ -209,6 +225,7 @@ class RepositorioCajaSQL:
         return _mapear_cierre(fila)
 
     async def vincular_pagos_al_cierre(self, cierre_id: int, pago_ids: list[int]) -> int:
+        """Asocia al cierre los pagos conciliados libres o ya suyos y devuelve cuántos."""
         return await self.uow.ejecutar(
             "UPDATE pago SET cierre_caja_id=%s WHERE id=ANY(%s) "
             "AND estado='CONCILIADO' AND (cierre_caja_id IS NULL OR cierre_caja_id=%s)",
@@ -235,6 +252,7 @@ class RepositorioCajaSQL:
         estado: EstadoCierre | None = None,
     ) -> list[CierreCaja]:
         """Lista el historial de cierres ordenados cronológicamente."""
+        # Cada filtro es opcional: un parámetro NULL desactiva su condición.
         sql = """
             SELECT id, fecha, turno, abierto_en, cerrado_en, total_efectivo,
                    total_billeteras, total_devoluciones, total_general,

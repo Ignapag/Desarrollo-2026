@@ -11,6 +11,8 @@ from app.modules.usuarios.application.servicio_usuarios import DatosNuevoUsuario
 
 
 class LoginEntrada(BaseModel):
+    """Credenciales de inicio de sesión."""
+
     username: str = Field(min_length=1)
     password: str = Field(min_length=1)
 
@@ -31,6 +33,8 @@ class SesionSalida(BaseModel):
 
 
 class UsuarioSalida(BaseModel):
+    """Cuenta de usuario tal como se muestra en el panel (sin hash de contraseña)."""
+
     id: int
     nombre: str
     apellido: str
@@ -45,6 +49,8 @@ class UsuarioSalida(BaseModel):
 
 
 class NuevoUsuarioEntrada(BaseModel):
+    """Datos para registrar una cuenta nueva."""
+
     nombre: str = Field(min_length=1)
     apellido: str = Field(min_length=1)
     username: str = Field(min_length=4)
@@ -54,6 +60,7 @@ class NuevoUsuarioEntrada(BaseModel):
     telefono: str | None = None
 
     def a_datos(self) -> DatosNuevoUsuario:
+        """Convierte la entrada HTTP en ``DatosNuevoUsuario`` del caso de uso."""
         return DatosNuevoUsuario(
             nombre=self.nombre,
             apellido=self.apellido,
@@ -66,12 +73,15 @@ class NuevoUsuarioEntrada(BaseModel):
 
 
 class ModificarUsuarioEntrada(BaseModel):
+    """Datos editables de una cuenta existente."""
+
     nombre: str = Field(min_length=1)
     apellido: str = Field(min_length=1)
     username: str = Field(min_length=4)
     estado: str
 
     def a_datos(self) -> DatosUsuario:
+        """Convierte la entrada HTTP en ``DatosUsuario`` del caso de uso."""
         return DatosUsuario(
             nombre=self.nombre,
             apellido=self.apellido,
@@ -81,10 +91,14 @@ class ModificarUsuarioEntrada(BaseModel):
 
 
 class AsignarRolEntrada(BaseModel):
+    """Rol a asignar a una cuenta."""
+
     rol: str
 
 
 class EventoAuditoriaSalida(BaseModel):
+    """Evento del log de auditoría con el usuario que lo generó."""
+
     id: int
     usuario_id: int | None
     username: str | None

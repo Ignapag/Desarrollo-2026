@@ -13,16 +13,21 @@ from app.modules.delivery.domain.entidades import (
 
 
 def _float(valor) -> float | None:
+    """Convierte a ``float`` valores numéricos de la base (Decimal), preservando ``None``."""
     return float(valor) if valor is not None else None
 
 
 class RepositorioDeliverySQL:
+    """Acceso SQL a viajes, envíos, repartidores y parámetros de delivery."""
+
     def __init__(self, uow: UnidadDeTrabajo) -> None:
+        """Recibe la unidad de trabajo cuya transacción comparten todas las consultas."""
         self.uow = uow
 
     # ------------------------------ parametros ------------------------
 
     async def parametro(self, clave: str, por_defecto: str) -> str:
+        """Lee un parámetro configurable del sistema, con valor por defecto."""
         valor = await self.uow.valor("SELECT valor FROM parametro WHERE clave = %s", (clave,))
         return valor if valor is not None else por_defecto
 
@@ -37,6 +42,9 @@ class RepositorioDeliverySQL:
         zona resuelta, se intenta deducir con punto_en_zona() sobre los
         poligonos de cobertura.
         """
+        # La zona se toma de la dirección o, si falta, del primer polígono activo que contiene el
+        # punto.
+        # Se excluyen los pedidos que ya tienen un envío enganchado a un viaje.
         filas = await self.uow.todos(
             """
             SELECT p.id AS pedido_id, p.numero, p.creado_en,
@@ -59,6 +67,8 @@ class RepositorioDeliverySQL:
                   WHERE e.pedido_id = p.id AND e.viaje_id IS NOT NULL
               )
             """
+            # Filtro opcional por ids y bloqueo opcional saltando filas tomadas por otra
+            # transacción.
             + (" AND p.id = ANY(%s)" if pedido_ids is not None else "")
             + " ORDER BY p.id"
             + (" FOR UPDATE OF p SKIP LOCKED" if bloquear else ""),
@@ -88,6 +98,7 @@ class RepositorioDeliverySQL:
         self, *, bloquear: bool = False
     ) -> list[RepartidorDisponible]:
         """Repartidores disponibles y sin ningun viaje abierto."""
+        # Solo repartidores activos, en estado disponible y sin viajes planificados o en ruta.
         filas = await self.uow.todos(
             """
             SELECT r.usuario_id, r.ultima_lat, r.ultima_lng,
@@ -128,6 +139,7 @@ class RepositorioDeliverySQL:
         ]
 
     async def viaje(self, viaje_id: int) -> dict | None:
+        """Devuelve un viaje con el nombre de su repartidor, o ``None``."""
         return await self.uow.uno(
             """
             SELECT v.id, v.repartidor_id, v.estado, v.creado_en, v.salida_en,
@@ -140,6 +152,11 @@ class RepositorioDeliverySQL:
         )
 
     async def envios_del_viaje(self, viaje_id: int) -> list[dict]:
+        """Envíos del viaje con dirección, contacto y saldo pendiente de cobro.
+
+        El saldo es el total menos los pagos conciliados (cobros suman, devoluciones restan), sin
+        bajar de cero.
+        """
         return await self.uow.todos(
             """
             SELECT e.id, e.id AS envio_id, e.viaje_id, e.pedido_id, p.numero,
@@ -167,6 +184,7 @@ class RepositorioDeliverySQL:
         )
 
     async def viajes_activos(self) -> list[dict]:
+        """Viajes planificados o en ruta con su repartidor y cantidad de envíos."""
         return await self.uow.todos(
             """
             SELECT v.id, v.estado, v.creado_en, v.salida_en,
@@ -182,6 +200,7 @@ class RepositorioDeliverySQL:
         )
 
     async def viaje_abierto_de(self, repartidor_id: int) -> dict | None:
+        """Devuelve el viaje planificado o en ruta del repartidor, si existe."""
         return await self.uow.uno(
             """
             SELECT id, estado FROM viaje
@@ -191,6 +210,7 @@ class RepositorioDeliverySQL:
         )
 
     async def envio(self, envio_id: int) -> dict | None:
+        """Devuelve un envío con datos de su pedido y del viaje al que pertenece."""
         return await self.uow.uno(
             """
             SELECT e.*, p.numero AS pedido_numero,
@@ -204,6 +224,7 @@ class RepositorioDeliverySQL:
         )
 
     async def envio_del_pedido(self, pedido_id: int) -> dict | None:
+        """Devuelve el envío asociado a un pedido, o ``None`` si no tiene."""
         envio_id = await self.uow.valor("SELECT id FROM envio WHERE pedido_id = %s", (pedido_id,))
         return await self.envio(envio_id) if envio_id is not None else None
 
@@ -212,6 +233,7 @@ class RepositorioDeliverySQL:
     async def crear_viaje(
         self, repartidor_id: int, *, asignado_por: int | None, automatica: bool
     ) -> int:
+        """Inserta un viaje nuevo para el repartidor y devuelve su id."""
         fila = await self.uow.uno(
             """
             INSERT INTO viaje (repartidor_id, asignado_por, asignacion_auto)
@@ -255,17 +277,20 @@ class RepositorioDeliverySQL:
                 Decimal(str(distancia_km)) if distancia_km is not None else None,
             ),
         )
+        # El ON CONFLICT no actualiza si el envío ya está enganchado a otro viaje.
         if fila is None:
             raise ReglaDeNegocio("El pedido ya tiene una asignacion vigente")
         return fila["id"]
 
     async def cambiar_estado_repartidor(self, repartidor_id: int, estado: str) -> None:
+        """Actualiza el estado operativo del repartidor."""
         await self.uow.ejecutar(
             "UPDATE repartidor SET estado = %s WHERE usuario_id = %s",
             (estado, repartidor_id),
         )
 
     async def cambiar_estado_viaje(self, viaje_id: int, estado: str) -> None:
+        """Cambia el estado del viaje registrando la hora de salida o de retorno."""
         if estado == "EN_RUTA":
             await self.uow.ejecutar(
                 "UPDATE viaje SET estado = %s, salida_en = now() WHERE id = %s",
@@ -281,6 +306,10 @@ class RepositorioDeliverySQL:
         await self.uow.ejecutar("UPDATE viaje SET estado = %s WHERE id = %s", (estado, viaje_id))
 
     async def cambiar_estado_envios_del_viaje(self, viaje_id: int, estado: str) -> list[int]:
+        """Cambia el estado de los envíos no entregados del viaje.
+
+        Registra la marca de tiempo correspondiente y devuelve los ids de pedido afectados.
+        """
         if estado == "EN_CAMINO":
             sql = """
             UPDATE envio SET estado = %s, en_camino_en = now()
@@ -303,6 +332,7 @@ class RepositorioDeliverySQL:
         return [f["pedido_id"] for f in filas]
 
     async def cambiar_estado_envio(self, envio_id: int, estado: str) -> None:
+        """Cambia el estado de un envío y registra la marca de tiempo que corresponda."""
         if estado == "EN_CAMINO":
             sql = "UPDATE envio SET estado = %s, en_camino_en = now() WHERE id = %s"
         elif estado == "ENTREGADO":
@@ -312,6 +342,7 @@ class RepositorioDeliverySQL:
         await self.uow.ejecutar(sql, (estado, envio_id))
 
     async def quedan_envios_pendientes(self, viaje_id: int) -> bool:
+        """Indica si el viaje tiene envíos que no fueron entregados ni fallaron."""
         return bool(
             await self.uow.valor(
                 """
@@ -325,6 +356,7 @@ class RepositorioDeliverySQL:
         )
 
     async def bloquear_viaje(self, viaje_id: int) -> dict | None:
+        """Bloquea los pedidos del viaje y el viaje (FOR UPDATE) y lo devuelve."""
         # Todos los comandos usan pedido(s) -> viaje -> envio -> repartidor.
         await self.uow.todos(
             """SELECT p.id FROM pedido p JOIN envio e ON e.pedido_id = p.id
@@ -335,6 +367,7 @@ class RepositorioDeliverySQL:
         return await self.viaje(viaje_id)
 
     async def pedido_asignable(self, pedido_id: int) -> dict | None:
+        """Bloquea el pedido y devuelve estado, tipo de entrega y zona de su dirección."""
         return await self.uow.uno(
             """SELECT p.id, p.estado, p.tipo_entrega, d.zona_id
                FROM pedido p LEFT JOIN direccion d ON d.id = p.direccion_id
@@ -343,6 +376,7 @@ class RepositorioDeliverySQL:
         )
 
     async def desenganchar_envio(self, envio_id: int, motivo: str) -> None:
+        """Saca el envío de su viaje y lo deja pendiente, guardando el motivo."""
         await self.uow.ejecutar(
             """UPDATE envio SET viaje_id = NULL, estado = 'PENDIENTE',
                asignado_en = NULL, en_camino_en = NULL, entregado_en = NULL,
@@ -351,6 +385,7 @@ class RepositorioDeliverySQL:
         )
 
     async def registrar_fallo(self, envio_id: int, motivo: str) -> None:
+        """Marca el envío como fallido y guarda el motivo informado."""
         await self.uow.ejecutar(
             "UPDATE envio SET estado = 'FALLIDO', observaciones = %s WHERE id = %s",
             (motivo, envio_id),

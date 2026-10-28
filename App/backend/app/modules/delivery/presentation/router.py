@@ -23,6 +23,7 @@ from app.modules.delivery.presentation.esquemas import (
 from app.modules.usuarios.domain.entidades import ClaimsSesion, Rol
 from app.modules.usuarios.presentation.dependencias import requiere_permiso
 
+# Permisos del módulo: planificar viajes, ver el reparto, operarlo y corregir entregas.
 PermisoDeliveryPlanificar = Annotated[
     ClaimsSesion, Depends(requiere_permiso("delivery", "planificar"))
 ]
@@ -59,6 +60,7 @@ async def planificar(
 async def viajes_activos(
     sesion: PermisoDeliveryVer, servicio: ServicioDeliveryDep
 ) -> list[ViajeActivo]:
+    """Lista los viajes abiertos; un repartidor solo ve los propios."""
     return [
         ViajeActivo(**v)
         for v in await servicio.viajes_activos(usuario_id=sesion.usuario_id, rol=sesion.rol)
@@ -80,6 +82,7 @@ async def repartidores_disponibles(
 async def detalle_viaje(
     viaje_id: int, sesion: PermisoDeliveryVer, servicio: ServicioDeliveryDep
 ) -> DetalleViaje:
+    """Devuelve un viaje con sus envíos, validando que el usuario pueda verlo."""
     return DetalleViaje(
         **await servicio.detalle_viaje(viaje_id, usuario_id=sesion.usuario_id, rol=sesion.rol)
     )
@@ -123,6 +126,7 @@ async def asignar_pedido(
     sesion: PermisoDeliveryPlanificar,
     servicio: ServicioDeliveryDep,
 ) -> dict:
+    """Asigna manualmente un pedido listo a un repartidor, creando un viaje nuevo."""
     return await servicio.asignar_pedido(
         pedido_id,
         datos.repartidor_id,
@@ -140,6 +144,7 @@ async def desasignar_envio(
     sesion: PermisoDeliveryPlanificar,
     servicio: ServicioDeliveryDep,
 ) -> dict:
+    """Quita un envío de su viaje antes de la salida, dejando constancia del motivo."""
     return await servicio.desasignar_envio(
         envio_id,
         motivo=datos.motivo,
@@ -156,6 +161,7 @@ async def registrar_fallo(
     sesion: PermisoDeliveryOperar,
     servicio: ServicioDeliveryDep,
 ) -> dict:
+    """Marca un envío en camino como fallido (por ejemplo, cliente ausente)."""
     return await servicio.registrar_fallo(
         envio_id, motivo=datos.motivo, usuario_id=sesion.usuario_id, rol=sesion.rol
     )
@@ -168,6 +174,7 @@ async def reasignar_envio(
     sesion: PermisoDeliveryPlanificar,
     servicio: ServicioDeliveryDep,
 ) -> dict:
+    """Desasigna un envío y lo asigna a otro repartidor en una sola operación."""
     return await servicio.reasignar_envio(
         envio_id,
         datos.repartidor_id,
@@ -185,6 +192,7 @@ async def confirmar_regreso(
     sesion: PermisoDeliveryPlanificar,
     servicio: ServicioDeliveryDep,
 ) -> dict:
+    """Confirma que un envío fallido volvió al local y devuelve el pedido a LISTO."""
     return await servicio.confirmar_regreso(
         envio_id,
         motivo=datos.motivo,

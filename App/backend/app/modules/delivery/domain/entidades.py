@@ -20,6 +20,8 @@ RADIO_TIERRA_KM = 6371.0
 
 
 class EstadoViaje(StrEnum):
+    """Ciclo de vida de un viaje de reparto: planificado, en ruta, finalizado o cancelado."""
+
     PLANIFICADO = "PLANIFICADO"
     EN_RUTA = "EN_RUTA"
     FINALIZADO = "FINALIZADO"
@@ -27,6 +29,8 @@ class EstadoViaje(StrEnum):
 
 
 class EstadoEnvio(StrEnum):
+    """Estado de cada envío (pedido) dentro de un viaje, desde pendiente hasta entregado/fallido."""
+
     PENDIENTE = "PENDIENTE"
     ASIGNADO = "ASIGNADO"
     EN_CAMINO = "EN_CAMINO"
@@ -35,6 +39,8 @@ class EstadoEnvio(StrEnum):
 
 
 class EstadoRepartidor(StrEnum):
+    """Disponibilidad operativa del repartidor para recibir nuevos viajes."""
+
     DISPONIBLE = "DISPONIBLE"
     EN_RUTA = "EN_RUTA"
     FUERA_DE_SERVICIO = "FUERA_DE_SERVICIO"
@@ -46,6 +52,7 @@ def distancia_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     Replica la funcion distancia_km() de la base para poder calcular sin
     ida y vuelta a PostgreSQL. Las pruebas verifican que ambas coincidan.
     """
+    # Fórmula de haversine sobre la esfera terrestre; el resultado se redondea a metros.
     lat1_r, lat2_r = radians(lat1), radians(lat2)
     dif_lat = radians(lat2 - lat1)
     dif_lng = radians(lng2 - lng1)
@@ -68,9 +75,11 @@ class PedidoParaDespachar:
 
     @property
     def tiene_ubicacion(self) -> bool:
+        """Indica si el pedido tiene coordenadas de entrega conocidas."""
         return self.lat is not None and self.lng is not None
 
     def distancia_a(self, otro: PedidoParaDespachar) -> float | None:
+        """Distancia en km a otro pedido, o ``None`` si alguno no tiene ubicación."""
         if not (self.tiene_ubicacion and otro.tiene_ubicacion):
             return None
         return distancia_km(self.lat, self.lng, otro.lat, otro.lng)  # type: ignore[arg-type]
@@ -78,6 +87,8 @@ class PedidoParaDespachar:
 
 @dataclass(slots=True, frozen=True)
 class RepartidorDisponible:
+    """Repartidor libre (sin viaje abierto) candidato a recibir una asignación."""
+
     repartidor_id: int
     nombre: str
     lat: float | None
@@ -85,6 +96,7 @@ class RepartidorDisponible:
 
     @property
     def tiene_ubicacion(self) -> bool:
+        """Indica si se conoce la última posición del repartidor."""
         return self.lat is not None and self.lng is not None
 
 
@@ -96,10 +108,12 @@ class GrupoDeReparto:
 
     @property
     def cantidad(self) -> int:
+        """Cantidad de pedidos que lleva el grupo."""
         return len(self.pedidos)
 
     @property
     def zona_id(self) -> int | None:
+        """Zona de cobertura del grupo (la del primer pedido)."""
         return self.pedidos[0].zona_id if self.pedidos else None
 
     @property
@@ -111,6 +125,7 @@ class GrupoDeReparto:
         return None
 
     def distancia_desde(self, repartidor: RepartidorDisponible) -> float | None:
+        """Distancia del repartidor al primer domicilio con ubicación del grupo."""
         referencia = self.punto_de_referencia
         if referencia is None or not repartidor.tiene_ubicacion:
             return None
@@ -142,13 +157,16 @@ def agrupar_pedidos(
     if max_por_viaje < 1:
         raise ValueError("max_por_viaje debe ser al menos 1")
 
+    # Orden por antigüedad (y id como desempate) para priorizar a los más viejos.
     pendientes = sorted(pedidos, key=lambda p: (p.creado_en, p.pedido_id))
     grupos: list[GrupoDeReparto] = []
 
+    # Cada vuelta toma el pedido más antiguo como ancla y le suma vecinos cercanos.
     while pendientes:
         ancla = pendientes.pop(0)
         grupo = GrupoDeReparto(pedidos=[ancla])
 
+        # Completa el viaje con el vecino más cercano hasta llegar al máximo permitido.
         while grupo.cantidad < max_por_viaje:
             companiero = _vecino_mas_cercano(ancla, pendientes, radio_km)
             if companiero is None:
@@ -170,6 +188,7 @@ def _vecino_mas_cercano(
     mejor: PedidoParaDespachar | None = None
     mejor_distancia = float("inf")
 
+    # Se queda con el candidato de la misma zona más cercano que esté dentro del radio.
     for candidato in candidatos:
         if not _misma_zona(ancla, candidato):
             continue
@@ -210,10 +229,12 @@ def elegir_repartidor(
     if not repartidores:
         return None
 
+    # Sin ubicaciones para comparar, se toma el primero de la lista como criterio de respaldo.
     con_ubicacion = [r for r in repartidores if r.tiene_ubicacion]
     if not con_ubicacion or grupo.punto_de_referencia is None:
         return repartidores[0]
 
+    # Filtra los repartidores con distancia calculable dentro del radio de búsqueda.
     candidatos: list[tuple[float, RepartidorDisponible]] = []
     for repartidor in con_ubicacion:
         distancia = grupo.distancia_desde(repartidor)
@@ -241,6 +262,7 @@ class AsignacionPropuesta:
 
     @property
     def asignable(self) -> bool:
+        """Indica si se encontró un repartidor para el grupo."""
         return self.repartidor is not None
 
 
@@ -264,6 +286,7 @@ def planificar(
     libres = list(repartidores)
     propuestas: list[AsignacionPropuesta] = []
 
+    # Asigna repartidores grupo por grupo, retirando de la lista a los ya elegidos.
     for grupo in grupos:
         elegido = elegir_repartidor(grupo, libres, radio_busqueda_km=radio_busqueda_km)
         distancia = grupo.distancia_desde(elegido) if elegido else None

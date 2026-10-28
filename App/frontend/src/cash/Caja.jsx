@@ -1,3 +1,6 @@
+// Pantalla de Caja: consulta el consolidado del turno (mediodía/noche), el historial
+// de cierres y permite generar/recalcular y aprobar cierres según los permisos.
+// La lógica de datos vive en `cajaController`; este archivo solo dibuja su estado.
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Banknote, RefreshCw, LockKeyhole } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
@@ -6,11 +9,16 @@ import { apiFetch } from '../shared/api/http';
 import { createCajaController } from './cajaController';
 import { ESTADOS, TURNOS, METODOS, formatMoney, formatDate, formatTimestamp, sameTarget } from './cajaContract';
 
+// Clases Tailwind reutilizadas por paneles, campos y botones de la pantalla.
 const panel = 'bg-white rounded-2xl border border-monu-green/10 p-4 sm:p-6 shadow-sm';
 const input = 'min-h-11 w-full rounded-xl border border-monu-green/30 bg-white px-3 py-2 focus:outline-2 focus:outline-monu-green';
 const primary = 'min-h-11 rounded-xl px-4 py-2 font-bold bg-monu-green text-white hover:bg-monu-dark disabled:opacity-50';
 const secondary = 'min-h-11 rounded-xl px-4 py-2 font-bold border border-monu-green/30 hover:bg-monu-cream disabled:opacity-50';
 
+/**
+ * Resumen de importes de un consolidado o cierre (total, efectivo, billeteras,
+ * devoluciones y cantidad de pedidos). `consolidated` agrega las propinas.
+ */
 function MoneySummary({ data, consolidated = false }) {
   const fields = [['Total general', 'total_general'], ['Efectivo', 'total_efectivo'], ['Billeteras', 'total_billeteras'], ['Devoluciones', 'total_devoluciones']];
   if (consolidated) fields.push(['Propinas', 'total_propinas']);
@@ -21,11 +29,13 @@ function MoneySummary({ data, consolidated = false }) {
     <div className="rounded-xl bg-monu-cream/60 p-3"><dt className="text-sm font-semibold">Pedidos</dt><dd className="text-2xl font-extrabold tabular-nums">{data.cantidad_pedidos}</dd></div>
   </dl>;
 }
+/** Muestra el estado de una consulta (cargando o error con botón de reintento). */
 function Status({ resource, onRetry }) {
   if (resource.status === 'loading') return <p role="status" className="py-4 flex gap-2 items-center"><RefreshCw aria-hidden="true" className="w-4 h-4 motion-safe:animate-spin" />Consultando…</p>;
   if (resource.status === 'error') return <div className="rounded-xl bg-red-50 text-red-800 p-4 space-y-2"><p role="alert">{resource.error}</p>{onRetry && <button type="button" className={secondary} onClick={onRetry}>Reintentar consulta</button>}</div>;
   return null;
 }
+/** Datos completos de un cierre: fecha, turno, estado, importes, responsables y observaciones. */
 function RecordInfo({ data }) {
   return <><p className="font-bold">{formatDate(data.fecha)} · {TURNOS[data.turno]} · {ESTADOS[data.estado]}</p><MoneySummary data={data} />
     <dl className="grid sm:grid-cols-2 gap-3 text-sm">
@@ -37,6 +47,11 @@ function RecordInfo({ data }) {
       <div className="sm:col-span-2"><dt className="font-bold">Observaciones registradas</dt><dd className="whitespace-pre-wrap break-words">{data.observaciones || 'Sin observaciones'}</dd></div>
     </dl></>;
 }
+/**
+ * Diálogo modal para confirmar la generación/recálculo o la aprobación de un cierre.
+ * Gestiona el foco (abre con el foco en Cancelar y lo devuelve al botón de origen)
+ * y exige consentimiento explícito si las observaciones nuevas reemplazan a las anteriores.
+ */
 function Confirmation({ state, controller, returnFocus }) {
   const ref = useRef(null), cancelRef = useRef(null), alertRef = useRef(null);
   const [replacementConsent, setReplacementConsent] = useState(null);
@@ -47,27 +62,33 @@ function Confirmation({ state, controller, returnFocus }) {
   const replacement = Boolean(record?.observaciones && notes.trim());
   const replaceNotes = replacementConsent !== null && replacementConsent === record?.observaciones;
   const title = generating ? record ? 'Recalcular cierre' : 'Generar cierre' : 'Aprobar cierre';
+  // Abre el <dialog> nativo al montar y, al cerrarse, devuelve el foco a quien lo abrió.
   useEffect(() => {
     const opener = returnFocus.current || document.activeElement;
     ref.current.showModal(); cancelRef.current?.focus();
     const element = ref.current;
     return () => { element.close(); if (opener?.isConnected !== false) opener?.focus(); };
   }, [returnFocus]);
+  // Lleva el foco al aviso del diálogo cuando aparece un mensaje nuevo.
   useEffect(() => { if (state.notice) alertRef.current?.focus(); }, [state.notice]);
   return <dialog ref={ref} aria-labelledby="caja-confirm-title" aria-describedby="caja-confirm-help" onCancel={(event) => { event.preventDefault(); controller.closeDialog(); }} className="m-auto w-[calc(100%-2rem)] max-w-2xl max-h-[85dvh] overflow-y-auto rounded-2xl bg-white p-4 sm:p-6 text-monu-text shadow-xl backdrop:bg-black/50">
     <div className="space-y-4">
+      {/* Encabezado: tipo de operación, turno y explicación de sus efectos */}
       <h2 id="caja-confirm-title" className="text-xl font-extrabold">{title}{record ? ` #${record.id}` : ''}</h2>
       <p className="font-bold">Fecha contable {formatDate(target.fecha)} · Turno {TURNOS[target.turno]}</p>
       <p id="caja-confirm-help">{generating ? 'Esta operación registra o recalcula un cierre pendiente de aprobación. Puede incluir pagos conciliados anteriores sin otro cierre (arrastre); el resultado puede diferir del consolidado de la ventana.' : 'La aprobación vuelve inalterable el cierre. Revisá sus totales y observaciones antes de confirmar.'}</p>
       {record && <RecordInfo data={record} />}
       <p className="text-sm">Otras personas pueden recalcular o aprobar mientras revisás. Comprobá los datos actualizados antes de confirmar y revisá el resultado al terminar.</p>
+      {/* Observaciones opcionales del cierre y consentimiento de reemplazo */}
       <div><label htmlFor="caja-notes" className="block font-bold mb-1">Observaciones opcionales</label>
         <textarea id="caja-notes" rows={3} value={notes} onChange={(event) => controller.setNotes(event.target.value)} disabled={Boolean(state.busy) || Boolean(state.uncertain)} className={input} aria-describedby="caja-notes-help" />
         <p id="caja-notes-help" className="text-sm mt-1">Dejá el campo vacío para conservar las observaciones registradas. Un texto nuevo reemplaza las observaciones anteriores.</p>
       </div>
       {replacement && <label className="flex items-start gap-3 min-h-11"><input type="checkbox" className="mt-1 size-5" checked={replaceNotes} disabled={Boolean(state.busy) || Boolean(state.uncertain)} onChange={(event) => setReplacementConsent(event.target.checked ? record.observaciones : null)} /><span>Confirmo reemplazar las observaciones registradas por el texto nuevo.</span></label>}
+      {/* Avisos del resultado y, si el envío quedó incierto, botón para comprobarlo */}
       {state.notice && <p ref={alertRef} tabIndex={-1} role="alert" className="rounded-xl bg-monu-cream p-3 focus:outline-2 focus:outline-monu-green">{state.notice.text}</p>}
       {state.uncertain && <button type="button" className={primary} disabled={Boolean(state.busy)} onClick={controller.reconcile}>{state.busy ? 'Comprobando…' : 'Comprobar resultado'}</button>}
+      {/* Acciones del diálogo: cancelar o confirmar la operación */}
       <div className="flex flex-wrap justify-end gap-3">
         <button ref={cancelRef} type="button" className={secondary} disabled={Boolean(state.busy) || Boolean(state.uncertain)} onClick={controller.closeDialog}>Cancelar</button>
         <button type="button" className={primary} onClick={controller.confirm} disabled={Boolean(state.busy) || Boolean(state.uncertain) || replacement && !replaceNotes}>
@@ -77,27 +98,40 @@ function Confirmation({ state, controller, returnFocus }) {
     </div>
   </dialog>;
 }
+/**
+ * Sesión de Caja para un usuario concreto: crea el controlador, se suscribe a su
+ * estado con useSyncExternalStore y dibuja consolidado, historial y detalle.
+ */
 function CajaSession({ user, refreshSession }) {
+  // Controlador de Caja (uno por usuario) y su estado observable.
   const controller = useMemo(() => createCajaController({ user, request: apiFetch, refreshSession }), [user, refreshSession]);
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
   const selectionError = useRef(null), historyError = useRef(null), notice = useRef(null);
   const returnFocus = useRef(null);
   const [detailRetry, setDetailRetry] = useState(null);
+  // Inicia las consultas al montar y las cancela al desmontar; luego mueve el foco
+  // a los errores y avisos para que los lectores de pantalla los anuncien.
   useEffect(() => { controller.start(); return controller.stop; }, [controller]);
   useEffect(() => { if (state.consolidado.status === 'error') selectionError.current?.focus(); }, [state.consolidado]);
   useEffect(() => { if (state.history.status === 'error') historyError.current?.focus(); }, [state.history]);
   useEffect(() => { if (state.notice && !state.dialog) notice.current?.focus(); }, [state.notice, state.dialog]);
+  // Datos derivados: selección y filtros actuales, si el turno ya tiene un cierre
+  // aprobado conocido y qué acciones habilita el permiso del usuario.
   const disabled = Boolean(state.busy), selection = state.selection, filters = state.filters;
   const data = state.consolidado.data, detail = state.detail.data;
   const knownApproved = data && [detail, ...(state.history.data || [])].some((record) => record?.estado === 'APROBADO' && sameTarget(record, data));
   const generating = can(user, 'caja.generar'), approving = can(user, 'caja.aprobar');
   const setSelection = (key, value) => controller.setSelection({ ...selection, [key]: value });
   const setFilter = (key, value) => controller.setFilters({ ...filters, [key]: value });
+  // Si la API negó el acceso (401/403) solo se ofrece revalidar la sesión.
   if (state.denied) return <section className={panel}><h1 className="text-2xl font-extrabold">Caja</h1><p role="alert" className="py-4">{state.notice.text}</p><button className={secondary} onClick={refreshSession}>Revalidar sesión</button></section>;
   return <div className="space-y-6 max-w-7xl mx-auto">
+    {/* Encabezado de la pantalla */}
     <header><h1 className="text-3xl font-extrabold font-heading flex items-center gap-3"><Banknote aria-hidden="true" />Caja</h1><p className="mt-2">Consultá turnos, revisá cierres y registrá su aprobación.</p></header>
+    {/* Aviso general y botón para comprobar un envío cuyo resultado no se confirmó */}
     {state.notice && !state.dialog && <p ref={notice} tabIndex={-1} role={state.notice.tone === 'error' ? 'alert' : 'status'} className="rounded-xl bg-white border border-monu-green/20 p-4 focus:outline-2 focus:outline-monu-green">{state.notice.text}</p>}
     {state.uncertain && !state.dialog && <button type="button" className={primary} disabled={disabled} onClick={controller.reconcile}>Comprobar resultado</button>}
+    {/* Consolidado del turno: selector de turno actual o fecha/turno y totales por método */}
     <section className={`${panel} space-y-4`} aria-labelledby="caja-consolidado-title">
       <h2 id="caja-consolidado-title" className="text-xl font-extrabold">Consolidado del turno</h2>
       <form noValidate onSubmit={(event) => { event.preventDefault(); void controller.loadConsolidado(); }} className="grid sm:grid-cols-2 xl:grid-cols-4 gap-4 items-end">
@@ -123,6 +157,7 @@ function CajaSession({ user, refreshSession }) {
         {knownApproved ? <p className="font-bold">El cierre de este turno está aprobado y es inalterable.</p> : generating && <button type="button" className={primary} onClick={(event) => { returnFocus.current = event?.currentTarget || document.activeElement; void controller.prepareGenerate(); }} disabled={disabled || Boolean(state.uncertain)}>Generar cierre</button>}
       </div>}
     </section>
+    {/* Historial de cierres filtrable por rango de fechas y estado */}
     <section className={`${panel} space-y-4`} aria-labelledby="caja-history-title">
       <h2 id="caja-history-title" className="text-xl font-extrabold">Historial de cierres</h2>
       <form noValidate onSubmit={(event) => { event.preventDefault(); void controller.loadHistory(); }} className="grid sm:grid-cols-2 xl:grid-cols-4 gap-4 items-end">
@@ -142,6 +177,7 @@ function CajaSession({ user, refreshSession }) {
       </li>)}</ul> : <p>No hay cierres para estos filtros.</p>)}
       <p className="text-sm">Los cierres abiertos se muestran para consulta.</p>
     </section>
+    {/* Detalle del cierre elegido y acción de aprobarlo */}
     {state.detail.status !== 'idle' && <section className={`${panel} space-y-4`} aria-labelledby="caja-detail-title">
       <h2 id="caja-detail-title" className="text-xl font-extrabold">Detalle del cierre{detail ? ` #${detail.id}` : ''}</h2>
       <Status resource={state.detail} onRetry={detailRetry ? () => controller.loadDetail(detailRetry) : undefined} />
@@ -150,9 +186,11 @@ function CajaSession({ user, refreshSession }) {
       </>}
     </section>}
     {state.busy === 'prepare' && <p role="status">Comprobando el estado del cierre…</p>}
+    {/* Diálogo de confirmación de generación o aprobación */}
     {state.dialog && <Confirmation state={state} controller={controller} returnFocus={returnFocus} />}
   </div>;
 }
+/** Entrada de la ruta Caja: exige el permiso caja.ver y remonta la sesión si cambia el usuario. */
 export default function Caja() {
   const { user, refreshSession } = useAuth();
   if (!can(user, 'caja.ver')) return <section className={panel}><h1 className="text-2xl font-extrabold">Caja</h1><p role="alert">Sin permiso para consultar Caja.</p></section>;

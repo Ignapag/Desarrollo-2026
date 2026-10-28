@@ -1,7 +1,11 @@
+// Modelo de notificaciones: validación de la bandeja de WhatsApp, conversión de
+// comprobantes, atenciones y alertas de stock en avisos, orden por prioridad,
+// tiempo transcurrido, persistencia de lecturas y categorías visibles.
 const positiveId = (value) => Number.isSafeInteger(value) && value > 0;
 const receiptStates = new Set(['PENDIENTE', 'APROBADO', 'RECHAZADO']);
 const attentionReasons = new Set(['SOLICITUD', 'PROVEEDOR']);
 
+// Valida la estructura mínima de la bandeja de WhatsApp.
 export function validateInbox(data) {
   if (!['comprobantes', 'cambios', 'atenciones', 'salidas'].every((key) => Array.isArray(data?.[key]))
     || !data.comprobantes.every((item) => positiveId(item?.id) && positiveId(item.pedido_id) && receiptStates.has(item.estado))
@@ -11,9 +15,11 @@ export function validateInbox(data) {
   return data;
 }
 
+// Fecha válida o null, y referencia visible del pedido.
 const dateValue = (value) => typeof value === 'string' && Number.isFinite(Date.parse(value)) ? value : null;
 const orderReference = (item) => positiveId(item.numero) ? 'Pedido #' + item.numero : positiveId(item.pedido_id) ? 'Pedido #' + item.pedido_id : null;
 
+// Avisos de WhatsApp: comprobantes (por verificar o revisados) y atenciones que piden ayuda.
 export function inboxNotifications(inbox) {
   if (!inbox) return [];
   const receipts = inbox.comprobantes.map((item) => ({
@@ -39,6 +45,7 @@ export function inboxNotifications(inbox) {
   return [...receipts, ...attentions];
 }
 
+// Avisos de stock: insumos activos agotados o por debajo del mínimo.
 export function stockNotifications(inventory) {
   return inventory.filter((item) => item.active !== false && ['SIN_STOCK', 'BAJO_UMBRAL'].includes(item.level)).map((item) => ({
     key: 'stock:' + item.id + ':' + item.level, kind: 'stock', priority: item.level === 'SIN_STOCK' ? 0 : 3,
@@ -49,12 +56,14 @@ export function stockNotifications(inventory) {
   }));
 }
 
+// Elimina duplicados y ordena por prioridad, luego del más reciente al más viejo.
 export function sortNotifications(items) {
   const unique = new Map();
   for (const item of items) if (!unique.has(item.key)) unique.set(item.key, item);
   return [...unique.values()].sort((a, b) => a.priority - b.priority || (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0) || a.key.localeCompare(b.key));
 }
 
+// Texto "Hace X minutos/horas/días" para una fecha.
 export function elapsedTime(date, now = Date.now()) {
   if (!date || !Number.isFinite(Date.parse(date))) return null;
   const minutes = Math.max(0, Math.floor((now - Date.parse(date)) / 60000));
@@ -66,6 +75,7 @@ export function elapsedTime(date, now = Date.now()) {
   return 'Hace ' + days + (days === 1 ? ' día' : ' días');
 }
 
+// Lectura y guardado de las claves leídas por usuario (máximo 500, solo claves válidas).
 const validReadKey = (key) => typeof key === 'string' && /^(comprobante:[1-9][0-9]*|atencion:[1-9][0-9]*|stock:[1-9][0-9]*:(SIN_STOCK|BAJO_UMBRAL))$/.test(key);
 const storageKey = (id) => 'monu.notifications.read.v1:' + id;
 export function readNotificationKeys(storage, id) {
@@ -79,12 +89,14 @@ export function saveNotificationKeys(storage, id, keys) {
   catch { return false; }
 }
 
+// Categorías de notificaciones y el permiso que requiere cada una.
 export const NOTIFICATION_CATEGORIES = [
   { id: 'stock', label: 'STOCK', permission: 'stock.ver' },
   { id: 'clientes', label: 'CLIENTES', permission: 'whatsapp.ver' },
 ];
 const categoryByKind = { stock: 'stock', comprobante: 'clientes', atencion: 'clientes' };
 export const notificationCategory = (item) => Object.hasOwn(categoryByKind, item.kind) ? categoryByKind[item.kind] : null;
+// Cantidad de avisos sin leer de una categoría.
 export function categoryUnreadCount(items, category) {
   return items.filter((item) => notificationCategory(item) === category && !item.read).length;
 }

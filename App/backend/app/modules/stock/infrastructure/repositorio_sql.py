@@ -30,10 +30,17 @@ _CONSULTA_INVENTARIO = """
 
 
 class RepositorioStockSQL:
+    """Acceso SQL a ingredientes, movimientos de stock y alertas."""
+
     def __init__(self, uow: UnidadDeTrabajo) -> None:
+        """Recibe la unidad de trabajo cuya transacción comparten las consultas."""
         self.uow = uow
 
     async def reservas_antes_preparacion(self, pedido_id: int) -> list[dict] | None:
+        """Devuelve el consumo neto por ingrediente si el pedido no llegó a cocina.
+
+        Devuelve ``None`` cuando el pedido ya está en preparación o más avanzado.
+        """
         pedido = await self.uow.uno(
             "SELECT estado, preparacion_en FROM pedido WHERE id=%s", (pedido_id,)
         )
@@ -48,11 +55,13 @@ class RepositorioStockSQL:
         )
 
     async def bloquear_pedido(self, pedido_id: int) -> bool:
+        """Bloquea la fila del pedido (FOR UPDATE); devuelve ``False`` si no existe."""
         return bool(
             await self.uow.uno("SELECT id FROM pedido WHERE id = %s FOR UPDATE", (pedido_id,))
         )
 
     async def consumo_existente(self, pedido_id: int) -> bool:
+        """Indica si el pedido ya registró algún consumo de stock."""
         return bool(
             await self.uow.valor(
                 "SELECT EXISTS (SELECT 1 FROM movimiento_stock "
@@ -62,6 +71,7 @@ class RepositorioStockSQL:
         )
 
     async def pedido_tiene_opciones(self, pedido_id: int) -> bool:
+        """Indica si algún ítem del pedido tiene opciones estructuradas."""
         return bool(
             await self.uow.valor(
                 "SELECT EXISTS (SELECT 1 FROM pedido_item_opcion o "
@@ -71,6 +81,7 @@ class RepositorioStockSQL:
         )
 
     async def item_para_ajuste(self, pedido_id: int, item_id: int) -> dict | None:
+        """Bloquea y devuelve un ítem del pedido con el estado del pedido."""
         return await self.uow.uno(
             "SELECT p.estado, p.preparacion_en, i.producto_id, i.cantidad, i.aclaraciones, "
             "i.receta_snapshot "
@@ -80,6 +91,7 @@ class RepositorioStockSQL:
         )
 
     async def ajuste_existente(self, pedido_id: int, motivo: str) -> bool:
+        """Indica si ya existe un movimiento del pedido con ese motivo (idempotencia)."""
         return bool(
             await self.uow.valor(
                 "SELECT EXISTS (SELECT 1 FROM movimiento_stock "
@@ -91,6 +103,10 @@ class RepositorioStockSQL:
     async def ingrediente_item_para_devolucion(
         self, pedido_id: int, item_id: int, nombre: str
     ) -> dict | None:
+        """Busca un ingrediente de la receta del ítem por nombre y lo bloquea.
+
+        Usa la receta congelada del ítem o, si no existe, la receta vigente del producto.
+        """
         return await self.uow.uno(
             """
             SELECT p.estado, p.preparacion_en, i.cantidad, i.aclaraciones,
@@ -114,6 +130,7 @@ class RepositorioStockSQL:
         )
 
     async def devolucion_existente(self, pedido_id: int, motivo: str) -> bool:
+        """Indica si ya se registró una devolución del pedido con ese motivo."""
         return bool(
             await self.uow.valor(
                 "SELECT EXISTS (SELECT 1 FROM movimiento_stock WHERE pedido_id = %s "
@@ -123,6 +140,8 @@ class RepositorioStockSQL:
         )
 
     async def consumo_neto_ingrediente(self, pedido_id: int, ingrediente_id: int) -> Decimal:
+        """Devuelve lo consumido neto de un ingrediente por el pedido (consumos menos devoluciones).
+        """
         return await self.uow.valor(
             """
             SELECT COALESCE(sum(CASE WHEN tipo = 'CONSUMO' THEN cantidad
@@ -140,6 +159,8 @@ class RepositorioStockSQL:
         usuario_id: int | None,
         motivo: str,
     ) -> None:
+        """Suma la cantidad al ingrediente, registra el movimiento DEVOLUCION y actualiza alertas.
+        """
         fila = await self.uow.uno(
             "UPDATE ingrediente SET cantidad_actual = cantidad_actual + %s "
             "WHERE id = %s RETURNING *",
@@ -154,6 +175,7 @@ class RepositorioStockSQL:
         await self._sincronizar_alerta(fila, usuario_id=usuario_id)
 
     async def recetas(self, producto_ids: list[int]) -> list[dict]:
+        """Devuelve la receta vigente de cada producto (fila con ingrediente nulo si no tiene)."""
         return await self.uow.todos(
             """
             SELECT p.id AS producto_id, pi.ingrediente_id, pi.cantidad_requerida
@@ -187,6 +209,11 @@ class RepositorioStockSQL:
         motivo: str | None = None,
         usuario_id: int | None = None,
     ) -> dict | None:
+        """Descuenta la cantidad si alcanza y registra el movimiento CONSUMO.
+
+        Devuelve ``None`` si el stock no alcanzaba en el momento del UPDATE.
+        """
+        # El UPDATE condicional evita dejar el stock en negativo ante carreras.
         fila = await self.uow.uno(
             """
             UPDATE ingrediente
@@ -225,6 +252,7 @@ class RepositorioStockSQL:
         activo: bool | None,
         nivel: str | None,
     ) -> list[dict]:
+        """Lista el inventario con su nivel y alerta, aplicando filtros opcionales."""
         return await self.uow.todos(
             _CONSULTA_INVENTARIO
             + """
@@ -238,6 +266,7 @@ class RepositorioStockSQL:
         )
 
     async def ingrediente(self, ingrediente_id: int, *, bloquear: bool = False) -> dict | None:
+        """Devuelve la fila de un ingrediente; con ``bloquear`` la toma FOR UPDATE."""
         if bloquear:
             return await self.uow.uno(
                 "SELECT * FROM ingrediente WHERE id = %s FOR UPDATE",
@@ -249,6 +278,7 @@ class RepositorioStockSQL:
         )
 
     async def existe_nombre(self, nombre: str, *, excepto_id: int | None = None) -> bool:
+        """Indica si otro ingrediente ya usa ese nombre (sin distinguir mayúsculas)."""
         return bool(
             await self.uow.valor(
                 "SELECT EXISTS (SELECT 1 FROM ingrediente "
@@ -258,6 +288,7 @@ class RepositorioStockSQL:
         )
 
     async def responsable_valido(self, responsable_id: int) -> bool:
+        """Indica si el usuario responsable existe y está activo."""
         return bool(
             await self.uow.valor(
                 "SELECT EXISTS (SELECT 1 FROM usuario WHERE id = %s AND estado = 'ACTIVO')",
@@ -266,6 +297,7 @@ class RepositorioStockSQL:
         )
 
     async def asociado_a_producto_activo(self, ingrediente_id: int) -> bool:
+        """Indica si el ingrediente forma parte de la receta de algún producto activo."""
         return bool(
             await self.uow.valor(
                 """
@@ -280,6 +312,7 @@ class RepositorioStockSQL:
         )
 
     async def crear(self, datos: DatosIngrediente) -> dict:
+        """Inserta un ingrediente, sincroniza su alerta y lo devuelve con el formato del listado."""
         fila = await self.uow.uno(
             """
             INSERT INTO ingrediente
@@ -302,6 +335,7 @@ class RepositorioStockSQL:
         return await self._fila_inventario(fila["id"])
 
     async def modificar(self, ingrediente_id: int, datos: DatosIngrediente) -> dict:
+        """Actualiza los datos descriptivos del ingrediente y sincroniza su alerta."""
         fila = await self.uow.uno(
             """
             UPDATE ingrediente SET nombre = %s, unidad_medida = %s, umbral_minimo = %s,
@@ -332,6 +366,7 @@ class RepositorioStockSQL:
     async def reponer(
         self, ingrediente_id: int, cantidad: Decimal, *, usuario_id: int | None, origen: str
     ) -> dict:
+        """Suma la reposición al ingrediente, registra el movimiento y actualiza alertas."""
         fila = await self.uow.uno(
             """
             UPDATE ingrediente
@@ -370,6 +405,8 @@ class RepositorioStockSQL:
         hasta: date | None,
         tipo: str | None,
     ) -> list[dict]:
+        """Lista movimientos de stock con el saldo anterior reconstruido y filtros opcionales."""
+        # Consumos y mermas restaron stock; el resto lo sumó.
         return await self.uow.todos(
             """
             SELECT m.id, m.ingrediente_id, m.creado_en, m.tipo, m.cantidad,
@@ -393,6 +430,11 @@ class RepositorioStockSQL:
     async def _sincronizar_alerta(
         self, ingrediente: dict, *, usuario_id: int | None = None
     ) -> None:
+        """Mantiene la alerta de stock acorde al nivel actual del ingrediente.
+
+        Si el stock es normal o el ingrediente está inactivo, resuelve la alerta activa; si no, la
+        crea o actualiza su nivel (BAJO o AGOTADO).
+        """
         nivel_stock_actual = nivel_stock(
             ingrediente["cantidad_actual"], ingrediente["umbral_minimo"]
         )

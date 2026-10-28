@@ -1,7 +1,12 @@
+// Controlador de Caja independiente de React: guarda el estado de la pantalla,
+// ejecuta las lecturas y escrituras contra /api/caja y protege la operación
+// frente a respuestas viejas, cambios concurrentes de otros operadores y envíos inciertos.
 import { userErrorMessage } from '../shared/api/userErrors.js';
 import { can } from '../auth/permissions.js';
 import { checked, cierreValido, consolidadoValido, sameTarget, validateSelection, validateFilters, fingerprint } from './cajaContract.js';
 
+// Utilidades: recurso vacío, query string sin valores vacíos, clave de las notas por
+// diálogo y validación de listas de cierres.
 const empty = () => ({ status: 'idle', data: null, error: '' });
 const query = (values) => new URLSearchParams(Object.entries(values).filter(([, value]) => value)).toString();
 const noteKey = (dialog) => dialog.kind === 'generate' ? `generate:${dialog.target.fecha}:${dialog.target.turno}` : `approve:${dialog.cierre.id}`;
@@ -10,6 +15,8 @@ const validList = (data) => Array.isArray(data) && data.every(cierreValido);
 // Un controlador por identidad/permisos. Los epochs invalidan todas las lecturas
 // anteriores a una escritura; cada canal además descarta respuestas fuera de orden.
 export function createCajaController({ user, request, refreshSession }) {
+  // Estado interno: vigencia del controlador, epoch de escrituras, suscriptores y
+  // lecturas en curso (una por canal, cancelables con AbortController).
   let alive = true, epoch = 0;
   const listeners = new Set(), channels = new Map();
   let state = {
@@ -17,11 +24,13 @@ export function createCajaController({ user, request, refreshSession }) {
     consolidado: empty(), history: empty(), detail: empty(), dialog: null, notes: {},
     busy: '', uncertain: null, notice: null, denied: false,
   };
+  // Helpers de estado: emitir cambios, chequear permisos, cancelar/invalidar lecturas y avisar.
   const emit = (patch) => { state = { ...state, ...patch }; for (const listener of listeners) listener(); };
   const allowed = (permission = 'caja.ver') => alive && !state.denied && can(user, 'caja.ver') && can(user, permission);
   const cancel = (channel) => { channels.get(channel)?.abort(); channels.delete(channel); };
   const invalidate = () => { epoch++; for (const controller of channels.values()) controller.abort(); channels.clear(); };
   const notify = (text, tone = 'error') => emit({ notice: { text, tone } });
+  // Si la API responde 401/403, bloquea la pantalla, limpia los datos y revalida la sesión.
   function denied(error) {
     if (![401, 403].includes(error?.status)) return false;
     invalidate();
@@ -29,6 +38,8 @@ export function createCajaController({ user, request, refreshSession }) {
     void Promise.resolve(refreshSession?.()).catch(() => {});
     return true;
   }
+  // Lectura genérica por canal: cancela la anterior del mismo canal, valida la respuesta
+  // y la descarta (null) si llegó tarde o si hubo una escritura entre medio.
   async function read(channel, path, valid, expected = () => true) {
     cancel(channel); const controller = new AbortController(); channels.set(channel, controller); const token = epoch;
     try {
@@ -42,11 +53,13 @@ export function createCajaController({ user, request, refreshSession }) {
       return null;
     } finally { if (channels.get(channel) === controller) channels.delete(channel); }
   }
+  // Vuelve a "idle" las lecturas que estaban cargando cuando se invalidan por una escritura.
   const idleReads = () => {
     const patch = {};
     for (const key of ['consolidado', 'history', 'detail']) if (state[key].status === 'loading') patch[key] = empty();
     return patch;
   };
+  // Carga el consolidado del turno actual o de la fecha/turno elegidos.
   async function loadConsolidado() {
     if (!allowed() || state.busy) return;
     const selection = { ...state.selection };
@@ -59,6 +72,7 @@ export function createCajaController({ user, request, refreshSession }) {
       if (data) emit({ consolidado: { status: 'ready', data, error: '' } });
     } catch (error) { emit({ consolidado: { ...empty(), status: 'error', error: userErrorMessage(error, 'No pudimos cargar los datos de Caja. Intentá nuevamente.') } }); }
   }
+  // Carga el historial de cierres con los filtros y verifica que la respuesta los respete.
   async function loadHistory() {
     if (!allowed() || state.busy) return;
     const filters = { ...state.filters };
@@ -72,6 +86,7 @@ export function createCajaController({ user, request, refreshSession }) {
       if (data) emit({ history: { status: 'ready', data, error: '' } });
     } catch (error) { emit({ history: { ...empty(), status: 'error', error: userErrorMessage(error, 'No pudimos cargar los datos de Caja. Intentá nuevamente.') } }); }
   }
+  // Carga el detalle de un cierre por id.
   async function loadDetail(id) {
     if (!allowed() || state.busy || !Number.isSafeInteger(id) || id <= 0) return;
     emit({ detail: { ...empty(), status: 'loading' } });
@@ -80,6 +95,8 @@ export function createCajaController({ user, request, refreshSession }) {
       if (data) emit({ detail: { status: 'ready', data, error: '' } });
     } catch (error) { emit({ detail: { ...empty(), status: 'error', error: userErrorMessage(error, 'No pudimos cargar los datos de Caja. Intentá nuevamente.') } }); }
   }
+  // Prepara la generación: busca si el turno ya tiene cierre; si está aprobado lo muestra,
+  // si no abre el diálogo para generar o recalcular.
   async function prepareGenerate() {
     if (!allowed('caja.generar') || state.busy || state.uncertain || state.consolidado.status !== 'ready') return;
     const target = { fecha: state.consolidado.data.fecha, turno: state.consolidado.data.turno };
@@ -98,6 +115,7 @@ export function createCajaController({ user, request, refreshSession }) {
     } catch (error) { if (alive && token === epoch) notify(userErrorMessage(error, 'No pudimos preparar el cierre. Actualizá sus datos e intentá nuevamente.')); }
     finally { if (alive && token === epoch) emit({ busy: '' }); }
   }
+  // Prepara la aprobación: relee el cierre y abre el diálogo si todavía no está aprobado.
   async function prepareApprove(id) {
     if (!allowed('caja.aprobar') || state.busy || state.uncertain || !Number.isSafeInteger(id) || id <= 0) return;
     emit({ busy: 'prepare', dialog: null, notice: null }); const token = epoch;
@@ -110,6 +128,9 @@ export function createCajaController({ user, request, refreshSession }) {
     } catch (error) { if (alive && token === epoch) notify(userErrorMessage(error, 'No pudimos preparar el cierre. Actualizá sus datos e intentá nuevamente.')); }
     finally { if (alive && token === epoch) emit({ busy: '' }); }
   }
+  // Confirma la operación del diálogo. Relee el cierre justo antes del POST para detectar
+  // cambios de otros operadores, valida el acuse del servidor y, si la red falló después
+  // de enviar, marca el resultado como incierto en lugar de suponer éxito o error.
   async function confirm() {
     const dialog = state.dialog;
     if (!dialog || state.busy || state.uncertain || !allowed(dialog.kind === 'generate' ? 'caja.generar' : 'caja.aprobar')) return;
@@ -168,6 +189,7 @@ export function createCajaController({ user, request, refreshSession }) {
       notify(uncertain ? 'No pudimos confirmar el cierre. Comprobá su estado antes de volver a enviar.' : `${userErrorMessage(error, 'No pudimos guardar el cierre. Intentá nuevamente más tarde.')}${error.status === 409 ? ' Otra persona puede haber cambiado el cierre. Consultá nuevamente su estado.' : ''}`);
     } finally { if (alive && token === epoch) emit({ busy: '' }); }
   }
+  // Reconcilia un envío incierto: consulta el estado real del cierre sin reenviar la operación.
   async function reconcile() {
     if (!allowed() || !state.uncertain || state.busy) return;
     const pending = state.uncertain; emit({ busy: 'reconcile' }); const token = epoch;
@@ -185,6 +207,7 @@ export function createCajaController({ user, request, refreshSession }) {
     } catch (error) { if (alive && token === epoch) notify(`${userErrorMessage(error, 'No pudimos consultar el cierre.')} Todavía no pudimos comprobar el resultado. No vuelvas a enviar.`); }
     finally { if (alive && token === epoch) emit({ busy: '' }); }
   }
+  // API pública del controlador consumida por Caja.jsx (estado, suscripción y acciones).
   return {
     getSnapshot: () => state, subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
     start() { alive = true; void loadConsolidado(); void loadHistory(); },

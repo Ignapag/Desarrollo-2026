@@ -16,6 +16,9 @@ CAMPOS_DATOS = {"direccion", "numero", "localidad", "referencias", "tipo_entrega
 
 
 def pregunta_actual(b):
+    """Devuelve la pregunta pendiente al cliente según el contexto del chat o una aclaración de
+    producto en curso.
+    """
     pregunta = b.get("contexto_chat", {}).get("pregunta")
     if pregunta in PREGUNTAS:
         return pregunta

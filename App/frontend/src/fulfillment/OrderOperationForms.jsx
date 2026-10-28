@@ -1,8 +1,16 @@
+// Formularios de operación dentro del detalle del pedido: edición de entrega, pago,
+// dirección y observaciones, y acciones de cambio de estado (cocina, listo, retiro,
+// cancelación, reapertura) con su tratamiento de stock.
 import { useRef, useState } from 'react';
 import { allowsPickup, canEditOperation, stateCommands } from './orderModel';
 import { buttonClass, inputClass, Field, Reason } from './operationUi';
 
+/**
+ * Edición de un pedido en curso. Mantiene un borrador sobre una versión base y,
+ * si el pedido cambia en la API, ofrece conservar el borrador o descartarlo.
+ */
 export function EditOperation({ order, role, commands, run, busy, can = null }) {
+  // Borrador editable y versión base sobre la que se calculan los cambios.
   const [base, setBase] = useState(order);
   const [delivery, setDelivery] = useState(order.tipo_entrega);
   const [payment, setPayment] = useState(order.metodo_pago_acordado);
@@ -11,6 +19,7 @@ export function EditOperation({ order, role, commands, run, busy, can = null }) 
   const [reason, setReason] = useState('');
   const [invalidAddress, setInvalidAddress] = useState([]);
   const addressRefs = useRef({});
+  // Cambios reales respecto de la base (solo se envían los campos modificados).
   const changes = {};
   if (delivery !== base.tipo_entrega) changes.tipo_entrega = delivery;
   if (payment !== base.metodo_pago_acordado) changes.metodo_pago_acordado = payment;
@@ -20,8 +29,10 @@ export function EditOperation({ order, role, commands, run, busy, can = null }) 
   if (delivery === 'DELIVERY' && (addressChanged || !base.direccion_id)) {
     changes.direccion_nueva = Object.fromEntries(addressFields.map((key) => [key, address[key]?.trim() || (key === 'referencia' ? null : '')]));
   }
+  // Si llegó una versión nueva del pedido hay que rebasar el borrador antes de guardar.
   const hasChanges = Object.keys(changes).length > 0;
   const needsRebase = base.version !== order.version;
+  // Rebasa el borrador: los campos no editados (o todos si `discard`) toman los valores actuales.
   const rebase = (discard = false) => {
     if (busy) return;
     if (discard || delivery === base.tipo_entrega) setDelivery(order.tipo_entrega);
@@ -32,6 +43,7 @@ export function EditOperation({ order, role, commands, run, busy, can = null }) 
     setBase(order);
   };
   if (!canEditOperation(order, role, can)) return null;
+  // Guarda los cambios: valida la dirección nueva, arma una nota automática y mantiene el diálogo abierto.
   const submit = (event) => {
     event.preventDefault();
     if (busy || needsRebase || !hasChanges) return;
@@ -44,11 +56,14 @@ export function EditOperation({ order, role, commands, run, busy, can = null }) 
   };
   return <details className="space-y-3"><summary className={`${buttonClass} cursor-pointer flex items-center`}>Editar dirección, entrega y pago</summary>
     <form noValidate onSubmit={submit} className="mt-3 space-y-3">
+      {/* Aviso de pedido modificado por otra persona mientras se editaba */}
       {needsRebase && <div role="alert" className="rounded-xl border border-orange-200 bg-orange-50 p-3 space-y-2 text-sm text-orange-950"><p>El pedido cambió. Conservamos tu borrador: comparalo con el detalle actualizado antes de guardar. Los campos que no editaste adoptarán los valores actuales.</p><button type="button" disabled={busy} onClick={() => rebase()} className={buttonClass}>Conservar borrador con los datos actuales</button><button type="button" disabled={busy} onClick={() => rebase(true)} className={buttonClass}>Descartar borrador y usar datos actuales</button></div>}
+      {/* Modalidad de entrega y método de pago acordado */}
       <div className="grid sm:grid-cols-2 gap-3">
         <Field label="Modalidad"><select value={delivery} onChange={(event) => setDelivery(event.target.value)} disabled={busy} className={inputClass}><option value="DELIVERY">Delivery</option><option value="RETIRO">Retiro en local</option></select></Field>
         <Field label="Método de pago acordado"><select value={payment} onChange={(event) => setPayment(event.target.value)} disabled={busy} className={inputClass}><option value="EFECTIVO">Efectivo</option><option value="TRANSFERENCIA">Transferencia</option></select></Field>
       </div>
+      {/* Dirección nueva (solo delivery) */}
       {delivery === 'DELIVERY' && <details open={order.tipo_entrega !== 'DELIVERY' || invalidAddress.length > 0}><summary className="cursor-pointer min-h-11 flex items-center text-sm font-bold text-monu-green">Cambiar dirección</summary><div className="grid sm:grid-cols-2 gap-3">{[['calle', 'Calle', 160], ['numero', 'Número', 30], ['localidad', 'Localidad', 100], ['referencia', 'Referencia (opcional)', 300]].map(([key, label, max]) => <Field key={key} label={label}><input ref={(node) => { addressRefs.current[key] = node; }} required={Boolean(changes.direccion_nueva) && key !== 'referencia'} maxLength={max} value={address[key] || ''} onChange={(event) => { setAddress({ ...address, [key]: event.target.value }); setInvalidAddress((current) => current.filter((field) => field !== key)); }} disabled={busy} aria-invalid={invalidAddress.includes(key)} aria-describedby={invalidAddress.includes(key) ? `operation-address-${key}-error` : undefined} className={inputClass} />{invalidAddress.includes(key) && <span id={`operation-address-${key}-error`} role="alert" className="block text-sm text-red-800">Completá {label.toLowerCase()}.</span>}</Field>)}</div></details>}
       <Field label="Observaciones"><textarea value={notes} maxLength={500} onChange={(event) => setNotes(event.target.value)} disabled={busy} className={inputClass} /></Field>
       <Reason value={reason} onChange={setReason} disabled={busy} />
@@ -57,26 +72,37 @@ export function EditOperation({ order, role, commands, run, busy, can = null }) 
   </details>;
 }
 
+/**
+ * Acciones de estado del pedido: un botón principal con el siguiente paso del flujo
+ * y "Más acciones" para correcciones, cancelación o reapertura (con confirmación).
+ */
 export function StateOperation({ order, role, commands, run, busy, can = null }) {
   const options = stateCommands(order, role, can).filter(() => !can || (can('pedidos.cambiar_estado') && (!['ENTREGADO', 'CANCELADO'].includes(order.estado) || can('pedidos.recuperar'))));
   const [reason, setReason] = useState('');
   const [confirming, setConfirming] = useState(null);
   if (!options.length) return null;
+  // Siguiente estado natural según el estado actual (los delivery listos avanzan desde reparto).
   const next = { PENDIENTE: 'EN_PREPARACION', CONFIRMADO: 'EN_PREPARACION', EN_PREPARACION: 'LISTO', LISTO: order.tipo_entrega === 'RETIRO' ? 'ENTREGADO' : null }[order.estado];
   const primary = options.find((item) => item.estado === next);
   const others = options.filter((item) => item !== primary);
+  // Una transferencia sin acreditar impide mandar el pedido a cocina.
   const needsPayment = order.metodo_pago_acordado === 'TRANSFERENCIA' && Number(order.saldo_pendiente) > 0;
+  // Texto del botón según el tipo de comando (cancelar, reabrir, corregir o avanzar).
   const label = (item) => item.estado === 'CANCELADO' ? 'Cancelar pedido'
     : item.tratamiento_stock === 'RECONSUMIR' ? 'Reabrir pedido'
     : item.correccion ? ({ PENDIENTE: 'Volver a nuevos', CONFIRMADO: 'Volver a confirmados', EN_PREPARACION: 'Volver a cocina', LISTO: 'Volver a listo' })[item.estado] || item.label : item.label;
+  // Aplica el comando con su nota y muestra el nuevo estado de forma optimista.
   const apply = (command) => {
     if (busy || (command.estado === 'EN_PREPARACION' && needsPayment)) return;
     void run(() => commands.state(order, command, reason.trim() || `Acción desde el panel: ${command.label}.`), 'Pedido actualizado.', { optimisticOrder: { ...order, estado: command.estado } });
   };
   return <section aria-label="Acciones del pedido" className="space-y-3">
+    {/* Aviso de retiro bloqueado por falta de pago */}
     {order.estado === 'LISTO' && order.tipo_entrega === 'RETIRO' && !allowsPickup(order) && <p role="status" className="text-sm">Para registrar el retiro, confirmá el pago completo o acordá el cobro en efectivo al retirar. Un comprobante pendiente no acredita el pago.</p>}
+    {/* Acción principal del flujo */}
     {primary && <button type="button" disabled={busy || (primary.estado === 'EN_PREPARACION' && needsPayment)} onClick={() => apply(primary)} className={`${buttonClass} w-full bg-monu-dark text-white`}>{label(primary)}</button>}
     {primary?.estado === 'EN_PREPARACION' && needsPayment && <p className="text-sm">Confirmá el ingreso de la transferencia para enviarlo a cocina.</p>}
+    {/* Acciones secundarias y confirmación de cancelación o reapertura */}
     {others.length > 0 && <details><summary className="cursor-pointer min-h-11 flex items-center text-sm font-bold text-monu-green">Más acciones</summary><div className="space-y-3 pt-2">
       <div className="flex flex-wrap gap-2">{others.map((item) => <button key={item.estado} type="button" disabled={busy || (item.estado === 'EN_PREPARACION' && needsPayment)} onClick={() => {
         if (item.estado === 'CANCELADO' || item.tratamiento_stock === 'RECONSUMIR') setConfirming(item);

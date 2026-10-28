@@ -9,7 +9,10 @@ from app.errores import ReglaDeNegocio
 
 
 class RepositorioUsuariosSQL:
+    """Acceso SQL a cuentas de usuario y a sus perfiles de repartidor y cliente."""
+
     def __init__(self, uow: UnidadDeTrabajo) -> None:
+        """Recibe la unidad de trabajo cuya transacción comparten las consultas."""
         self.uow = uow
 
     # ------------------------------ lecturas ---------------------------
@@ -26,6 +29,7 @@ class RepositorioUsuariosSQL:
         )
 
     async def por_id(self, usuario_id: int) -> dict | None:
+        """Devuelve los datos públicos de una cuenta (sin hash), o ``None``."""
         return await self.uow.uno(
             """
             SELECT id, nombre, apellido, username, email, telefono, rol, estado,
@@ -36,6 +40,7 @@ class RepositorioUsuariosSQL:
         )
 
     async def existe_username(self, username: str, *, excluir_id: int | None = None) -> bool:
+        """Indica si el username ya está en uso, opcionalmente excluyendo una cuenta."""
         if excluir_id is None:
             return bool(
                 await self.uow.valor(
@@ -77,6 +82,7 @@ class RepositorioUsuariosSQL:
     # ------------------------------ escrituras --------------------------
 
     async def bloquear_gestion(self, usuario_id: int) -> None:
+        """Toma los locks que serializan cambios de rol y estado de las cuentas."""
         # Serializa cambios de rol/estado para no perder al último administrador.
         await self.uow.ejecutar("SELECT pg_advisory_xact_lock(7019262026028)")
         # Comparte el bloqueo con asignación de viajes. Después se reevalúa actividad.
@@ -85,6 +91,11 @@ class RepositorioUsuariosSQL:
         )
 
     async def sincronizar_perfil(self, usuario_id: int, rol: str, estado: str) -> None:
+        """Mantiene los perfiles de repartidor y cliente acordes al rol y estado.
+
+        Un repartidor activo queda disponible; cualquier otro caso lo deja fuera de servicio. Un
+        cliente obtiene su perfil comercial si todavía no lo tiene.
+        """
         if rol == "REPARTIDOR":
             await self.uow.ejecutar(
                 """INSERT INTO repartidor (usuario_id, estado) VALUES (%s,%s)
@@ -106,6 +117,7 @@ class RepositorioUsuariosSQL:
             )
 
     async def administradores_activos(self) -> int:
+        """Cuenta los administradores con cuenta activa."""
         return await self.uow.valor(
             "SELECT count(*) FROM usuario WHERE rol='ADMINISTRADOR' AND estado='ACTIVO'"
         )
@@ -121,6 +133,7 @@ class RepositorioUsuariosSQL:
         password_hash: str,
         rol: str,
     ) -> int:
+        """Inserta una cuenta nueva y devuelve su id; traduce un username duplicado."""
         try:
             fila = await self.uow.uno(
                 """
@@ -140,6 +153,7 @@ class RepositorioUsuariosSQL:
     async def actualizar(
         self, usuario_id: int, *, nombre: str, apellido: str, username: str, estado: str
     ) -> None:
+        """Actualiza nombre, apellido, username y estado de una cuenta."""
         await self.uow.ejecutar(
             """
             UPDATE usuario
@@ -151,18 +165,21 @@ class RepositorioUsuariosSQL:
         )
 
     async def cambiar_estado(self, usuario_id: int, estado: str) -> None:
+        """Cambia el estado (ACTIVO/INACTIVO) de una cuenta."""
         await self.uow.ejecutar(
             "UPDATE usuario SET estado = %s, actualizado_en = now() WHERE id = %s",
             (estado, usuario_id),
         )
 
     async def cambiar_rol(self, usuario_id: int, rol: str) -> None:
+        """Cambia el rol de una cuenta."""
         await self.uow.ejecutar(
             "UPDATE usuario SET rol = %s, actualizado_en = now() WHERE id = %s",
             (rol, usuario_id),
         )
 
     async def actualizar_ultimo_acceso(self, usuario_id: int) -> None:
+        """Registra la fecha y hora del último inicio de sesión."""
         await self.uow.ejecutar(
             "UPDATE usuario SET ultimo_acceso = now() WHERE id = %s", (usuario_id,)
         )

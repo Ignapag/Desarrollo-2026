@@ -25,10 +25,12 @@ ALGORITMO_JWT = "HS256"
 
 
 def hashear_password(password: str) -> str:
+    """Genera un hash bcrypt con sal aleatoria para guardar la contraseña."""
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
 def verificar_password(password: str, password_hash: str) -> bool:
+    """Compara la contraseña ingresada con el hash bcrypt almacenado."""
     try:
         return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
     except ValueError:
@@ -41,6 +43,7 @@ class TokenInvalido(Exception):
 
 
 def crear_token(*, usuario_id: int, rol: str, username: str) -> str:
+    """Emite el JWT de sesión con id, rol y username, válido por ``jwt_exp_minutos``."""
     ahora = datetime.now(UTC)
     payload: dict[str, Any] = {
         "sub": str(usuario_id),
@@ -53,6 +56,7 @@ def crear_token(*, usuario_id: int, rol: str, username: str) -> str:
 
 
 def decodificar_token(token: str) -> dict[str, Any]:
+    """Valida firma y vencimiento del JWT; lanza ``TokenInvalido`` si no es válido."""
     try:
         return jwt.decode(token, settings.jwt_secret, algorithms=[ALGORITMO_JWT])
     except jwt.PyJWTError as exc:

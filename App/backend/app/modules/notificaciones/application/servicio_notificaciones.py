@@ -32,16 +32,20 @@ from app.modules.notificaciones.domain.entidades import (
 from app.modules.notificaciones.infrastructure.enviadores import EnviadorNotificaciones
 from app.modules.notificaciones.infrastructure.repositorio_sql import RepositorioNotificacionesSQL
 
+# Claves de evento admitidas al registrar una plantilla.
 EVENTOS_VALIDOS = {evento.value for evento in EventoNotificacion}
 
 
 class ServicioNotificaciones:
+    """Casos de uso de notificaciones: encolado, envío efectivo y gestión de plantillas."""
+
     def __init__(
         self,
         uow: UnidadDeTrabajo,
         repositorio: RepositorioNotificacionesSQL,
         enviador: EnviadorNotificaciones,
     ) -> None:
+        """Recibe la unidad de trabajo, el repositorio y el canal de envío a usar."""
         self.uow = uow
         self.repo = repositorio
         self.enviador = enviador
@@ -68,6 +72,7 @@ class ServicioNotificaciones:
         if evento in EVENTOS_QUE_REQUIEREN_PEDIDO and pedido_id is None:
             raise ReglaDeNegocio(f"El evento {evento.value} requiere un pedido_id")
 
+        # Sin destinatario no se puede enviar: se audita la incidencia y no se corta el flujo.
         if not destinatario:
             await auditoria.registrar(
                 self.uow,
@@ -77,6 +82,7 @@ class ServicioNotificaciones:
             )
             return None
 
+        # Sin plantilla activa para el evento simplemente no se notifica.
         plantilla = await self.repo.plantilla_activa(evento.value)
         if plantilla is None:
             return None
@@ -102,6 +108,7 @@ class ServicioNotificaciones:
         pendientes = await self.repo.pendientes(limite=limite)
         enviadas = fallidas = 0
 
+        # Cada notificación se procesa por separado: un fallo no frena al resto del lote.
         for notificacion in pendientes:
             try:
                 await self.enviador.enviar(
@@ -121,11 +128,13 @@ class ServicioNotificaciones:
     async def buscar_plantillas(
         self, *, nombre: str | None = None, evento: str | None = None, activa: bool | None = None
     ) -> list[dict]:
+        """Busca plantillas filtrando por nombre, evento y estado activo."""
         return await self.repo.buscar_plantillas(nombre=nombre, evento=evento, activa=activa)
 
     async def registrar_plantilla(
         self, *, clave: str, nombre: str, cuerpo: str, activa: bool, ejecutor_id: int | None
     ) -> dict:
+        """Crea una plantilla para un evento válido y deja registro en auditoría."""
         if clave not in EVENTOS_VALIDOS:
             raise ReglaDeNegocio(f"Evento invalido: {clave}")
 
@@ -145,6 +154,7 @@ class ServicioNotificaciones:
     async def modificar_plantilla(
         self, plantilla_id: int, *, nombre: str, cuerpo: str, activa: bool, ejecutor_id: int | None
     ) -> dict:
+        """Actualiza nombre, cuerpo y estado de una plantilla existente y lo audita."""
         await self._obtener_plantilla(plantilla_id)
         await self.repo.actualizar_plantilla(
             plantilla_id, nombre=nombre, cuerpo=cuerpo, activa=activa, actualizado_por=ejecutor_id
@@ -159,6 +169,7 @@ class ServicioNotificaciones:
         return await self._obtener_plantilla(plantilla_id)
 
     async def desactivar_plantilla(self, plantilla_id: int, *, ejecutor_id: int | None) -> dict:
+        """Desactiva una plantilla activa; falla si ya estaba inactiva."""
         actual = await self._obtener_plantilla(plantilla_id)
         if not actual["activa"]:
             raise ReglaDeNegocio("La plantilla ya esta inactiva")
@@ -176,6 +187,7 @@ class ServicioNotificaciones:
         return await self._obtener_plantilla(plantilla_id)
 
     async def _obtener_plantilla(self, plantilla_id: int) -> dict:
+        """Devuelve la plantilla o lanza ``NoEncontrado`` si no existe."""
         plantilla = await self.repo.obtener_plantilla(plantilla_id)
         if plantilla is None:
             raise NoEncontrado("La plantilla no existe")
@@ -186,4 +198,5 @@ class ServicioNotificaciones:
     async def listar(
         self, *, pedido_id: int | None = None, estado: str | None = None, limite: int = 100
     ) -> list[dict]:
+        """Lista notificaciones encoladas, filtrando por pedido y estado."""
         return await self.repo.listar(pedido_id=pedido_id, estado=estado, limite=limite)

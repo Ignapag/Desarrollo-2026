@@ -1,4 +1,6 @@
-﻿import React from 'react'
+﻿// Punto de entrada del frontend: monta React en #root con el router, la sesión
+// (AuthProvider), el estado compartido de datos (DataProvider) y las notificaciones toast.
+import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App.jsx'

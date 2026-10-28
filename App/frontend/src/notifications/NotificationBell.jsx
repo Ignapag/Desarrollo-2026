@@ -1,3 +1,6 @@
+// Campanita del centro de notificaciones del personal: contador de no leídas y
+// diálogo con pestañas por categoría (stock y clientes/WhatsApp), filtro de pendientes
+// y acciones para abrir el aviso o marcarlo como leído.
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Bell, Check, FileCheck2, Headset, Package, RefreshCw, X } from 'lucide-react';
@@ -6,23 +9,29 @@ import { useAuth } from '../auth/AuthContext';
 import { useNotifications } from './notificationHooks';
 import { categoryUnreadCount, elapsedTime, NOTIFICATION_CATEGORIES, notificationCategory } from './notificationModel';
 
+// Estilo de botones e íconos por tipo de aviso.
 const buttonClass = 'min-h-11 min-w-11 rounded-xl px-3 py-2 text-sm font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-monu-green focus-visible:ring-offset-2 disabled:opacity-50';
 const icons = { comprobante: FileCheck2, atencion: Headset, stock: Package };
 
+/** Botón de notificaciones y su diálogo; no se muestra si el usuario no tiene avisos habilitados. */
 export default function NotificationBell() {
   const { user } = useAuth();
   const feed = useNotifications();
+  // Diálogo abierto, filtro (pendientes/todas) y categoría elegida.
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState('pending');
   const [category, setCategory] = useState('clientes');
   const categoryButtons = useRef({});
   const trigger = useRef(null);
   const dialog = useRef(null);
+  // Abre el <dialog> nativo cuando se activa.
   useEffect(() => {
     if (open && !dialog.current?.open) dialog.current?.showModal();
   }, [open]);
   if (!feed?.enabled) return null;
+  // Cierra el diálogo y devuelve el foco a la campanita.
   const close = () => { if (dialog.current?.open) dialog.current.close(); setOpen(false); trigger.current?.focus(); };
+  // Mantiene el foco con Tab dentro del diálogo.
   const trapFocus = (event) => {
     if (event.key !== 'Tab') return;
     const controls = [...dialog.current.querySelectorAll('button:not([disabled]):not([tabindex="-1"]), a[href], [tabindex="0"]')];
@@ -33,6 +42,7 @@ export default function NotificationBell() {
       (event.shiftKey ? last : first)?.focus();
     }
   };
+  // Categorías visibles según permisos y avisos de la categoría activa.
   const categories = NOTIFICATION_CATEGORIES.filter((item) => can(user, item.permission));
   const active = categories.some((item) => item.id === category) ? category : categories[0]?.id;
   const activeLabel = categories.find((item) => item.id === active)?.label;
@@ -42,6 +52,7 @@ export default function NotificationBell() {
   const status = feed.categoryStatus?.[active];
   const loading = status ? status.loading : feed.loading;
   const errors = status ? status.error ? [status.error] : [] : feed.errors;
+  // Navegación por teclado entre pestañas de categoría (flechas, Inicio y Fin).
   const changeCategory = (event) => {
     const index = categories.findIndex((item) => item.id === active);
     const nextIndex = { ArrowRight: (index + 1) % categories.length,
@@ -60,11 +71,13 @@ export default function NotificationBell() {
       <Bell aria-hidden="true" className="w-5 h-5" />
       {feed.unreadCount > 0 && <span aria-hidden="true" className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-monu-green text-white text-xs font-extrabold flex items-center justify-center">{feed.unreadCount > 99 ? '99+' : feed.unreadCount}</span>}
     </button>
+    {/* Estado de la consulta anunciado a lectores de pantalla */}
     <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">{loading ? 'Consultando notificaciones.' : errors.length ? 'No se pudieron actualizar todas las notificaciones.' : feed.unreadCount + ' avisos sin leer.'}</span>
     {open && <dialog ref={dialog} id="notifications-dialog" aria-labelledby="notifications-title" onCancel={(event) => { event.preventDefault(); close(); }} onClose={close} onKeyDown={trapFocus}
       onClick={(event) => { if (event.target === event.currentTarget) close(); }}
       className="fixed inset-auto top-20 right-4 m-0 w-[calc(100%_-_2rem)] max-w-md max-h-[calc(100dvh_-_6rem)] overflow-y-auto rounded-2xl border border-monu-green/20 p-0 bg-monu-bone text-monu-text shadow-2xl backdrop:bg-monu-dark/20">
       <div className="min-w-0">
+        {/* Encabezado fijo: título, pestañas de categoría y filtro de estado */}
         <div className="sticky top-0 z-10 bg-monu-bone border-b border-monu-green/10 p-4">
           <div className="flex items-center justify-between gap-3">
             <h2 id="notifications-title" className="text-xl font-extrabold font-heading text-monu-dark">Notificaciones</h2>
@@ -87,6 +100,7 @@ export default function NotificationBell() {
           <p className="text-xs mt-3">Leer un aviso no resuelve su pendiente.</p>
         </div>
         <div id="notifications-content" role="tabpanel" aria-labelledby={'notifications-tab-' + active} className="p-4 space-y-3">
+          {/* Errores, estado de carga y acción de marcar todo como leído */}
           {errors.length > 0 && <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
             {errors.map((error) => <p key={error}>{error}</p>)}
             <p>La información disponible puede estar desactualizada.</p>
@@ -96,6 +110,7 @@ export default function NotificationBell() {
           {loading && <p role="status" className="text-sm">Consultando notificaciones...</p>}
           {unread > 0 && <button type="button" onClick={() => feed.markRead(categoryItems.map((item) => item.key))} className={buttonClass + ' w-full border border-monu-green/20 text-monu-green'}>Marcar {activeLabel} como leídas</button>}
           {!loading && !errors.length && items.length === 0 && <p className="py-6 text-center text-sm">{tab === 'pending' ? 'No tenés notificaciones pendientes.' : 'No hay notificaciones disponibles.'}</p>}
+          {/* Lista de avisos de la categoría */}
           <ul className="space-y-3">
             {items.map((item) => {
               const Icon = icons[item.kind];

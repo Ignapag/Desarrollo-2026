@@ -8,6 +8,8 @@ from app.modules.stock.domain.entidades import INGREDIENTES_QUITABLES
 
 
 class RepositorioEdicionItems(Protocol):
+    """Puerto de persistencia que necesita la edición de ítems de un pedido."""
+
     async def productos(self, ids: list[int]) -> list[dict]: ...
     async def items_edicion(self, pedido_id: int) -> list[dict]: ...
     async def receta_edicion(self, producto_id: int, variante: str | None) -> list[dict]: ...
@@ -26,6 +28,9 @@ class RepositorioEdicionItems(Protocol):
 
 
 def entero(valor, nombre: str, *, maximo: int | None = None) -> int:
+    """Valida que el valor sea un entero positivo (no booleano) y, si se indica, no supere el
+    máximo.
+    """
     if (
         isinstance(valor, bool)
         or not isinstance(valor, int)
@@ -40,17 +45,24 @@ def entero(valor, nombre: str, *, maximo: int | None = None) -> int:
 def normalizar_aclaraciones(
     aclaraciones, nombres: dict[int, str], receta: list[dict]
 ) -> str | None:
+    """Valida y normaliza las aclaraciones de un ítem.
+
+    Solo se admiten retiros del tipo "sin X", donde X es un ingrediente quitable de la receta (se
+    aceptan algunos alias). Devuelve el texto canónico, por ejemplo "Sin Cebolla, Sin Cheddar".
+    """
     if aclaraciones is None or aclaraciones == "":
         return None
     if not isinstance(aclaraciones, str) or len(aclaraciones) > 500:
         raise DatosInvalidos("Las aclaraciones no son validas")
     disponibles = {nombres[fila["ingrediente_id"]].casefold() for fila in receta}
+    # Alias coloquiales que el cliente usa para nombrar ingredientes de la receta.
     aliases = {
         "bacon": {"panceta", "bacon en cubos"},
         "cheddar": {"queso cheddar"},
         "cebolla": {"cebolla cruda", "cebolla en cubos", "cebolla caramelizada", "cebolla crispy"},
     }
     retirados = []
+    # Cada nota separada por coma debe resolver a un único ingrediente quitable.
     for nota in aclaraciones.split(","):
         nota = nota.strip().casefold()
         if not nota.startswith("sin "):
@@ -72,11 +84,18 @@ async def preparar_items(
     anteriores: list[dict],
     solicitados: list[dict],
 ) -> list[dict]:
+    """Valida la composición solicitada y arma las líneas definitivas del pedido.
+
+    Las líneas existentes conservan precio y receta congelados; las nuevas toman precio, variante y
+    receta del catálogo vigente. También recalcula subtotales y controla el máximo de 50 unidades
+    por producto.
+    """
     if not isinstance(solicitados, list) or not 1 <= len(solicitados) <= 50:
         raise DatosInvalidos("El pedido debe contener entre 1 y 50 lineas; para vaciarlo cancelelo")
     existentes = {item["id"]: item for item in anteriores}
     nuevos_ids = []
     vistos = set()
+    # Primera pasada: valida la estructura de cada línea y junta los productos a consultar.
     for item in solicitados:
         if not isinstance(item, dict):
             raise DatosInvalidos("El item no es valido")
@@ -96,6 +115,7 @@ async def preparar_items(
         if set(item) - permitidos:
             raise DatosInvalidos("El item contiene opciones no admitidas")
         entero(item.get("cantidad"), "La cantidad", maximo=50)
+        # Una línea existente no puede cambiar de producto ni de variante, solo de cantidad.
         if item.get("id") is not None:
             item_id = entero(item["id"], "El item")
             if item_id not in existentes or item_id in vistos:
@@ -117,8 +137,10 @@ async def preparar_items(
     )
     resultado = []
     acumuladas = {}
+    # Segunda pasada: construye cada línea a partir del pedido anterior o del catálogo.
     for solicitado in solicitados:
         anterior = existentes.get(solicitado.get("id"))
+        # Línea existente: si aumenta la cantidad, el producto debe seguir activo.
         if anterior is not None:
             item = dict(anterior)
             if solicitado["cantidad"] > anterior["cantidad"]:
@@ -129,6 +151,7 @@ async def preparar_items(
             if receta is None:
                 receta = await repo.receta_edicion(item["producto_id"], item.get("variante"))
         else:
+            # Línea nueva: producto activo y variante válida según el catálogo.
             producto = productos.get(solicitado["producto_id"])
             if producto is None:
                 raise NoEncontrado("El producto no existe")
@@ -155,6 +178,7 @@ async def preparar_items(
             }
         if not receta:
             raise ReglaDeNegocio("El producto no tiene una receta valida")
+        # Las aclaraciones se recalculan solo en líneas nuevas o cuando cambian.
         if anterior is None or (
             "aclaraciones" in solicitado and solicitado["aclaraciones"] != anterior["aclaraciones"]
         ):
@@ -168,6 +192,7 @@ async def preparar_items(
         item["subtotal"] = (
             Decimal(str(item["precio_unitario"])) + Decimal(str(item.get("costo_opciones", 0)))
         ) * item["cantidad"]
+        # Tope acumulado por producto y variante, sumando todas las líneas.
         clave = (item["producto_id"], item.get("variante"))
         acumuladas[clave] = acumuladas.get(clave, 0) + item["cantidad"]
         if acumuladas[clave] > 50:

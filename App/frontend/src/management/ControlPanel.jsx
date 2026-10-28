@@ -1,4 +1,7 @@
-﻿import { useEffect, useState } from 'react';
+﻿// Panel de Control (inicio del panel): métricas de pedidos del día/semana/mes, alertas
+// de stock, ingreso neto confirmado y gráficos de los últimos 7 días. Sin permiso de
+// reportes muestra accesos directos a pedidos y cocina.
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, CalendarDays, CalendarRange, RefreshCw, ShoppingBag } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -8,15 +11,22 @@ import { apiFetch } from '../shared/api/http';
 import { userErrorMessage } from '../shared/api/userErrors.js';
 import { periodoPanel, unidadesPorDia, validarReportes } from './datosPanel';
 
+// Formateadores y estilo de tarjeta del panel.
 const cantidad = new Intl.NumberFormat('es-AR');
 const moneda = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
 const hora = new Intl.DateTimeFormat('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour: '2-digit', minute: '2-digit' });
 const tarjeta = 'bg-monu-bone rounded-2xl p-6 shadow-sm border border-monu-green/10 min-w-0';
 
+/**
+ * Hook que carga el resumen del panel y las ventas diarias de los últimos 7 días.
+ * Refresca cada 45 s, al recuperar el foco y al volver a la pestaña (como mucho cada 10 s);
+ * conserva los últimos datos si una actualización falla. Devuelve `{ datos, error, cargando, recargar }`.
+ */
 function useReportes(user, refreshSession) {
   const [estado, setEstado] = useState(null);
   const [intento, setIntento] = useState(0);
 
+  // Sondeo de reportes mientras el usuario tenga permiso reportes.ver.
   useEffect(() => {
     if (!can(user, 'reportes.ver')) return undefined;
     let activo = true;
@@ -24,6 +34,7 @@ function useReportes(user, refreshSession) {
     let ultimoInicio = 0;
     const controller = new AbortController();
 
+    // Pide resumen y ventas en paralelo, valida ambas respuestas y arma la serie diaria.
     async function cargar(forzar = false) {
       if (pendiente || document.visibilityState === 'hidden') return;
       if (!forzar && Date.now() - ultimoInicio < 10000) return;
@@ -69,17 +80,20 @@ function useReportes(user, refreshSession) {
     };
   }, [user, intento, refreshSession]);
 
+  // Solo se exponen los datos que pertenecen al usuario actual.
   const habilitado = can(user, 'reportes.ver');
   const actual = habilitado && estado?.owner === user ? estado : null;
   return { datos: actual?.datos, error: actual?.error || '', cargando: habilitado && (actual?.cargando ?? true), recargar: () => setIntento((anterior) => anterior + 1) };
 }
 
+/** Pantalla de inicio del panel del personal. */
 export default function ControlPanel() {
   const { user, refreshSession } = useAuth();
   const habilitado = can(user, 'reportes.ver');
   const { datos, error, cargando, recargar } = useReportes(user, refreshSession);
   const resumen = datos?.resumen;
   const ranking = resumen?.ranking_productos.slice(0, 5) || [];
+  // Tarjetas de métricas principales.
   const stats = resumen ? [
     { label: 'Pedidos hoy', value: resumen.pedidos_dia, icon: ShoppingBag },
     { label: 'Pedidos esta semana', value: resumen.pedidos_semana, icon: CalendarDays },
@@ -89,6 +103,7 @@ export default function ControlPanel() {
 
   return (
     <div className="space-y-6">
+      {/* Encabezado con botón de actualización */}
       <div className="flex flex-wrap justify-between items-end gap-4">
         <div>
           <h1 className="text-3xl font-extrabold font-heading text-monu-dark mb-1">Panel de Control</h1>
@@ -102,6 +117,7 @@ export default function ControlPanel() {
         )}
       </div>
 
+      {/* Sin permiso de reportes: accesos directos; con permiso: métricas y gráficos */}
       {!habilitado ? (
         <section className={tarjeta}>
           <h2 className="font-bold text-lg text-monu-dark">Todo listo para trabajar</h2>
@@ -120,9 +136,11 @@ export default function ControlPanel() {
               <button type="button" onClick={recargar} disabled={cargando} className="mt-2 min-h-11 font-bold underline focus-visible:outline-2 focus-visible:outline-offset-2">Reintentar</button>
             </div>
           )}
+          {/* Hora de la última actualización (anunciada a lectores de pantalla) */}
           <p role="status" className="text-sm text-monu-text/70">
             {!datos ? (cargando ? 'Cargando métricas…' : 'No se pudieron obtener las métricas.') : `Actualizado a las ${hora.format(new Date(resumen.actualizado_en))} · Hora Argentina${cargando ? ' · Actualizando…' : ''}`}
           </p>
+          {/* Tarjetas de métricas (o marcadores mientras carga) */}
           <div aria-busy={cargando} className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
             {resumen ? stats.map(({ label, value, icon: Icon }) => (
               <article key={label} className={tarjeta}>
@@ -144,6 +162,7 @@ export default function ControlPanel() {
                   <p className="mt-1 text-sm text-monu-text/70">Cobros conciliados menos devoluciones conciliadas.</p>
                 </section>
               )}
+              {/* Gráfico de unidades por día y ranking de productos más vendidos */}
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                 <section className={tarjeta}>
                   <h2 className="font-bold text-monu-dark mb-6">Unidades vendidas · Últimos 7 días</h2>
@@ -189,10 +208,12 @@ export default function ControlPanel() {
   );
 }
 
+/** Mensaje de estado vacío para gráficos y listas sin datos. */
 function EstadoVacio({ texto }) {
   return <div className="min-h-64 flex flex-col items-center justify-center text-center gap-4"><ShoppingBag aria-hidden="true" className="h-9 w-9 text-monu-green/60" /><p className="max-w-xs text-monu-text/70">{texto}</p><AllowedLink to="/dashboard/orders" className="min-h-11 inline-flex items-center font-bold text-monu-green underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-monu-green">Ver pedidos</AllowedLink></div>;
 }
 
+/** Enlace que solo se muestra si el usuario puede visitar la ruta destino. */
 function AllowedLink({ to, children, ...props }) {
   const { user } = useAuth();
   return canVisit(user, to) ? <Link to={to} {...props}>{children}</Link> : null;

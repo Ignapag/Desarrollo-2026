@@ -1,3 +1,4 @@
+// Diálogo para editar el costo unitario de un insumo del inventario.
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { X } from 'lucide-react';
@@ -5,17 +6,24 @@ import { userErrorMessage } from '../shared/api/userErrors.js';
 import { DataError } from '../fulfillment/operationUi';
 import { costUnitLabel, parseUnitCost } from './ingredientCost';
 
+/**
+ * Formulario modal de costo. `onSave(id, importe)` persiste el cambio y `onClose`
+ * cierra el diálogo (bloqueado mientras se guarda).
+ */
 export default function IngredientCostDialog({ item, onSave, onClose }) {
+  // Valor escrito, error y estado de guardado (el ref evita dobles envíos).
   const [value, setValue] = useState(item.cost > 0 ? String(item.cost).replace('.', ',') : '');
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const saving = useRef(false);
   const mounted = useRef(true);
   const dialog = useRef(null);
+  // Abre el <dialog> nativo al montar y registra si sigue montado.
   useEffect(() => { mounted.current = true; dialog.current?.showModal(); return () => { mounted.current = false; }; }, []);
   const parsed = parseUnitCost(value);
   const close = () => { if (!saving.current) onClose(); };
 
+  // Valida el costo, lo guarda y avisa el resultado con un toast.
   const handleSubmit = async (event) => {
     event.preventDefault();
     if (saving.current) return;
@@ -42,11 +50,13 @@ export default function IngredientCostDialog({ item, onSave, onClose }) {
   return (
     <dialog ref={dialog} aria-labelledby="ingredient-cost-title" onCancel={(event) => { event.preventDefault(); close(); }} className="m-auto max-h-[90dvh] overflow-y-auto rounded-3xl border-0 p-0 w-[min(28rem,calc(100%_-_2rem))] backdrop:bg-black/50">
       <div className="bg-white rounded-3xl p-6 w-full shadow-2xl relative">
+        {/* Botón de cierre */}
         <button type="button" disabled={isSaving} onClick={close} aria-label="Cerrar formulario de costo"
           className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 bg-gray-100 rounded-full">
           <X className="w-5 h-5" />
         </button>
         <h2 id="ingredient-cost-title" className="text-xl font-extrabold text-monu-dark mb-4 pr-8">Costo de {item.name}</h2>
+        {/* Campo de costo con ayuda y error */}
         <form noValidate onSubmit={handleSubmit} className="space-y-4" aria-busy={isSaving}>
           <fieldset disabled={isSaving}>
             <label htmlFor="ingredient-cost" className="block text-sm font-bold text-monu-dark mb-1">Costo unitario ({costUnitLabel(item.category)})</label>

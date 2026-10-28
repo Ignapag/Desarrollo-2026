@@ -1,5 +1,7 @@
 // Límites de BorradorEntrada / ItemPedidoEntrada / DireccionPedidoEntrada.
 // Precios, stock y disponibilidad se vuelven a validar exclusivamente en la API.
+// Valida el cuerpo del checkout; devuelve `{ field?, message }` con el primer error o null.
+// `partial` (chat de demostración) permite dejar sin definir entrega y dirección.
 export function validateCheckout(payload, { partial = false } = {}) {
   if (!payload.items.length || payload.items.length > 50) return { message: 'El pedido debe incluir entre 1 y 50 productos.' };
   for (const item of payload.items) {

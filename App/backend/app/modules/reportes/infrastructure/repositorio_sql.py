@@ -9,10 +9,17 @@ from app.modules.reportes.domain.reglas import ESTADOS_VENTA, ZONA_NEGOCIO
 
 
 class RepositorioReportesSQL:
+    """Consultas agregadas de ventas, pagos, clientes y rentabilidad."""
+
     def __init__(self, uow: UnidadDeTrabajo) -> None:
+        """Recibe la unidad de trabajo cuya transacción comparten las consultas."""
         self.uow = uow
 
     async def clientes(self, *, q: str | None, limite: int, desplazamiento: int) -> dict:
+        """Devuelve una página del directorio de clientes con su actividad y zona frecuente.
+
+        Ordena por último pedido y permite buscar por nombre o teléfono.
+        """
         # La última actividad usa el índice de pedidos por cliente. Los conteos y
         # las zonas se agregan sólo para los clientes de la página solicitada.
         filas = await self.uow.todos(
@@ -67,6 +74,7 @@ class RepositorioReportesSQL:
             """,
             (q, q, limite, desplazamiento),
         )
+        # El total de candidatos viene repetido en cada fila; se separa del listado.
         total = filas[0]["total"]
         clientes = [
             {clave: valor for clave, valor in fila.items() if clave != "total"}
@@ -81,6 +89,7 @@ class RepositorioReportesSQL:
         }
 
     async def resumen_pedidos(self) -> dict:
+        """Cuenta las ventas confirmadas del día, la semana y el mes en hora local."""
         return await self.uow.uno(
             """
             WITH ahora AS (
@@ -117,6 +126,7 @@ class RepositorioReportesSQL:
         *,
         incluir_montos: bool,
     ) -> list[dict]:
+        """Agrega unidades vendidas por período y producto, con montos solo si se piden."""
         # Ambas variantes son SQL fijo; el Administrador ni siquiera consulta montos.
         sql_sin_montos = """
             SELECT date_trunc(%s, p.confirmado_en AT TIME ZONE %s)::date AS periodo,
@@ -169,6 +179,7 @@ class RepositorioReportesSQL:
         )
 
     async def pagos_por_metodo(self, desde: date, hasta: date) -> list[dict]:
+        """Suma el ingreso neto conciliado (cobros menos devoluciones) por método de pago."""
         return await self.uow.todos(
             """
             SELECT metodo_pago,
@@ -191,6 +202,10 @@ class RepositorioReportesSQL:
         categoria_id: int | None,
         producto_id: int | None,
     ) -> list[dict]:
+        """Estima ingreso y costo por producto vendido en el período.
+
+        El costo usa el costo actual de insumos de cada producto, no el histórico.
+        """
         return await self.uow.todos(
             """
             SELECT pr.id AS producto_id, pr.nombre AS producto,

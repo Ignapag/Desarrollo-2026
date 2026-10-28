@@ -10,6 +10,7 @@ from app.modules.productos.infrastructure.repositorio_sql import RepositorioProd
 
 
 def obtener_servicio_productos(uow: UoW) -> ServicioProductos:
+    """Arma el servicio del catálogo con su repositorio SQL."""
     return ServicioProductos(RepositorioProductosSQL(uow))
 
 

@@ -18,6 +18,8 @@ import app.modules as paquete_modulos
 
 @dataclass(frozen=True, slots=True)
 class RouterDescubierto:
+    """Router HTTP encontrado al escanear una capacidad de ``app.modules``."""
+
     capacidad: str
     modulo: str
     router: APIRouter
@@ -33,6 +35,7 @@ def descubrir_routers() -> list[RouterDescubierto]:
     raiz = Path(next(iter(paquete_modulos.__path__)))
     encontrados: list[RouterDescubierto] = []
 
+    # Recorre cada carpeta de capacidad en orden alfabético para un registro determinista.
     for capacidad_dir in sorted(raiz.iterdir(), key=lambda ruta: ruta.name):
         if not capacidad_dir.is_dir() or capacidad_dir.name.startswith("_"):
             continue
@@ -41,6 +44,7 @@ def descubrir_routers() -> list[RouterDescubierto]:
         if not presentacion.is_dir():
             continue
 
+        # Cada ``presentation/router*.py`` debe exportar una instancia ``router``.
         for archivo in sorted(presentacion.glob("router*.py")):
             if archivo.name == "__init__.py":
                 continue
@@ -50,6 +54,7 @@ def descubrir_routers() -> list[RouterDescubierto]:
             )
             modulo = import_module(nombre_modulo)
             router = getattr(modulo, "router", None)
+            # Falla temprano si el archivo no respeta la convención.
             if not isinstance(router, APIRouter):
                 raise RuntimeError(
                     f"{nombre_modulo} debe exportar una instancia APIRouter "

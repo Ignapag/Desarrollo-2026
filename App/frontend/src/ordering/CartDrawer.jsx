@@ -1,4 +1,7 @@
-﻿import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+﻿// Carrito del cliente en un diálogo modal: lista de productos con cantidades, datos de
+// contacto, entrega (retiro o delivery) y pago. Prepara un borrador de pedido para enviar
+// por WhatsApp o, en modo demostración, lo envía al chat integrado.
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useData } from '../shared/store/DataContext';
 import { Trash2, X, MessageCircle, ShoppingCart, ArrowRight, Check, LoaderCircle } from 'lucide-react';
 import { buildWhatsAppDraftPayload, createWhatsAppDraft } from './whatsapp';
@@ -6,28 +9,37 @@ import { openChatSession, sendChatDraft } from './chatDemo';
 import { validateCheckout } from './checkoutValidation';
 import { userErrorMessage } from '../shared/api/userErrors';
 
+// Clases de campos, botones y etiquetas del carrito.
 const inputClass = 'w-full min-h-11 bg-white border border-monu-green/20 rounded-xl px-3 py-2.5 text-base font-medium text-monu-dark placeholder:text-monu-text/50 focus:outline-none focus:ring-2 focus:ring-monu-green disabled:opacity-60';
 const actionClass = 'min-h-11 rounded-xl font-extrabold px-4 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-monu-green disabled:opacity-50 disabled:cursor-not-allowed';
 const labelClass = 'block space-y-1.5 text-sm font-bold text-monu-dark';
 const iconButtonClass = 'flex min-w-11 min-h-11 items-center justify-center rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-monu-green disabled:opacity-50';
 
+/**
+ * Carrito. `chatConfig.habilitado` activa el modo chat de demostración (datos parciales
+ * permitidos); `onOpenChat` abre el chat tras enviar el carrito.
+ */
 export default function CartDrawer({ isOpen, onClose, chatConfig = { status: 'ready', habilitado: false }, onRetryChatConfig, onOpenChat }) {
   const { state, dispatch } = useData();
   const { cart } = state;
+  // Referencia al carrito actual para detectar cambios mientras se envía al chat.
   const currentCart = useRef(cart);
   useLayoutEffect(() => { currentCart.current = cart; }, [cart]);
+  // Datos del checkout: entrega, pago, dirección y contacto del cliente.
   const [address, setAddress] = useState('');
   const [zone, setZone] = useState('');
   const [delivery, setDelivery] = useState('RETIRO');
   const [payment, setPayment] = useState('EFECTIVO');
   const [number, setNumber] = useState('');
   const [contact, setContact] = useState({ nombre: '', apellido: '', telefono: '' });
+  // Estado del borrador de WhatsApp: preparación, borrador vigente, errores y vencimiento.
   const [isPreparing, setIsPreparing] = useState(false);
   const [draft, setDraft] = useState(null);
   const [error, setError] = useState('');
   const [fieldError, setFieldError] = useState(null);
   const [expiredReference, setExpiredReference] = useState(null);
   const [copied, setCopied] = useState(false);
+  // Refs de foco y de envío en curso.
   const dialogRef = useRef(null);
   const closeRef = useRef(null);
   const errorRef = useRef(null);
@@ -35,6 +47,7 @@ export default function CartDrawer({ isOpen, onClose, chatConfig = { status: 're
   const preparingRef = useRef(false);
   const readyRef = useRef(null);
   const fieldRefs = useRef({});
+  // Cuerpo del borrador (y su variante parcial para el chat) y el borrador vigente si coincide con el carrito.
   const demo = Boolean(chatConfig.habilitado);
   const needsAddress = delivery === 'DELIVERY';
   const busy = isPreparing;
@@ -44,9 +57,11 @@ export default function CartDrawer({ isOpen, onClose, chatConfig = { status: 're
   const payloadKey = JSON.stringify(payload);
   const currentDraft = draft?.key === payloadKey && draft.data.referencia !== expiredReference ? draft.data : null;
   const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  // Props comunes de los campos con error accesible.
   const fieldProps = (id) => ({ ref: (node) => { fieldRefs.current[id] = node; }, 'aria-invalid': fieldError?.field === id, 'aria-describedby': fieldError?.field === id ? `${id}-error` : undefined });
   const fieldMessage = (id) => fieldError?.field === id ? <span id={`${id}-error`} role="alert" className="block text-sm text-red-800">{fieldError.message}</span> : null;
 
+  // Abre el <dialog> nativo, bloquea el scroll de la página y restaura el foco al cerrar.
   useEffect(() => {
     if (!isOpen) return undefined;
     const previousFocus = document.activeElement;
@@ -62,6 +77,7 @@ export default function CartDrawer({ isOpen, onClose, chatConfig = { status: 're
     };
   }, [isOpen]);
 
+  // Enfoca el enlace "Continuar por WhatsApp" cuando el borrador está listo y el error cuando aparece.
   useEffect(() => {
     if (isOpen && currentDraft) readyRef.current?.focus();
   }, [isOpen, currentDraft]);
@@ -70,18 +86,21 @@ export default function CartDrawer({ isOpen, onClose, chatConfig = { status: 're
     if (error) errorRef.current?.focus();
   }, [error]);
 
+  // Marca el borrador como vencido al llegar su fecha de expiración.
   useEffect(() => {
     if (!draft) return undefined;
     const timer = window.setTimeout(() => setExpiredReference(draft.data.referencia), Math.max(0, Date.parse(draft.data.expira_en) - Date.now()));
     return () => window.clearTimeout(timer);
   }, [draft]);
 
+  // Actualiza un dato de contacto y limpia el error de campo.
   const updateContact = (event) => {
     setFieldError(null);
     const { name, value } = event.target;
     setContact((previous) => ({ ...previous, [name]: value }));
   };
 
+  // Crea (o reutiliza si sigue vigente) el borrador de pedido con el mensaje de WhatsApp.
   const prepareWhatsApp = async () => {
     if (preparingRef.current) return;
     setError('');
@@ -107,6 +126,7 @@ export default function CartDrawer({ isOpen, onClose, chatConfig = { status: 're
     }
   };
 
+  // Copia el mensaje preparado al portapapeles.
   const copyMessage = async () => {
     try {
       await navigator.clipboard.writeText(currentDraft.mensaje);
@@ -116,6 +136,7 @@ export default function CartDrawer({ isOpen, onClose, chatConfig = { status: 're
     }
   };
 
+  // Valida el checkout y continúa por WhatsApp o por el chat de demostración.
   const handleSubmit = (event) => {
     event.preventDefault();
     if (busy) return;
@@ -130,6 +151,7 @@ export default function CartDrawer({ isOpen, onClose, chatConfig = { status: 're
     void prepareWhatsApp();
   };
 
+  // Envía el carrito al chat de demostración y lo vacía si no cambió mientras tanto.
   const prepareChat = async () => {
     if (preparingRef.current || !cart.length) return;
     preparingRef.current = true;
@@ -156,6 +178,7 @@ export default function CartDrawer({ isOpen, onClose, chatConfig = { status: 're
       onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}
       className="fixed inset-0 m-auto w-[calc(100%_-_2rem)] max-w-4xl max-h-[calc(100dvh_-_2rem)] overflow-hidden rounded-3xl border border-monu-green/10 bg-monu-bone p-0 text-monu-text shadow-monu-lg backdrop:bg-black/55 backdrop:backdrop-blur-sm">
       <div className="flex max-h-[calc(100dvh_-_2rem)] flex-col">
+        {/* Encabezado con cierre */}
         <header className="flex shrink-0 items-center justify-between gap-4 border-b border-monu-green/10 px-5 py-4 sm:px-7">
           <div>
             <h2 id="cart-title" className="font-heading text-2xl font-extrabold tracking-tight text-monu-dark">Tu pedido</h2>
@@ -163,6 +186,7 @@ export default function CartDrawer({ isOpen, onClose, chatConfig = { status: 're
           </div>
           <button ref={closeRef} type="button" onClick={onClose} aria-label="Cerrar carrito" className={iconButtonClass + ' bg-monu-green/5 text-monu-dark hover:bg-monu-green/10'}><X aria-hidden="true" className="size-5" /></button>
         </header>
+        {/* Carrito vacío o formulario de checkout */}
         {cart.length === 0 ? (
           <div className="flex flex-col items-center gap-3 px-6 py-14 text-center">
             <span className="flex size-16 items-center justify-center rounded-2xl bg-monu-cream text-monu-green"><ShoppingCart aria-hidden="true" className="size-7" /></span>
@@ -173,6 +197,7 @@ export default function CartDrawer({ isOpen, onClose, chatConfig = { status: 're
           <form noValidate onSubmit={handleSubmit} className="flex min-h-0 flex-col">
             <div className="min-h-0 overflow-y-auto overscroll-contain">
               <div className="grid md:grid-cols-2">
+                {/* Productos elegidos con controles de cantidad */}
                 <section aria-labelledby="cart-products" className="bg-monu-cream/25 p-5 sm:p-7">
                   <div className="mb-5 flex items-center justify-between gap-3">
                     <h3 id="cart-products" className="font-heading text-lg font-extrabold text-monu-dark">Lo que elegiste</h3>
@@ -203,6 +228,7 @@ export default function CartDrawer({ isOpen, onClose, chatConfig = { status: 're
                     ))}
                   </ul>
                 </section>
+                {/* Datos del cliente, entrega y pago */}
                 <section aria-labelledby="checkout-contact" className="space-y-5 p-5 sm:p-7 md:border-l md:border-monu-green/10">
                   {error && <p ref={errorRef} tabIndex={-1} role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p>}
                   {chatConfig.status === 'error' && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800"><p>{chatConfig.error}</p><button type="button" onClick={onRetryChatConfig} className={actionClass + ' mt-2 underline'}>Reintentar disponibilidad del chat</button></div>}
@@ -249,6 +275,7 @@ export default function CartDrawer({ isOpen, onClose, chatConfig = { status: 're
                     )}
                     {payment === 'TRANSFERENCIA' && <p className="text-xs leading-relaxed text-monu-text/70">Te pediremos el comprobante {demo ? 'en el chat' : 'por WhatsApp'} para que lo revise el local.</p>}
                   </fieldset>
+                  {/* Borrador listo: ver/copiar el mensaje o regenerarlo */}
                   {!demo && currentDraft && (
                     <div className="rounded-2xl border border-monu-green/15 bg-monu-green/5 p-4">
                       <p role="status" className="flex items-center gap-2 text-sm font-bold text-monu-dark"><Check aria-hidden="true" className="size-4 shrink-0" />Listo para enviar por WhatsApp</p>
@@ -268,6 +295,7 @@ export default function CartDrawer({ isOpen, onClose, chatConfig = { status: 're
                 </section>
               </div>
             </div>
+            {/* Pie con subtotal y acción principal (WhatsApp o chat) */}
             <footer className="shrink-0 border-t border-monu-green/10 bg-white px-5 py-4 sm:px-7">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-baseline justify-between gap-4 sm:block">

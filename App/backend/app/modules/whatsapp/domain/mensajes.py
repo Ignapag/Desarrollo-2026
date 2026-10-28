@@ -26,11 +26,15 @@ def telefono_canonico(telefono: str) -> str:
 
 
 def huella_inicio(telefono: str, texto: str) -> str:
+    """Huella del mensaje inicial enviado desde la web, usada para vincularlo con su borrador sin
+    guardar el texto.
+    """
     contenido = telefono_canonico(telefono) + "\n" + " ".join(texto.split()).casefold()
     return hashlib.sha256(contenido.encode()).hexdigest()
 
 
 def es_inicio_web(texto: str) -> bool:
+    """Indica si el texto es el resumen de carrito generado por la web."""
     normal = " ".join(texto.split()).casefold()
     return normal.startswith(" ".join(INICIO_WEB.split()).casefold()) or (
         "subtotal estimado:" in normal and "armé mi pedido el" in normal
@@ -38,18 +42,22 @@ def es_inicio_web(texto: str) -> bool:
 
 
 def numeros_pedido_en(texto: str) -> set[int]:
+    """Números de pedido mencionados explícitamente como «pedido #N»."""
     return {int(n) for n in _NUMERO_PEDIDO.findall(texto)}
 
 
 def sin_selector_pedido(texto: str) -> str:
+    """Texto sin las menciones «pedido #N», con espacios normalizados."""
     return " ".join(_NUMERO_PEDIDO.sub(" ", texto).split())
 
 
 def hash_referencia(referencia: str) -> str:
+    """Hash SHA-256 de una referencia de acceso; nunca se persiste la referencia en claro."""
     return hashlib.sha256(referencia.encode()).hexdigest()
 
 
 def referencias_en(texto: str) -> set[str]:
+    """Referencias de acceso bien formadas presentes en el texto."""
     return set(_REFERENCIA.findall(texto))
 
 
@@ -60,6 +68,7 @@ def referencia_en(texto: str) -> str | None:
 
 
 def tiene_token_referencia(texto: str) -> bool:
+    """Indica si hay algo con forma de referencia, aunque esté mal escrito o incompleto."""
     return bool(_TOKEN_REFERENCIA.search(texto))
 
 
@@ -74,6 +83,7 @@ def ocultar_referencias(texto: str) -> str:
 
 
 def es_comando_guiado(texto: str) -> bool:
+    """Indica si el mensaje es exactamente un comando guiado del tipo «producto N; variante: X»."""
     return bool(_COMANDO_GUIADO.fullmatch(texto.strip()))
 
 
@@ -84,4 +94,5 @@ def es_saludo_borrador(texto: str) -> bool:
 
 
 def resumen(pedido: dict) -> str:
+    """Resumen legible del pedido para enviar por WhatsApp."""
     return resumen_pedido(pedido)

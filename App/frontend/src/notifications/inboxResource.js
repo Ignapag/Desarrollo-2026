@@ -1,3 +1,4 @@
+// Recurso compartido de la bandeja de WhatsApp (patrón store externo para useSyncExternalStore).
 // Una sola solicitud y una instantánea compartida por la campanita y la bandeja.
 // La cancelación invalida respuestas incluso cuando el transporte ignora AbortSignal.
 export function createInboxResource(fetchInbox, validate = (value) => value) {

@@ -9,6 +9,7 @@ const sauceImages = {
 };
 const normalized = (value) => typeof value === 'string' ? value.trim().toLowerCase() : '';
 
+// Foto a mostrar de un producto y cómo encuadrarla (cover o contain).
 export function productPhoto(product) {
   // Una imagen explícita de la API conserva prioridad sobre las fotos de respaldo.
   if (product.imagen_url) return { src: product.imagen_url, fit: 'cover' };

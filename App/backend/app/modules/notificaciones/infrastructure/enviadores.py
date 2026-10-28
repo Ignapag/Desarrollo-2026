@@ -18,6 +18,8 @@ log = logging.getLogger("monuburger.notificaciones")
 
 
 class EnviadorNotificaciones(Protocol):
+    """Puerto del canal de envío que implementa cada integración (simulada, n8n, etc.)."""
+
     async def enviar(self, destinatario: str, cuerpo: str) -> None:
         """Envia el mensaje. Debe lanzar una excepcion si el envio falla:
         el servicio la interpreta como notificacion FALLIDA y no relanza."""
@@ -33,4 +35,5 @@ class EnviadorSimulado:
     """
 
     async def enviar(self, destinatario: str, cuerpo: str) -> None:
+        """Registra en el log el mensaje que se habría enviado."""
         log.info("Notificacion simulada -> %s: %s", destinatario, cuerpo)

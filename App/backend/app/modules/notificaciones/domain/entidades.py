@@ -46,6 +46,7 @@ def renderizar_plantilla(cuerpo: str, variables: dict[str, str]) -> str:
     mejor que no enviar nada, sobre todo con el limite de 30 s del RNF-10.
     """
     resultado = cuerpo
+    # Reemplazo literal de cada ``{{clave}}`` (las llaves dobles se escapan en el f-string).
     for clave, valor in variables.items():
         resultado = resultado.replace(f"{{{{{clave}}}}}", valor)
     return resultado
@@ -53,6 +54,8 @@ def renderizar_plantilla(cuerpo: str, variables: dict[str, str]) -> str:
 
 @dataclass(slots=True, frozen=True)
 class PlantillaActiva:
+    """Plantilla vigente para un evento, lista para renderizar."""
+
     id: int
     clave: str
     nombre: str
@@ -61,6 +64,8 @@ class PlantillaActiva:
 
 @dataclass(slots=True, frozen=True)
 class NotificacionPendiente:
+    """Notificación encolada que todavía no se intentó enviar con éxito."""
+
     id: int
     destinatario: str
     cuerpo_renderizado: str

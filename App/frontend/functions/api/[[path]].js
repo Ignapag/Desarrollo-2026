@@ -1,4 +1,7 @@
 // Pages Functions mantiene la API y sus cookies HttpOnly bajo cada dominio de Pages.
+// Proxy de Cloudflare Pages: reenvía toda petición /api/* al backend (API_ORIGIN o
+// el backend de desarrollo en Render) conservando método, cuerpo y cookies, y
+// marca la respuesta como no cacheable porque contiene datos de sesión.
 export async function onRequest({ request, env }) {
   const origen = new URL(env.API_ORIGIN || 'https://monu-burger-desarrollo.onrender.com');
   const destino = new URL(request.url);

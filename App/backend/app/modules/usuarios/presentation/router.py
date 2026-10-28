@@ -57,6 +57,10 @@ async def iniciar_sesion(
     datos: LoginEntrada, respuesta: Response, ip: IpCliente,
     servicio: ServicioAuthDep, acceso: ServicioAccesoDep,
 ) -> SesionSalida:
+    """Valida credenciales y deja el JWT en una cookie HttpOnly.
+
+    Devuelve los datos del usuario con sus permisos vigentes; el token nunca viaja en el cuerpo.
+    """
     sesion = await servicio.iniciar_sesion(username=datos.username, password=datos.password, ip=ip)
     vigente = await acceso.sesion(ClaimsSesion(sesion.usuario_id, sesion.rol, sesion.username))
     respuesta.set_cookie(
@@ -80,6 +84,7 @@ async def iniciar_sesion(
 
 @router.post("/api/auth/logout")
 async def cerrar_sesion(respuesta: Response) -> dict:
+    """Elimina la cookie de sesión con los mismos atributos con que se creó."""
     respuesta.delete_cookie(
         settings.cookie_sesion,
         path="/",
@@ -92,6 +97,7 @@ async def cerrar_sesion(respuesta: Response) -> dict:
 
 @router.get("/api/auth/me", response_model=SesionSalida)
 async def quien_soy(sesion: Sesion, servicio: ServicioUsuariosDep) -> SesionSalida:
+    """Devuelve el usuario de la sesión actual con sus permisos vigentes."""
     usuario = await servicio.obtener(sesion.usuario_id)
     return SesionSalida(
         id=usuario["id"],
@@ -115,6 +121,7 @@ async def buscar_usuarios(
     rol: str | None = None,
     estado: str | None = None,
 ) -> list[UsuarioSalida]:
+    """Busca cuentas con filtros combinables (solo administrador)."""
     filtros = FiltrosUsuario(
         nombre=nombre, apellido=apellido, username=username, rol=rol, estado=estado
     )
@@ -125,6 +132,7 @@ async def buscar_usuarios(
 async def obtener_usuario(
     usuario_id: int, _admin: SoloAdministrador, servicio: ServicioUsuariosDep
 ) -> UsuarioSalida:
+    """Devuelve una cuenta por id (solo administrador)."""
     return UsuarioSalida(**await servicio.obtener(usuario_id))
 
 
@@ -132,6 +140,7 @@ async def obtener_usuario(
 async def registrar_usuario(
     datos: NuevoUsuarioEntrada, admin: SoloAdministrador, servicio: ServicioUsuariosDep
 ) -> UsuarioSalida:
+    """Registra una cuenta nueva (solo administrador)."""
     creado = await servicio.registrar(datos.a_datos(), ejecutor_id=admin.usuario_id)
     return UsuarioSalida(**creado)
 
@@ -143,6 +152,7 @@ async def modificar_usuario(
     admin: SoloAdministrador,
     servicio: ServicioUsuariosDep,
 ) -> UsuarioSalida:
+    """Modifica datos y estado de una cuenta (solo administrador)."""
     actualizado = await servicio.modificar(
         usuario_id, datos.a_datos(), ejecutor_id=admin.usuario_id
     )
@@ -153,6 +163,7 @@ async def modificar_usuario(
 async def desactivar_usuario(
     usuario_id: int, admin: SoloAdministrador, servicio: ServicioUsuariosDep
 ) -> UsuarioSalida:
+    """Desactiva una cuenta (solo administrador)."""
     desactivado = await servicio.desactivar(usuario_id, ejecutor_id=admin.usuario_id)
     return UsuarioSalida(**desactivado)
 
@@ -164,6 +175,7 @@ async def asignar_rol(
     admin: SoloAdministrador,
     servicio: ServicioUsuariosDep,
 ) -> UsuarioSalida:
+    """Cambia el rol de una cuenta (solo administrador)."""
     actualizado = await servicio.asignar_rol(usuario_id, datos.rol, ejecutor_id=admin.usuario_id)
     return UsuarioSalida(**actualizado)
 
@@ -181,6 +193,7 @@ async def consultar_auditoria(
     entidad: str | None = None,
     limite: int = Query(default=200, le=1000),
 ) -> list[EventoAuditoriaSalida]:
+    """Consulta el log de auditoría con filtros, del más reciente al más viejo."""
     eventos = await auditoria.listar(
         uow,
         desde=desde,
@@ -197,6 +210,7 @@ async def consultar_auditoria(
 async def detalle_auditoria(
     evento_id: int, _sesion: VerAuditoria, uow: UoW
 ) -> EventoAuditoriaSalida:
+    """Devuelve un evento puntual del log de auditoría."""
     evento = await auditoria.obtener(uow, evento_id)
     if evento is None:
         raise NoEncontrado("El evento de auditoria no existe")

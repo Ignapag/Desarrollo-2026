@@ -1,9 +1,16 @@
+// Guardia de rutas del panel: exige sesión iniciada y, opcionalmente, un rol
+// permitido o el permiso asociado a la ruta.
 import { Fragment } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import { canVisit } from './permissions';
 import { portal } from '../shared/portal';
 
+/**
+ * Renderiza `children` solo si hay sesión y el usuario cumple `allowedRoles` y/o
+ * el permiso de `path`; si no, redirige al login o muestra "Sin acceso".
+ * La key por usuario remonta la pantalla cuando cambia la sesión o sus permisos.
+ */
 export default function ProtectedRoute({ children, allowedRoles, path }) {
   const { user, loading, logout } = useAuth();
   if (loading) return <div className="min-h-screen bg-monu-cream" aria-busy="true" />;

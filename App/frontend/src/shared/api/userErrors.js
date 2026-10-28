@@ -1,3 +1,5 @@
+// Errores visibles para el usuario: mensajes genéricos, clase UserFacingError y
+// traducción de respuestas HTTP de la API a textos en español seguros de mostrar.
 export const DEFAULT_ERROR_MESSAGE = 'No pudimos completar la acción. Intentá nuevamente más tarde.';
 export const CHECK_OPERATION_MESSAGE = 'No pudimos confirmar el resultado. Comprobá su estado antes de repetir la acción para evitar duplicaciones.';
 
@@ -13,6 +15,7 @@ export class UserFacingError extends Error {
   }
 }
 
+// Texto a mostrar para cualquier error; los errores desconocidos usan `fallback`.
 export function userErrorMessage(error, fallback = DEFAULT_ERROR_MESSAGE) {
   if (!(error instanceof UserFacingError)) {
     if (error?.status === 401) return 'La sesión venció. Volvé a ingresar.';
@@ -37,6 +40,8 @@ const businessMessages = new Map([
   ['Adjuntá un PDF, PNG o JPEG válido de hasta 2 MiB', 'Elegí un archivo PDF, PNG o JPEG válido de hasta 2 MiB.'],
 ]);
 
+// Convierte un status HTTP (y el mensaje de negocio, si es uno conocido) en un UserFacingError.
+// Las escrituras con 5xx/408 quedan marcadas como inciertas.
 export function apiResponseError(status, body, { path = '', write = false } = {}) {
   const message = typeof body?.mensaje === 'string' ? body.mensaje : typeof body?.detail === 'string' ? body.detail : '';
   const uncertain = write && (status >= 500 || status === 408);

@@ -10,6 +10,8 @@ from app.modules.pedidos.presentation.esquemas import DireccionPedidoEntrada, It
 
 
 class AvisosSalida(BaseModel):
+    """Cantidades pendientes para los avisos del personal."""
+
     comprobantes_pendientes: int = Field(ge=0)
     atenciones_pendientes: int = Field(ge=0)
 
@@ -24,6 +26,8 @@ class ContactoEntrada(BaseModel):
 
 
 class BorradorEntrada(BaseModel):
+    """Carrito enviado desde la web para crear el borrador de WhatsApp."""
+
     model_config = ConfigDict(extra="forbid")
     tipo_entrega: Literal["RETIRO", "DELIVERY"] | None = None
     metodo_pago: Literal["EFECTIVO", "TRANSFERENCIA"] | None = None
@@ -33,6 +37,8 @@ class BorradorEntrada(BaseModel):
 
 
 class MensajeSimulado(BaseModel):
+    """Mensaje entrante simulado para pruebas sin Meta."""
+
     model_config = ConfigDict(extra="forbid")
     id: str = Field(min_length=1, max_length=200)
     telefono: str = Field(pattern=r"^[0-9]{11,15}$")
@@ -41,6 +47,10 @@ class MensajeSimulado(BaseModel):
 
 
 class RevisionEntrada(BaseModel):
+    """Decisión del personal sobre un comprobante o un cambio, con el total verificado cuando
+    corresponde.
+    """
+
     model_config = ConfigDict(extra="forbid")
     aprobar: bool
     motivo: str = Field(min_length=1, max_length=500)
@@ -57,5 +67,7 @@ class RespuestaAtencionEntrada(BaseModel):
 
 
 class ResolucionAtencionEntrada(BaseModel):
+    """Cierre de una atención humana con la resolución registrada."""
+
     model_config = ConfigDict(extra="forbid")
     resolucion: str = Field(min_length=1, max_length=500)

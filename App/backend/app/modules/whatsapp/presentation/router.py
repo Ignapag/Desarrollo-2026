@@ -38,6 +38,7 @@ def autorizar_revision_comprobante(
     datos: RevisionEntrada,
     personal: PermisoWhatsappGestionar,
 ) -> ClaimsSesion:
+    """Permite revisar comprobantes; aprobarlos exige además registrar y conciliar pagos."""
     if datos.aprobar and not (
         personal.puede("pagos.registrar") and personal.puede("pagos.conciliar")
     ):
@@ -49,6 +50,7 @@ def autorizar_revision_cambio(
     datos: RevisionEntrada,
     personal: PermisoWhatsappGestionar,
 ) -> ClaimsSesion:
+    """Permite revisar cambios; aprobarlos exige además poder editar pedidos."""
     if datos.aprobar and not personal.puede("pedidos.editar"):
         raise SinPermiso("Aprobar el cambio requiere permiso para editar pedidos")
     return personal
@@ -63,6 +65,9 @@ router = APIRouter(prefix="/api/whatsapp", tags=["WhatsApp"])
 
 @router.post("/borradores", status_code=201)
 async def crear_borrador(datos: BorradorEntrada, servicio: ServicioBotDep):
+    """Crea un borrador de pedido desde el carrito web y devuelve el enlace para continuar por
+    WhatsApp.
+    """
     return await servicio.crear_borrador(None, datos.model_dump())
 
 
@@ -70,6 +75,8 @@ async def crear_borrador(datos: BorradorEntrada, servicio: ServicioBotDep):
 async def simular(
     datos: MensajeSimulado, personal: PermisoWhatsappGestionar, servicio: ServicioBotDep
 ):
+    """Registra un mensaje entrante simulado; solo disponible en desarrollo con WhatsApp simulado.
+    """
     if settings.es_produccion or settings.whatsapp_modo != "simulado":
         raise SinPermiso("La simulación solo está habilitada en desarrollo simulado")
     await servicio.recibir(datos.id, datos.telefono, datos.texto, datos.media_id)
@@ -78,11 +85,13 @@ async def simular(
 
 @router.get("/bandeja")
 async def bandeja(personal: PermisoWhatsappVer, uow: UoW):
+    """Bandeja del personal con comprobantes, cambios, atenciones y salidas."""
     return await ColaWhatsAppSQL(uow).bandeja()
 
 
 @router.get("/avisos", response_model=AvisosSalida)
 async def avisos(personal: PermisoWhatsappVer, uow: UoW, response: Response):
+    """Cantidades pendientes para los avisos del personal, sin caché."""
     response.headers["Cache-Control"] = "private, no-store"
     return await ColaWhatsAppSQL(uow).avisos()
 
@@ -94,6 +103,7 @@ async def revisar(
     personal: RevisionComprobante,
     servicio: ServicioBotDep,
 ):
+    """Aprueba o rechaza un comprobante de transferencia."""
     return await servicio.revisar_comprobante(
         comprobante_id,
         datos.aprobar,
@@ -105,6 +115,7 @@ async def revisar(
 
 @router.get("/comprobantes/{comprobante_id}/archivo")
 async def archivo(comprobante_id: int, personal: PermisoWhatsappVer):
+    """Descarga el archivo de un comprobante registrado."""
     async with conexion() as conn:
         fila = await UnidadDeTrabajo(conn).uno(
             "SELECT media_id FROM whatsapp_comprobante WHERE id=%s", (comprobante_id,)
@@ -116,6 +127,7 @@ async def archivo(comprobante_id: int, personal: PermisoWhatsappVer):
 
 @router.get("/atenciones/{atencion_id}/archivo")
 async def archivo_atencion(atencion_id: int, personal: PermisoWhatsappVer):
+    """Descarga el comprobante adjunto a una atención derivada por comprobante."""
     async with conexion() as conn:
         fila = await UnidadDeTrabajo(conn).uno(
             """SELECT e.media_id FROM whatsapp_atencion a
@@ -129,6 +141,8 @@ async def archivo_atencion(atencion_id: int, personal: PermisoWhatsappVer):
 
 
 async def _adjunto(media_id: str):
+    """Devuelve el adjunto como descarga: de la demostración desde la base o de Meta en modo real.
+    """
     if media_id.startswith("demo:"):
         # Sólo se llega desde rutas con guarda de personal, nunca por una URL pública.
         async with conexion() as conn:
@@ -161,6 +175,7 @@ async def revisar_cambio(
     personal: RevisionCambio,
     servicio: ServicioBotDep,
 ):
+    """Aprueba o rechaza una solicitud de cambio derivada al personal."""
     return await servicio.revisar_cambio(
         cambio_id,
         datos.aprobar,
@@ -178,6 +193,7 @@ async def responder_atencion(
     personal: PermisoWhatsappGestionar,
     servicio: ServicioBotDep,
 ):
+    """Encola la respuesta del personal a una atención humana."""
     # 202: queda en la outbox; el estado de envío real se consulta en la bandeja.
     return await servicio.responder_atencion(
         atencion_id, personal.usuario_id, datos.texto, str(datos.solicitud_id)
@@ -191,11 +207,14 @@ async def resolver_atencion(
     personal: PermisoWhatsappGestionar,
     servicio: ServicioBotDep,
 ):
+    """Marca una atención humana como resuelta."""
     return await servicio.resolver_atencion(atencion_id, personal.usuario_id, datos.resolucion)
 
 
 @router.get("/webhook")
 async def verificar(request: Request):
+    """Verificación de suscripción del webhook de Meta: devuelve el challenge si el token coincide.
+    """
     query = request.query_params
     recibido = query.get("hub.verify_token", "")
     if (
@@ -210,8 +229,12 @@ async def verificar(request: Request):
 
 @router.post("/webhook")
 async def webhook(request: Request):
+    """Recibe el webhook de Meta: valida tamaño y firma, registra los mensajes entrantes del número
+    configurado y los estados de envío. El procesamiento ocurre luego en el worker.
+    """
     if settings.whatsapp_modo != "real":
         raise HTTPException(403, "El webhook real no está habilitado")
+    # Lee el cuerpo completo con un tope de 256 KiB antes de validar la firma.
     cuerpo = bytearray()
     async for parte in request.stream():
         cuerpo.extend(parte)
@@ -225,6 +248,7 @@ async def webhook(request: Request):
         payload = json.loads(cuerpo)
         if payload.get("object") != "whatsapp_business_account":
             raise ValueError
+        # Solo se aceptan eventos dirigidos al número de negocio configurado.
         eventos = []
         for entry in payload.get("entry", []):
             for change in entry.get("changes", []):
@@ -238,6 +262,7 @@ async def webhook(request: Request):
         async with conexion() as conn:
             uow = UnidadDeTrabajo(conn)
             servicio = construir_servicio(uow)
+            # Registra mensajes (texto o adjunto) y estados de entrega en una única transacción.
             for valor in eventos:
                 nombres = {
                     contacto["wa_id"]: contacto.get("profile", {}).get("name")

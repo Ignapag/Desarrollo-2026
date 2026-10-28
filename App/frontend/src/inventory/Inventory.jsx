@@ -1,3 +1,6 @@
+// Pantalla de Inventario: tabla de insumos con stock actual, mínimo, costo y estado,
+// reposición rápida (+1) o por cantidad, edición de costos y alta de insumos nuevos.
+// Los datos y mutaciones de stock pasan por DataContext contra la API.
 import { UserFacingError, userErrorMessage } from '../shared/api/userErrors.js';
 import { can } from '../auth/permissions';
 import { useAuth } from '../auth/AuthContext';
@@ -13,13 +16,16 @@ import IngredientCostDialog from './IngredientCostDialog';
 import ReplenishDialog from './ReplenishDialog';
 import { isUncertainReplenishment, quantityWithUnit } from './replenishment';
 
+// Stock inicial del alta: acepta cero explícito; el resto se valida como cantidad de receta.
 function initialQuantity(value) {
   const text = value.trim();
   return /^0+(?:[.,]0{1,3})?$/.test(text) ? { valid: true, amount: '0', display: '0' } : parseRecipeQuantity(value);
 }
 
+/** Pantalla de inventario de insumos (stock) del personal. */
 export default function Inventory() {
   const { user } = useAuth();
+  // El parámetro ?ingrediente=ID permite llegar enfocado a un insumo (p. ej. desde una notificación).
   const [searchParams] = useSearchParams();
   const location = useLocation();
   const ingredientId = searchParams.get('ingrediente');
@@ -27,18 +33,21 @@ export default function Inventory() {
   const focusedRequest = useRef(null);
   const { state, createIngredient, updateIngredientCost, replenishIngredient, refreshInventory } = useData();
   const { inventory } = state;
+  // Enfoca y desplaza hasta el insumo pedido en la URL una vez por navegación.
   useEffect(() => {
     if (state.inventoryStatus !== 'ready' || !targetIngredient.current || focusedRequest.current === location.key) return;
     targetIngredient.current.focus();
     targetIngredient.current.scrollIntoView?.({ block: 'center' });
     focusedRequest.current = location.key;
   }, [state.inventoryStatus, inventory, ingredientId, location.key]);
+  // Carga el inventario al montar.
   useEffect(() => {
     const controller = new AbortController();
     Promise.resolve().then(() => { if (!controller.signal.aborted) return refreshInventory(controller.signal); return undefined; }).catch(() => undefined);
     return () => controller.abort();
   }, [refreshInventory]);
   
+  // Filtro de búsqueda (?q=) por nombre o unidad del insumo.
   const searchQuery = searchParams.get('q')?.toLowerCase() || '';
 
   const filteredInventory = inventory.filter(item => 
@@ -46,9 +55,11 @@ export default function Inventory() {
     item.category.toLowerCase().includes(searchQuery)
   );
 
+  // Cantidad de insumos sin costo cargado (afectan la rentabilidad estimada de Reportes).
   const missingCost = inventory.filter((item) => !(item.cost > 0)).length;
   const canManage = can(user, 'stock.gestionar');
 
+  // Estado de los diálogos de alta y de edición de costo.
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCost, setEditingCost] = useState(null);
   const costTrigger = useRef(null);
@@ -58,6 +69,8 @@ export default function Inventory() {
   const [isSaving, setIsSaving] = useState(false);
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  // Estado de reposición: insumos con envío en curso, diálogo abierto, último resultado
+  // e insumos cuyo último intento quedó incierto.
   const saving = useRef(false);
   const replenishing = useRef(new Set());
   const [pendingStock, setPendingStock] = useState([]);
@@ -70,6 +83,7 @@ export default function Inventory() {
   const replenishItem = replenishTarget === null || !canReplenish ? null : inventory.find((item) => item.id === replenishTarget);
   // Al cerrar el diálogo el foco vuelve al botón que lo abrió.
   useEffect(() => { if (!replenishItem) { replenishTrigger.current?.focus(); replenishTrigger.current = null; } }, [replenishItem]);
+  // Errores del formulario de alta; el resumen recibe el foco al aparecer.
   const [formError, setFormError] = useState('');
   const [fieldErrors, setFieldErrors] = useState({});
   const errorSummary = useRef(null);
@@ -77,6 +91,7 @@ export default function Inventory() {
   const dialog = useRef(null);
   useEffect(() => { if (isModalOpen) dialog.current?.showModal(); }, [isModalOpen]);
 
+  // Borrador del insumo nuevo y sus valores ya interpretados.
   const [newItem, setNewItem] = useState({
     name: '',
     unit: 'UNIDAD',
@@ -88,6 +103,7 @@ export default function Inventory() {
   const parsedMinimum = parseRecipeQuantity(newItem.min);
   const parsedCost = parseUnitCost(newItem.cost);
 
+  // Da de alta el insumo: valida todos los campos, lo crea vía API y cierra el diálogo.
   const handleAddItem = async (e) => {
     e.preventDefault();
     if (saving.current || !can(user, 'stock.gestionar')) return;
@@ -144,12 +160,14 @@ export default function Inventory() {
     }
   };
 
+  // Abre el diálogo de reposición recordando el botón que lo abrió para devolverle el foco.
   const openReplenish = (item, event, value = '') => {
     replenishTrigger.current = event?.currentTarget ?? null;
     setReplenishValue(value);
     setReplenishTarget(item.id);
   };
 
+  // Reposición rápida de 1 unidad desde la tabla.
   const updateStock = async (item, event) => {
     // Tras un +1 incierto, repetirlo pasa por el diálogo: consulta el stock y pide confirmar.
     if (uncertainStock.includes(item.id)) { openReplenish(item, event, '1'); return; }
@@ -160,6 +178,7 @@ export default function Inventory() {
     }
   };
 
+  // Envía la reposición confirmada desde el diálogo y lo cierra al terminar.
   const submitReplenishment = async (item, plan) => {
     const result = await replenish(item, plan.amount);
     if (result === null) throw new UserFacingError('Ya hay una reposición en curso para este insumo. Esperá su resultado antes de enviar otra.');
@@ -168,9 +187,11 @@ export default function Inventory() {
 
   return (
     <div className="space-y-6">
+      {/* Estado de la carga y resultado de la última reposición (anunciado a lectores de pantalla) */}
       <DataError message={state.inventoryError} retry={() => { void refreshInventory(undefined, true).catch(() => undefined); }} />
       {['idle', 'loading'].includes(state.inventoryStatus) && <p role="status">Consultando inventario...</p>}
       <p role="status" className={lastReplenishment ? 'rounded-xl border border-green-200 bg-green-50 p-3 text-sm font-bold text-green-900' : 'sr-only'}>{lastReplenishment}</p>
+      {/* Encabezado y botón para añadir insumos */}
       <div className="flex justify-between items-end">
         <div>
           <h1 className="text-3xl font-extrabold font-heading text-monu-dark mb-1">Inventario</h1>
@@ -184,6 +205,7 @@ export default function Inventory() {
         </button>
       </div>
 
+      {/* Aviso de insumos sin costo cargado */}
       {state.inventoryStatus === 'ready' && missingCost > 0 && (
         <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 flex items-start gap-2">
           <CircleAlert className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
@@ -191,6 +213,7 @@ export default function Inventory() {
         </p>
       )}
 
+      {/* Tabla de insumos */}
       <div className="bg-white rounded-2xl shadow-sm border border-monu-green/10 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left min-w-[820px]">
@@ -279,6 +302,7 @@ export default function Inventory() {
         </div>
       </div>
 
+      {/* Diálogos de reposición y de costo */}
       {replenishItem && (
         <ReplenishDialog key={replenishItem.id} item={replenishItem} busy={pendingStock.includes(replenishItem.id)}
           uncertain={uncertainStock.includes(replenishItem.id)} initialValue={replenishValue}
@@ -306,10 +330,12 @@ export default function Inventory() {
             </button>
             <h2 id="new-ingredient-title" className="text-xl font-extrabold text-monu-dark mb-4 pr-8">Añadir Nuevo Insumo</h2>
             <form noValidate onSubmit={handleAddItem} className="space-y-4" aria-busy={isSaving}>
+              {/* Resumen de errores con enlaces a cada campo */}
               <div ref={errorSummary} tabIndex={-1}><DataError message={formError} />
                 {formError && Object.keys(fieldErrors).length > 0 && <ul className="mt-2 space-y-1 text-sm text-red-800">{Object.entries(fieldErrors).map(([field, message]) => <li key={field}><a href={`#new-ingredient-${field}`} className="underline">{message}</a></li>)}</ul>}
               </div>
               <fieldset disabled={isSaving} className="space-y-4">
+              {/* Campos del insumo: nombre, unidad, stock inicial, mínimo y costo */}
               <div>
                 <label htmlFor="new-ingredient-name" className="block text-sm font-bold text-monu-dark mb-1">Nombre</label>
                 <input 

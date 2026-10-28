@@ -19,6 +19,7 @@ from app.modules.pagos.presentation.esquemas import (
 from app.modules.usuarios.domain.entidades import ClaimsSesion
 from app.modules.usuarios.presentation.dependencias import requiere_permiso
 
+# Permisos de caja: ver consolidados, generar cierres y aprobarlos.
 PermisoCajaVer = Annotated[ClaimsSesion, Depends(requiere_permiso("caja", "ver"))]
 PermisoCajaGenerar = Annotated[ClaimsSesion, Depends(requiere_permiso("caja", "generar"))]
 PermisoCajaAprobar = Annotated[ClaimsSesion, Depends(requiere_permiso("caja", "aprobar"))]

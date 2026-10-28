@@ -10,6 +10,7 @@ from app.modules.stock.infrastructure.repositorio_sql import RepositorioStockSQL
 
 
 def obtener_servicio_stock(uow: UoW) -> ServicioStock:
+    """Arma el servicio de stock con su repositorio SQL."""
     return ServicioStock(RepositorioStockSQL(uow))
 
 

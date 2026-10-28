@@ -52,46 +52,84 @@ from app.modules.whatsapp.domain.textos import (
 
 
 class RepositorioBot(Protocol):
+    """Contrato de persistencia que necesita el bot: conversaciones, mensajes, pedidos,
+    comprobantes, cambios pendientes, atención humana y cola de salida.
+    """
+
+    # Últimos turnos resumidos de la conversación, para dar contexto a la IA.
     async def memoria(self, telefono, referencia_hash) -> list[dict]: ...
+    # Rehabilita la interpretación si la derivación vigente fue solo por falla del proveedor.
     async def recuperar_proveedor(self, b) -> bool: ...
+    # Indica si la conversación tiene una atención humana abierta.
     async def atencion_humana(self, referencia_hash) -> bool: ...
+    # Sesión de chat del teléfono (foco actual y pregunta de selección pendiente).
     async def sesion(self, telefono, bloquear=False) -> dict | None: ...
+    # Conversaciones activas del teléfono, de la más reciente a la más antigua.
     async def conversaciones(self, telefono) -> list[dict]: ...
+    # Persiste la sesión y la memoria resumida del turno.
     async def guardar_contexto(self, entrada, b) -> None: ...
+    # Crea un borrador de pedido identificado por el hash de su referencia.
     async def crear_borrador(self, referencia_hash, cliente_id, datos) -> dict: ...
+    # Registra un mensaje entrante de forma idempotente.
     async def recibir(
         self, identificador, telefono, texto, media_id, nombre_remitente=None
     ) -> None: ...
+    # Mensaje entrante por identificador, opcionalmente bloqueado.
     async def entrada(self, identificador, bloquear=False) -> dict | None: ...
+    # Conversación seleccionada por referencia, huella de inicio web o número de pedido.
     async def conversacion(
         self, telefono, referencia_hash=None, bloquear=False, nombre_remitente=None,
         inicio_hash=None, numero_pedido=None,
     ) -> dict | None: ...
+    # Marca el mensaje como procesado, guarda la conversación y encola la respuesta.
     async def finalizar(self, entrada, b, respuesta) -> None: ...
+    # Pedido con sus ítems y datos operativos.
     async def pedido(self, pedido_id) -> dict: ...
+    # Total que tendría el pedido con los cambios de entrega, pago o dirección.
     async def cotizar_operacion(self, pedido, cambios) -> Decimal: ...
+    # Recarga en la conversación los datos operativos del pedido ya editado.
     async def refrescar_operacion(self, b) -> None: ...
+    # Ingredientes de la receta vigente del producto.
     async def ingredientes(self, producto_id) -> list[dict]: ...
+    # Ingredientes de la receta congelada en el ítem al momento de la compra.
     async def ingredientes_snapshot(self, receta_snapshot) -> list[dict]: ...
+    # Ingredientes de cada ítem, en el mismo orden.
     async def ingredientes_items(self, items) -> list[list[dict]]: ...
+    # Dirección de entrega actual del pedido, si tiene.
     async def direccion_pedido(self, pedido) -> dict | None: ...
+    # Registra una solicitud de cambio del pedido con su estado anterior y posterior.
     async def historial(self, b, accion, anterior, posterior, estado, empleado_id=None) -> dict: ...
+    # Aplica el cambio de cantidad o aclaraciones de un ítem del pedido.
     async def aplicar_item(
         self, pedido, item, cantidad, aclaraciones, empleado_id=None,
     ) -> None: ...
+    # Registra el comprobante de transferencia adjunto para revisión del personal.
     async def comprobante(self, entrada, pedido_id) -> None: ...
+    # Comprobante pendiente de revisión con los datos de su pedido.
     async def revision(self, comprobante_id) -> dict | None: ...
+    # Aprueba o rechaza un comprobante y avisa al cliente.
     async def revisar(self, comprobante, aprobar, empleado_id, motivo) -> dict: ...
+    # Solicitud de cambio pendiente y la conversación a la que pertenece.
     async def cambio(self, cambio_id) -> tuple[dict | None, dict | None]: ...
+    # Cierra una solicitud de cambio con el resultado de la revisión.
     async def cerrar_cambio(self, cambio_id, estado, empleado_id, motivo) -> None: ...
+    # Guarda el estado actual de la conversación.
     async def actualizar_borrador(self, b) -> None: ...
+    # Encola un mensaje saliente con clave de idempotencia.
     async def encolar(self, clave, telefono, texto) -> None: ...
+    # Abre una atención humana para la conversación.
     async def derivar(self, referencia_hash, entrada_id, motivo) -> None: ...
+    # Abre una atención humana sin conversación asociada.
     async def derivar_general(self, entrada_id, motivo) -> None: ...
+    # Indica si la conversación tiene una atención pendiente con el personal.
     async def atencion_pendiente(self, referencia_hash) -> bool: ...
+    # Atención humana por identificador, opcionalmente bloqueada.
     async def atencion(self, atencion_id, bloquear=False) -> dict | None: ...
+    # Respuesta del personal ya encolada con esa clave, si existe.
     async def respuesta_atencion(self, clave) -> dict | None: ...
+    # Encola la respuesta del personal para el cliente.
     async def encolar_respuesta(self, clave, atencion, texto, empleado_id) -> dict: ...
+    # Cierra la atención humana con la resolución registrada.
     async def resolver_atencion(self, atencion, empleado_id, resolucion) -> None: ...
 
 
@@ -116,10 +154,16 @@ UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
 
 
 def momento_preparacion():
+    """Momento usado para fechar el resumen del pedido web; separado para poder fijarlo en pruebas.
+    """
     return datetime.now(UTC)
 
 
 class ServicioBot:
+    """Reglas del bot de WhatsApp: crea borradores desde la web, interpreta y aplica los mensajes
+    del cliente sobre su pedido y resuelve las revisiones del personal.
+    """
+
     def __init__(
         self,
         repo: RepositorioBot,
@@ -129,6 +173,9 @@ class ServicioBot:
         stock: ServicioStock | None = None,
         productos=None,
     ):
+        """Recibe el repositorio, el servicio de pedidos y la configuración del negocio (número y
+        datos de transferencia).
+        """
         self.repo = repo
         self.pedidos = pedidos
         self.numero_negocio = numero_negocio
@@ -138,6 +185,9 @@ class ServicioBot:
         self.quitables = QUITABLES
 
     async def crear_borrador(self, cliente_id: int | None, datos: dict) -> dict:
+        """Valida el carrito de la web y crea el borrador del pedido. Devuelve la referencia, el
+        mensaje para enviar por WhatsApp y el enlace wa.me prellenado.
+        """
         # El contacto declarado no autentica al cliente: solo Meta vincula el remitente.
         # Los borradores internos anteriores conservan su asociación autenticada.
         contacto = datos.get("contacto")
@@ -159,6 +209,7 @@ class ServicioBot:
                 raise DatosInvalidos("Usá teléfono internacional, solo 11 a 15 dígitos")
             if not await self.pedidos.repo.cliente_valido(cliente_id):
                 raise DatosInvalidos("El cliente no existe o está inactivo")
+        # Cada ítem debe existir, estar disponible y usar una variante y notas válidas.
         items = datos.get("items", [])
         if not isinstance(items, list) or not 1 <= len(items) <= 50:
             raise DatosInvalidos("El borrador requiere entre 1 y 50 productos")
@@ -191,6 +242,7 @@ class ServicioBot:
             raise DatosInvalidos("Modalidad inválida")
         if datos.get("metodo_pago") not in {None, "EFECTIVO", "TRANSFERENCIA"}:
             raise DatosInvalidos("Método inválido")
+        # Con contacto declarado, el borrador se vincula por la huella del mensaje web.
         if contacto is not None and cliente_id is None:
             try:
                 mensaje = mensaje_web(datos, productos, momento_preparacion())
@@ -220,16 +272,21 @@ class ServicioBot:
         }
 
     async def _ingredientes_item(self, item):
+        """Ingredientes del ítem: la receta congelada si existe, si no la vigente del producto."""
         if item.get("receta_snapshot") is not None:
             return await self.repo.ingredientes_snapshot(item["receta_snapshot"])
         return await self.repo.ingredientes(item["producto_id"])
 
     async def _validar_notas(self, item):
+        """Valida y normaliza las notas del ítem: solo se admiten «Sin <ingrediente>» quitables de
+        su receta.
+        """
         notas = item.get("aclaraciones") or ""
         if not notas:
             return
         receta = {f["nombre"].casefold() for f in await self._ingredientes_item(item)}
         canonicas = []
+        # Cada nota se traduce al nombre canónico del ingrediente de la receta.
         for nota in notas.split(","):
             normal = nota.strip().casefold()
             ingrediente = normal.removeprefix("sin ")
@@ -255,6 +312,7 @@ class ServicioBot:
         self, identificador: str, telefono: str, texto: str, media_id: str | None = None,
         nombre_remitente: str | None = None,
     ):
+        """Valida y registra un mensaje entrante del webhook antes de procesarlo."""
         if not identificador or len(identificador) > 200 or len(texto) > 4096:
             raise DatosInvalidos("Mensaje inválido o demasiado largo")
         if not re.fullmatch(r"[0-9]{11,15}", telefono):
@@ -289,6 +347,7 @@ class ServicioBot:
         }
 
     async def _es_eleccion_variante(self, b, texto):
+        """Indica si el texto es el nombre de una variante pendiente de elegir en el borrador."""
         if not b or b["pedido_id"] or len(texto) > 60:
             return False
         productos = await self.pedidos.repo.productos([i["producto_id"] for i in b["items"]])
@@ -300,6 +359,7 @@ class ServicioBot:
         return False
 
     async def _requiere_interpretacion(self, entrada, texto, b=None) -> bool:
+        """Indica si el mensaje necesita la IA o puede resolverse de forma determinista."""
         # Adjuntos, el saludo preparado por la web y los comandos guiados son deterministas.
         inicio = b and b.get("inicio_hash") == huella_inicio(entrada["telefono"], entrada["texto"])
         if (
@@ -310,14 +370,17 @@ class ServicioBot:
         return not await self._es_eleccion_variante(b, texto)
 
     async def _conversacion(self, entrada, bloquear=False):
+        """Resuelve a qué conversación pertenece el mensaje."""
         return await resolver_conversacion(self.repo, entrada, bloquear)
 
     @staticmethod
     def _vencido(b):
+        """Indica si el borrador sin pedido ya venció."""
         return b is not None and not b["pedido_id"] and b["expira_en"] <= datetime.now(UTC)
 
     @staticmethod
     def _solicita_personal(texto):
+        """Detecta un pedido explícito de hablar con una persona del personal."""
         texto = texto.casefold().strip(" .!¡?¿")
         persona = r"(?:emplead[oa]|persona|human[oa]|encargad[oa]|asesor[a]?)"
         if re.fullmatch(r"(?:(?:un|una|el|la)\s+)?" + persona, texto):
@@ -334,6 +397,7 @@ class ServicioBot:
         ))
 
     async def _registrar_general(self, entrada, motivo):
+        """Deriva al personal un mensaje sin conversación válida y responde al cliente."""
         # El destino sale del remitente verificado, nunca de datos del carrito o la IA.
         await self.repo.derivar_general(entrada["id"], motivo)
         respuesta = (
@@ -346,6 +410,9 @@ class ServicioBot:
         return respuesta
 
     async def _contexto(self, b, *, para_ia=True) -> dict:
+        """Arma el contexto de la conversación. Para la IA incluye ítems, recetas, catálogo y
+        memoria; para comandos explícitos solo lo necesario para revalidar.
+        """
         if not b:
             return {}
         items = b["items"]
@@ -362,6 +429,7 @@ class ServicioBot:
             # sigue comprobando foco, versión, composición, fondos y reparto vigentes,
             # sin construir catálogo, recetas ni historial que no irá a un proveedor.
             return {"estado": b["estado"], "operacion": operacion, "composicion": items}
+        # Ítems con sus ingredientes y los que el cliente ya retiró.
         contexto_items = []
         recetas = await self.repo.ingredientes_items(items)
         for indice, item in enumerate(items, 1):
@@ -407,6 +475,9 @@ class ServicioBot:
 
     @staticmethod
     def _vinculo(b, contexto, entrada=None) -> dict:
+        """Vínculo que identifica la conversación, su versión y la huella del contexto que vio el
+        intérprete.
+        """
         huella = hashlib.sha256(
             json.dumps(contexto, sort_keys=True, default=str).encode()
         ).hexdigest()
@@ -420,6 +491,9 @@ class ServicioBot:
         }
 
     async def _revalidar(self, b, vinculo, reintentar, entrada=None) -> str | None:
+        """Compara el vínculo de la interpretación con el estado actual. Devuelve un mensaje de
+        rechazo, o lanza InterpretacionDesactualizada si corresponde reinterpretar.
+        """
         para_ia = vinculo.get("contexto_ia", True)
         actual = self._vinculo(b, await self._contexto(b, para_ia=para_ia), entrada)
         if "contexto_ia" in vinculo:
@@ -446,6 +520,7 @@ class ServicioBot:
             raise NoEncontrado("El mensaje no existe")
         if entrada["estado"] == "PROCESADO":
             return entrada["respuesta"]
+        # Adjuntos y pedidos de personal sin compra vigente se derivan sin reclamar el carrito.
         solicita_personal = self._solicita_personal(entrada["texto"])
         if entrada["media_id"] or solicita_personal:
             # La lectura previa evita reclamar un carrito o crear un cliente sólo
@@ -457,12 +532,14 @@ class ServicioBot:
                 return await self._registrar_general(entrada, "COMPROBANTE")
             if solicita_personal and (not previa or self._vencido(previa)):
                 return await self._registrar_general(entrada, "SOLICITUD")
+        # Toma la conversación bloqueada; los comandos guiados prevalecen sobre la IA.
         b, problema = await self._conversacion(entrada, bloquear=True)
         texto = sin_selector_pedido(sin_referencias(entrada["texto"]))
         guiada = comando_guiado(texto, b)
         if (guiada and accion.get("accion") in {None, "consulta", "humano", "confirmar"}
                 and not entrada["media_id"]):
             accion = guiada
+        # Acción interpretada fuera de la transacción: se revalida contra el estado actual.
         if vinculo is not None:
             # Si cocina ganó la carrera, conservar la solicitud original y derivarla;
             # nunca volver a interpretar contra una compra que ya comenzó a prepararse.
@@ -478,6 +555,7 @@ class ServicioBot:
                 mismo = b is not None and b["referencia_hash"] == vinculo.get("referencia_hash")
                 await self.repo.finalizar(entrada, b if mismo else None, rechazo)
                 return rechazo
+        # Un comprobante solo se asocia a pedidos por transferencia todavía abiertos.
         if entrada["media_id"] and (
             not b or not b["pedido_id"] or b["metodo_pago"] != "TRANSFERENCIA"
             or (await self.repo.pedido(b["pedido_id"]))["estado"] in {"ENTREGADO", "CANCELADO"}
@@ -496,6 +574,7 @@ class ServicioBot:
         largo = len(texto) > LIMITE_INTERPRETACION and await self._requiere_interpretacion(
             entrada, texto, b
         )
+        # Cadena de decisión: cada rama produce la respuesta del turno según la situación.
         if not b:
             respuesta = (self._prefijo_derivacion("MENSAJE_LARGO") if largo else "") + problema
         elif b["pedido_id"] is None and b["expira_en"] <= datetime.now(UTC):
@@ -580,6 +659,7 @@ class ServicioBot:
                 else:
                     self._marcar_pregunta(b, None)
             respuesta = await self._operar(b, texto, accion)
+        # Persiste la memoria del turno, la conversación y la respuesta en la misma transacción.
         if b:
             entrada["_memoria_ia"] = resumir_turno(accion, b, QUITABLES)
         await self.repo.guardar_contexto(entrada, b)
@@ -588,6 +668,7 @@ class ServicioBot:
 
     @staticmethod
     def _prefijo_derivacion(motivo) -> str:
+        """Texto inicial que explica por qué el mensaje no se procesó con la IA."""
         if motivo == "MENSAJE_LARGO":
             return (
                 f"💬 Tu mensaje supera {LIMITE_INTERPRETACION} caracteres. "
@@ -603,6 +684,7 @@ class ServicioBot:
         return ""
 
     def _preguntar(self, b, campo, entrada):
+        """Registra la pregunta pendiente al cliente y devuelve su texto."""
         if campo not in PREGUNTAS:
             return PREGUNTAS["consulta"]
         anterior = b.get("contexto_chat") or {}
@@ -618,6 +700,9 @@ class ServicioBot:
 
     @staticmethod
     def _foto_operacion(pedido):
+        """Foto de los datos operativos del pedido, usada para detectar cambios entre la propuesta y
+        la confirmación.
+        """
         return {
             campo: str(pedido.get(campo)) for campo in (
                 "version", "estado", "tipo_entrega", "direccion_id", "metodo_pago_acordado",
@@ -628,14 +713,19 @@ class ServicioBot:
 
     @staticmethod
     def _limpiar_solicitud(b):
+        """Descarta la pregunta, los datos recogidos y la propuesta pendientes."""
         b["contexto_chat"] = {"pregunta": None}
         b["propuesta"] = None
 
     async def _operar_datos(self, b, entrada, propuesta=None):
+        """Aplica cambios de entrega, pago o dirección a un pedido existente. Si el total cambia,
+        primero propone el nuevo importe; los pedidos en marcha o con reintegro se derivan.
+        """
         pedido = await self.repo.pedido(b["pedido_id"])
         chat = b.get("contexto_chat") or {}
         datos = chat.get("datos") or {}
         cambios = {}
+        # Traduce los datos recogidos del chat a cambios del pedido.
         for campo, destino, permitidos in (
             ("tipo_entrega", "tipo_entrega", {"RETIRO", "DELIVERY"}),
             ("metodo_pago", "metodo_pago_acordado", {"EFECTIVO", "TRANSFERENCIA"}),
@@ -664,6 +754,7 @@ class ServicioBot:
         if not cambios:
             return "💬 Contame qué dato del pedido querés cambiar."
         foto = self._foto_operacion(pedido)
+        # Pedido asignado, en camino o cerrado: solo el personal puede corregirlo.
         if requiere_personal(pedido):
             chat["bloqueo_operativo"] = (
                 "Coordinar la desasignación con reparto antes de editar los datos del pedido."
@@ -680,6 +771,7 @@ class ServicioBot:
         ):
             chat["pregunta"] = "direccion"
             return PREGUNTAS["direccion"]
+        # Cotiza: bajar del neto cobrado requiere caja; un total distinto requiere confirmar.
         try:
             total = await self.repo.cotizar_operacion(pedido, cambios)
             if total < pedido["pagado"]:
@@ -717,6 +809,7 @@ class ServicioBot:
 
     @staticmethod
     def _marcar_pregunta(b, campo):
+        """Actualiza la pregunta pendiente y la versión solo si cambió."""
         chat = dict(b.get("contexto_chat") or {})
         if chat.get("pregunta") != campo:
             chat["pregunta"] = campo
@@ -724,12 +817,16 @@ class ServicioBot:
             b["version"] += 1
 
     def _recoger_datos(self, b, accion, entrada):
+        """Acumula los datos de entrega y pago del chat. Devuelve la pregunta por el siguiente dato
+        faltante o None cuando están completos.
+        """
         if accion.get("accion") != "datos":
             return None
         args = accion.get("argumentos") or {}
         chat = dict(b.get("contexto_chat") or {})
         datos = dict(chat.get("datos") or {})
         limites = {"direccion": 160, "numero": 30, "localidad": 100, "referencias": 300}
+        # Solo se guardan valores de texto dentro de los límites de cada campo.
         for campo in CAMPOS_DATOS:
             if isinstance(args.get(campo), str) and 1 <= len(args[campo].strip()) <= limites.get(
                 campo, 30
@@ -744,6 +841,7 @@ class ServicioBot:
         chat.setdefault("solicitud_id", entrada.get("_solicitud_id", entrada["id"]))
         b["contexto_chat"] = chat
         b["version"] += 1
+        # En un borrador, entrega y pago se aplican directamente.
         if not b["pedido_id"]:
             b["estado"] = "VINCULADO"
             for campo, permitidos in (
@@ -773,6 +871,7 @@ class ServicioBot:
         return None
 
     async def _derivar(self, b, entrada, accion) -> str:
+        """Deriva la conversación al personal y devuelve el aviso para el cliente."""
         motivo = accion.get("motivo")
         motivo = motivo if motivo in MOTIVOS_DERIVACION else "SOLICITUD"
         await self.repo.derivar(b["referencia_hash"], entrada["id"], motivo)
@@ -793,6 +892,9 @@ class ServicioBot:
         )
 
     async def _derivar_modificacion(self, b, entrada, accion):
+        """Deriva un cambio de un pedido que ya está en preparación o asignado, guardando lo pedido
+        para que el personal lo revise.
+        """
         pedido = await self.repo.pedido(b["pedido_id"])
         if accion.get("accion") == "datos":
             self._recoger_datos(b, accion, entrada)
@@ -812,6 +914,9 @@ class ServicioBot:
         return "👨‍🍳 El cambio requiere aprobación de un empleado. " + respuesta
 
     async def _completar(self, b, accion, texto=""):
+        """Completa el borrador: resuelve variantes y datos faltantes preguntando de a uno y, cuando
+        está completo, crea el pedido real.
+        """
         eleccion = re.fullmatch(
             r"producto\s+(\d+)\s*;\s*variante:\s*(.{1,60})", texto.strip(), flags=re.I
         )
@@ -838,6 +943,7 @@ class ServicioBot:
             )
             if elegida:
                 item["variante"] = elegida
+        # Aplica al borrador los datos de entrega, pago y dirección recogidos.
         if accion.get("accion") == "datos":
             argumentos = {
                 **(b.get("contexto_chat") or {}).get("datos", {}),
@@ -859,6 +965,7 @@ class ServicioBot:
                     "referencia": str(argumentos.get("referencias", ""))[:300],
                 }
         b["estado"] = "VINCULADO"
+        # Pregunta los datos faltantes en orden: entrega, dirección, pago y variantes.
         if not b["tipo_entrega"]:
             self._marcar_pregunta(b, "entrega")
             return "🛍️ ¿Retiro o delivery? Contame si pasás por el local o te lo llevamos. 🛵"
@@ -906,9 +1013,14 @@ class ServicioBot:
         )
 
     async def _operar(self, b, texto, accion, empleado_id=None):
+        """Cambia la cantidad o quita un ingrediente de un ítem del pedido. Pide aclaración, propone
+        el nuevo total o deriva al personal según el estado; con empleado_id lo aplica una revisión
+        aprobada.
+        """
         pedido = await self.repo.pedido(b["pedido_id"])
         pendiente = b.get("propuesta")
         aclaracion = re.fullmatch(r"producto\s+(\d+)[.!]?", texto.strip(), flags=re.I)
+        # Respuesta «producto N» a una aclaración pendiente: retoma la acción original.
         if (
             pendiente
             and pendiente.get("tipo") == "ACLARACION"
@@ -924,6 +1036,7 @@ class ServicioBot:
             }
             b["propuesta"] = None
         nombre = accion.get("accion")
+        # Confirmación de un cambio de total propuesto antes.
         if nombre == "confirmar":
             if texto.strip(" .!¡").casefold() not in CONFIRMACIONES:
                 return "💬 Para aceptar el nuevo total respondé *confirmar*."
@@ -948,6 +1061,7 @@ class ServicioBot:
         args = accion.get("argumentos", {})
         if set(args) - {"ingrediente", "item_indice", "cantidad"}:
             return "💬 No puedo hacer ese cambio automáticamente. Pedí hablar con un empleado."
+        # Identifica el ítem: por índice o por el ingrediente pedido.
         candidatos = pedido["items"]
         indice = args.get("item_indice")
         if indice is not None:
@@ -978,6 +1092,7 @@ class ServicioBot:
         item = candidatos[0]
         cantidad = item["cantidad"]
         notas = item.get("aclaraciones") or ""
+        # Calcula la cantidad y las notas resultantes del ítem.
         if nombre == "cantidad":
             cantidad = args.get("cantidad")
             if (
@@ -1003,6 +1118,7 @@ class ServicioBot:
             ).strip(" ,;")
             if f"sin {ingrediente}" not in notas.casefold():
                 notas = ", ".join(filter(None, [notas, f"Sin {ingrediente.capitalize()}"]))
+        # Nuevo total del pedido con el cambio del ítem.
         total = pedido["total"] + (cantidad - item["cantidad"]) * (
             item["precio_unitario"] + item["costo_opciones"]
         )
@@ -1021,6 +1137,7 @@ class ServicioBot:
         requiere_personal = pedido.get("preparacion_en") is not None or (
             pedido["estado"] not in {"PENDIENTE", "CONFIRMADO"}
         ) or (total != pedido["total"] and pedido["pagado"] > 0)
+        # Cambio de importe sin pagos: se propone y espera confirmación.
         if (
             total != pedido["total"]
             and pedido["pagado"] == 0
@@ -1046,6 +1163,7 @@ class ServicioBot:
         ):
             b["propuesta"] = None
             return "💬 El total cambió mientras conversábamos. ¿Me repetís el cambio?"
+        # Pedido en marcha o con pagos: queda como solicitud para el personal.
         if requiere_personal and empleado_id is None:
             await self.repo.historial(b, accion, anterior, posterior, "PENDIENTE_EMPLEADO")
             b["estado"] = "HUMANO"
@@ -1064,6 +1182,7 @@ class ServicioBot:
                     "💬 El producto no tiene stock para agregar más unidades. "
                     "Tu pedido sigue sin cambios; un empleado te puede ayudar."
                 )
+        # Límite de 50 unidades por producto y variante en el pedido.
         acumulado = sum(
             i["cantidad"]
             for i in pedido["items"]
@@ -1072,6 +1191,7 @@ class ServicioBot:
         )
         if acumulado + cantidad - item["cantidad"] > 50:
             return "💬 Podemos tomar hasta 50 unidades de una misma variante por pedido."
+        # Ajusta el stock ya consumido antes de aplicar el cambio del ítem.
         if (
             nombre == "quitar_ingrediente"
             and pedido["stock_consumido"]
@@ -1090,6 +1210,7 @@ class ServicioBot:
                 usuario_id=empleado_id,
             )
         await self.repo.aplicar_item(pedido, item, cantidad, notas or None, empleado_id)
+        # Un total mayor a lo transferido deja el pago pendiente.
         if (
             b["metodo_pago"] == "TRANSFERENCIA"
             and total != pedido["total"]
@@ -1106,6 +1227,9 @@ class ServicioBot:
     async def revisar_comprobante(
         self, comprobante_id, aprobar, empleado_id, motivo, total_verificado=None
     ):
+        """Aprueba o rechaza un comprobante de transferencia; aprobar exige que el empleado
+        verifique el total vigente.
+        """
         comprobante = await self.repo.revision(comprobante_id)
         if not comprobante:
             raise NoEncontrado("El comprobante no existe")
@@ -1132,6 +1256,10 @@ class ServicioBot:
         total_verificado=None,
         resolucion_financiera=None,
     ):
+        """Resuelve una solicitud de cambio derivada al personal. Aprobar exige que el pedido no
+        haya cambiado y que el nuevo importe esté aceptado; el cliente recibe el resultado por
+        WhatsApp.
+        """
         cambio, b = await self.repo.cambio(cambio_id)
         if not cambio or not b:
             raise NoEncontrado("La solicitud de cambio no existe")
@@ -1141,6 +1269,7 @@ class ServicioBot:
         if not motivo.strip():
             raise DatosInvalidos("Registrá cómo resolviste la solicitud con cocina")
         if aprobar:
+            # El pedido debe seguir igual que cuando se pidió el cambio.
             if cambio["version"] != b["version"]:
                 raise ReglaDeNegocio("La versión cambió: revisá el pedido vigente")
             if cambio["anterior"].get("pedido_version") != pedido["version"]:
@@ -1152,6 +1281,7 @@ class ServicioBot:
                     "El importe del pedido cambió: solicitá nuevamente la revisión"
                 )
             nuevo_total = Decimal(cambio["posterior"]["total"])
+            # Un cambio de importe requiere aceptación explícita y caja sin reintegro pendiente.
             if nuevo_total != pedido["total"]:
                 if total_verificado != nuevo_total or resolucion_financiera != "COBRO_PENDIENTE":
                     raise ReglaDeNegocio(
@@ -1163,6 +1293,7 @@ class ServicioBot:
                         "Antes de aprobar, registrá en pagos la devolución de "
                         f"${pedido['pagado']-nuevo_total} con su motivo"
                     )
+            # Aplica el cambio como empleado; debe avanzar exactamente una versión.
             version_anterior = b["version"]
             respuesta = await self._operar(b, "", cambio["accion"], empleado_id)
             if b["version"] != version_anterior + 1:
@@ -1201,6 +1332,7 @@ class ServicioBot:
         return await self.repo.encolar_respuesta(clave, atencion, texto, empleado_id)
 
     async def resolver_atencion(self, atencion_id, empleado_id, resolucion):
+        """Cierra una atención humana registrando cómo se resolvió; es idempotente."""
         resolucion = resolucion.strip() if isinstance(resolucion, str) else ""
         if not 1 <= len(resolucion) <= 500:
             raise DatosInvalidos("Registrá cómo resolviste la atención (hasta 500 caracteres)")

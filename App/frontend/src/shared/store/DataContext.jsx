@@ -1,3 +1,7 @@
+// Estado compartido de datos de la app (DataProvider): catálogo, carrito, pedidos
+// activos, inventario y clientes, con sus consultas a la API y las mutaciones
+// (pedidos, productos, recetas, stock). Protege contra respuestas viejas con "vallas
+// de frescura", aísla los datos por usuario y gestiona las operaciones de pedidos en curso.
 import { createContext, useContext, useReducer, useEffect } from 'react';
 
 import { useState, useCallback, useRef, useLayoutEffect, useMemo } from 'react';
@@ -28,6 +32,7 @@ const initialState = {
   inventoryError: null,
 };
 
+// Adapta un producto de la API al modelo del menú/catálogo (con su foto y variantes).
 function mapProduct(product) {
   const photo = productPhoto(product);
   return {
@@ -50,6 +55,7 @@ function mapProduct(product) {
   };
 }
 
+// Adapta un insumo de la API al modelo de inventario (stock, mínimo, costo y estado).
 function mapInventory(item) {
   return {
     id: item.id,
@@ -65,8 +71,10 @@ function mapInventory(item) {
   };
 }
 
+// Reducer del estado compartido. Las acciones de datos privados guardan el usuario dueño (`owner`).
 function dataReducer(state, action) {
   switch (action.type) {
+    // Pedidos: sincronización completa, error de carga y alta/actualización de uno confirmado.
     case 'SYNC_ORDERS':
       return { ...state, orders: action.payload, ordersOwner: action.owner, ordersStatus: 'ready', ordersError: null };
     case 'ORDERS_ERROR':
@@ -74,20 +82,24 @@ function dataReducer(state, action) {
     case 'UPSERT_ORDER':
       return { ...state, ordersOwner: action.owner, orders: state.orders.some((o) => o.id === action.payload.id)
         ? state.orders.map((o) => o.id === action.payload.id ? action.payload : o) : [action.payload, ...state.orders] };
+    // Al cambiar de sesión se descartan pedidos e inventario del usuario anterior.
     case 'RESET_PRIVATE_DATA':
       return { ...state, orders: [], ordersOwner: null, ordersStatus: 'loading', ordersError: null, inventory: [], inventoryStatus: 'idle', inventoryError: null };
+    // Catálogo: datos sincronizados, carga y error.
     case 'SYNC_CATALOG':
       return { ...state, catalog: action.payload, catalogStatus: 'ready', catalogError: null };
     case 'CATALOG_LOADING':
       return { ...state, catalogStatus: 'loading', catalogError: null };
     case 'CATALOG_ERROR':
       return { ...state, catalogStatus: 'error', catalogError: action.payload };
+    // Inventario: datos sincronizados, carga y error.
     case 'SYNC_INVENTORY':
       return { ...state, inventory: action.payload, inventoryOwner: action.owner, inventoryStatus: 'ready', inventoryError: null };
     case 'INVENTORY_LOADING':
       return { ...state, inventoryOwner: action.owner, inventoryStatus: 'loading', inventoryError: null };
     case 'INVENTORY_ERROR':
       return { ...state, ...(action.unauthorized && { inventory: [] }), inventoryOwner: action.owner, inventoryStatus: 'error', inventoryError: action.payload };
+    // Carrito: suma unidades si el mismo producto (con la misma personalización) ya está.
     case 'ADD_TO_CART': {
       const existingIndex = state.cart.findIndex(item => item.id === action.payload.id);
       if (existingIndex >= 0) {
@@ -100,6 +112,7 @@ function dataReducer(state, action) {
       }
       return { ...state, cart: [...state.cart, action.payload] };
     }
+    // Carrito: cambia la cantidad de un ítem y lo quita si llega a cero.
     case 'UPDATE_CART_QUANTITY': {
       const { index, delta } = action.payload;
       const newCart = [...state.cart];
@@ -112,11 +125,13 @@ function dataReducer(state, action) {
       }
       return { ...state, cart: newCart };
     }
+    // Carrito: quita un ítem o lo vacía por completo.
     case 'REMOVE_FROM_CART':
       return { ...state, cart: state.cart.filter((_, i) => i !== action.payload) };
     case 'CLEAR_CART':
       return { ...state, cart: [] };
     
+    // Pedido creado desde la app: se agrega a la lista y vacía el carrito.
     case 'PLACE_ORDER':
       return {
         ...state,
@@ -124,10 +139,12 @@ function dataReducer(state, action) {
         ordersOwner: action.owner,
         cart: []
       }
+    // Catálogo: alta y desactivación de productos confirmadas por la API.
     case 'ADD_CATALOG_ITEM':
       return { ...state, catalog: [action.payload, ...state.catalog] };
     case 'DELETE_CATALOG_ITEM':
       return { ...state, catalog: state.catalog.filter(p => p.id !== action.payload) };
+    // Inventario: alta de insumo y actualización de su costo.
     case 'ADD_INVENTORY_ITEM':
       return {
         ...state,
@@ -136,6 +153,7 @@ function dataReducer(state, action) {
     case 'SET_INVENTORY_COST':
       // Solo el costo: no pisar un saldo optimista de una reposición en curso.
       return { ...state, inventory: state.inventory.map((item) => item.id === action.id ? { ...item, cost: action.cost } : item) };
+    // Inventario: ajuste optimista de stock al reponer (se revierte con delta negativo si falla).
     case 'UPDATE_INVENTORY_STOCK': {
       const { id, delta } = action.payload;
       return {
@@ -151,6 +169,7 @@ function dataReducer(state, action) {
         })
       };
     }
+    // Inventario: saldo confirmado por la API tras una reposición.
     case 'CONFIRM_INVENTORY_STOCK':
       return { ...state, inventory: state.inventory.map((item) => item.id === action.id ? { ...item, stock: action.stock, status: action.stock <= item.min ? 'critico' : 'estable' } : item) };
     default:
@@ -158,12 +177,16 @@ function dataReducer(state, action) {
   }
 }
 
+// Contexto React del estado compartido.
 const DataContext = createContext(null);
 
+/** Proveedor de datos compartidos; envuelve toda la app debajo de AuthProvider. */
 export function DataProvider({ children }) {
   const [state, dispatch] = useReducer(dataReducer, initialState);
   const [loading, setLoading] = useState(false);
   const { user, refreshSession } = useAuth();
+  // Refs de control: usuario vigente, lecturas en curso, vallas de frescura por recurso,
+  // marcas de última carga, caché de clientes y operaciones de pedidos en curso.
   const userRef = useRef(user);
   const ordersRequestRef = useRef(null);
   const freshnessRef = useRef(createFreshnessFence());
@@ -179,12 +202,14 @@ export function DataProvider({ children }) {
   const lastOrdersRead = useRef(0);
   const operationsRef = useRef(new Map());
   const [operations, setOperations] = useState({ owner: user, entries: [] });
+  // Proyecta un pedido con la vista optimista de su operación pendiente o con una versión más nueva ya confirmada.
   const projectOrder = useCallback((order) => {
     const entry = operations.owner === user && operations.entries.find((item) => item.id === order.id && item.status === 'pending');
     if (entry?.preview) return entry.preview;
     const confirmed = state.ordersOwner === user && state.orders.find((item) => item.id === order.id);
     return confirmed && confirmed.version > order.version ? confirmed : order;
   }, [operations, user, state.orders, state.ordersOwner]);
+  // Pedidos visibles para el usuario actual, incluidas las vistas previas optimistas.
   const visibleOrders = useMemo(() => {
     if (!user) return [];
     const orders = state.ordersOwner === user ? state.orders : [];
@@ -193,6 +218,7 @@ export function DataProvider({ children }) {
     return [...orders.map(projectOrder), ...previews.filter((entry) => !orders.some((order) => order.id === entry.id)).map((entry) => entry.preview)];
   }, [state.orders, state.ordersOwner, operations, projectOrder, user]);
 
+  // Al cambiar de usuario, reinicia vallas, cachés y operaciones para no mezclar sesiones.
   useLayoutEffect(() => {
     freshnessRef.current = createFreshnessFence();
     // Las escrituras pendientes de otra sesión conservan su propia barrera.
@@ -212,6 +238,7 @@ export function DataProvider({ children }) {
     };
   }, [user]);
 
+  // Consulta los pedidos activos (reutiliza la lectura en curso) y solo publica si la valla lo acepta.
   const refreshOrders = useCallback((signal, force = false) => {
     if (!user || (!can(user, 'pedidos.ver') && user.backendRole !== 'CLIENTE') || userRef.current !== user) return Promise.resolve();
     if (!force && ordersRequestRef.current?.owner === user && !ordersRequestRef.current.signal?.aborted) return ordersRequestRef.current.request;
@@ -238,6 +265,7 @@ export function DataProvider({ children }) {
     return request;
   }, [user, refreshSession]);
 
+  // Consulta el catálogo de productos (cacheado 30 s salvo `force`).
   const refreshCatalog = useCallback((signal, force = false) => {
     if (!force && catalogRequest.current?.owner === user && !catalogRequest.current.signal?.aborted) return catalogRequest.current.promise;
     if (!force && Date.now() - catalogLoadedAt.current < 30000) return Promise.resolve();
@@ -260,6 +288,7 @@ export function DataProvider({ children }) {
     return entry.promise;
   }, [user]);
 
+  // Consulta el inventario de insumos activos (cacheado 30 s salvo `force`; requiere stock.ver).
   const refreshInventory = useCallback((signal, force = false) => {
     if (!can(user, 'stock.ver') || userRef.current !== user) return Promise.resolve();
     if (!force && inventoryRequest.current?.owner === user && !inventoryRequest.current.signal?.aborted) return inventoryRequest.current.promise;
@@ -284,12 +313,14 @@ export function DataProvider({ children }) {
     return entry.promise;
   }, [user, refreshSession]);
 
+  // Clientes cacheados durante 30 s por ruta de consulta.
   const cachedCustomers = useCallback((path) => {
     if (!can(user, 'clientes.ver') || userRef.current !== user) return null;
     const entry = customerCache.current.get(path);
     return entry?.owner === user && Date.now() - entry.time < 30000 ? entry.value : null;
   }, [user]);
 
+  // Consulta clientes (reutiliza lecturas en curso), valida la respuesta y mantiene una caché acotada.
   const getCustomers = useCallback((path, signal, force = false) => {
     if (!can(user, 'clientes.ver') || userRef.current !== user) return Promise.reject(new UserFacingError('No tenés acceso a clientes.'));
     const previous = customerCache.current.get(path);
@@ -320,12 +351,15 @@ export function DataProvider({ children }) {
     return entry.promise;
   }, [user]);
 
+  // Suscripción de pantallas al seguimiento en vivo de pedidos; refresca si la última lectura es vieja.
   const watchOrders = useCallback(() => {
     orderSubscribers.current += 1;
     if (lastOrdersRead.current && Date.now() - lastOrdersRead.current > 3000) void refreshOrders().catch(() => undefined);
     return () => { orderSubscribers.current -= 1; };
   }, [refreshOrders]);
 
+  // Ejecuta una mutación de pedido bajo la valla de frescura y publica el pedido confirmado;
+  // si no hubo confirmación, vuelve a consultar los pedidos.
   const runOrderMutation = async (operation) => {
     if (!user || userRef.current !== user) throw new UserFacingError('La sesión cambió. Volvé a ingresar antes de continuar.');
     const owner = user;
@@ -348,13 +382,16 @@ export function DataProvider({ children }) {
     }
   };
 
+  // Publica en el estado React la lista de operaciones de pedidos (para los avisos).
   const publishOperations = () => {
     if (userRef.current !== user) return;
     setOperations({ owner: user, entries: [...operationsRef.current.values()].map(({ id, number, status, message, preview, silent }) => ({ id, number, status, message, preview, silent })) });
   };
 
+  // Indica si el pedido tiene una operación en curso.
   const orderOperationPending = (id) => userRef.current === user && operationsRef.current.get(id)?.status === 'pending';
 
+  // Descarta el aviso de una operación terminada.
   const dismissOrderOperation = (id) => {
     if (orderOperationPending(id) || userRef.current !== user) return;
     clearTimeout(operationsRef.current.get(id)?.timer);
@@ -403,6 +440,7 @@ export function DataProvider({ children }) {
     return true;
   };
 
+  // Recarga completa de datos tras escrituras externas (p. ej. revisión de WhatsApp).
   const refreshData = useCallback(async (signal) => {
     // También se llama después de escrituras externas al store, como la revisión
     // de WhatsApp: ningún GET iniciado antes de esa revisión puede publicarse.
@@ -423,6 +461,8 @@ export function DataProvider({ children }) {
     }
   }, [user, refreshOrders, refreshCatalog]);
 
+  // Carga inicial: catálogo para clientes/visitantes y pedidos para usuarios con sesión.
+  // Al desmontar o cambiar de usuario se limpian los datos privados.
   useEffect(() => {
     const controller = new AbortController();
     // Sólo datos iniciales necesarios; las pantallas piden sus recursos al abrirse.
@@ -439,6 +479,7 @@ export function DataProvider({ children }) {
     };
   }, [user, refreshCatalog, refreshOrders]);
 
+  // Sondeo de pedidos cada 8 s para el personal, solo mientras alguna pantalla los observa.
   useEffect(() => {
     if (!['EMPLEADO', 'ADMINISTRADOR', 'DUENIO', 'REPARTIDOR'].includes(user?.backendRole)) return undefined;
     let controller = null;
@@ -466,6 +507,7 @@ export function DataProvider({ children }) {
     };
   }, [user?.id, user?.backendRole, refreshOrders]);
 
+  // Ejecuta una mutación de catálogo o inventario bajo su valla y luego reconcilia con un GET nuevo.
   const runResourceMutation = async (kind, operation, permission) => {
     if (!user || userRef.current !== user || !can(user, permission)) throw new UserFacingError('La sesión cambió o no tenés acceso a esta operación.');
     const fence = kind === 'catalog' ? catalogFence.current : inventoryFence.current;
@@ -485,6 +527,7 @@ export function DataProvider({ children }) {
     }
   };
 
+  // Crea un producto (con receta y variantes) y lo agrega al catálogo.
   const createProduct = async (payload) => runResourceMutation('catalog', async () => {
     const created = await apiFetch('/api/productos', {
       method: 'POST',
@@ -504,12 +547,14 @@ export function DataProvider({ children }) {
     return product;
   }, 'productos.gestionar');
 
+  // Reemplaza la receta de un producto.
   const updateRecipe = async (id, body) => runResourceMutation('catalog', async () => {
     const result = await apiFetch(`/api/productos/${id}/receta`, { method: 'PUT', body: JSON.stringify(body) });
     if (result?.producto_id !== id || !Array.isArray(result.ingredientes) || !Array.isArray(result.variantes) || typeof result.actualizado_en !== 'string') throw new UserFacingError('No pudimos confirmar la receta. Consultá su estado antes de reintentar.');
     return result;
   }, 'productos.gestionar');
 
+  // Desactiva un producto del catálogo.
   const deactivateProduct = async (id) => runResourceMutation('catalog', async () => {
     const result = await apiFetch(`/api/productos/${id}/estado`, {
       method: 'PATCH',
@@ -519,6 +564,7 @@ export function DataProvider({ children }) {
     if (userRef.current === user) dispatch({ type: 'DELETE_CATALOG_ITEM', payload: id });
   }, 'productos.gestionar');
 
+  // Cambia el estado de un pedido conocido (con versión y estado esperados).
   const changeOrderStatus = async (id, status, options = {}) => {
     if (!can(user, 'pedidos.cambiar_estado')) throw new UserFacingError('No tenés acceso a cambiar el estado.');
     const order = state.orders.find((candidate) => candidate.id === id);
@@ -526,6 +572,7 @@ export function DataProvider({ children }) {
     return runOrderMutation(() => commands.state(order, { estado: status.toUpperCase(), ...options }, options.motivo));
   };
 
+  // Crea un pedido delivery desde el frontend y lo agrega a la lista.
   const placeOrder = async ({ address, zone, items }) => {
     if (!user || userRef.current !== user) throw new UserFacingError('La sesión cambió. Volvé a ingresar antes de continuar.');
     const created = await apiFetch('/api/pedidos', {
@@ -551,6 +598,7 @@ export function DataProvider({ children }) {
     return created;
   };
 
+  // Da de alta un insumo en el inventario.
   const createIngredient = async (payload) => runResourceMutation('inventory', async () => {
     const created = await apiFetch('/api/stock/ingredientes', {
       method: 'POST',
@@ -569,6 +617,7 @@ export function DataProvider({ children }) {
     return item;
   }, 'stock.gestionar');
 
+  // Actualiza el costo unitario de un insumo.
   const updateIngredientCost = async (id, cost) => runResourceMutation('inventory', async () => {
     const updated = await apiFetch(`/api/stock/ingredientes/${id}`, {
       method: 'PATCH',
@@ -601,6 +650,7 @@ export function DataProvider({ children }) {
     }
   }, 'stock.reponer');
 
+  // Valor del contexto: datos privados filtrados por dueño y permisos, más todas las acciones.
   return (
     <DataContext.Provider value={{
       state: { ...state, orders: visibleOrders,
@@ -637,4 +687,5 @@ export function DataProvider({ children }) {
   );
 }
 
+// Hook de acceso al estado compartido.
 export const useData = () => useContext(DataContext);

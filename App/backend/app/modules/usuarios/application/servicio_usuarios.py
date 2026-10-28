@@ -26,6 +26,8 @@ ESTADOS_VALIDOS = {"ACTIVO", "INACTIVO"}
 
 @dataclass(slots=True, frozen=True)
 class FiltrosUsuario:
+    """Filtros opcionales y combinables para buscar cuentas (CU_USR_02)."""
+
     nombre: str | None = None
     apellido: str | None = None
     username: str | None = None
@@ -35,6 +37,8 @@ class FiltrosUsuario:
 
 @dataclass(slots=True, frozen=True)
 class DatosNuevoUsuario:
+    """Datos para registrar una cuenta nueva (CU_USR_03)."""
+
     nombre: str
     apellido: str
     username: str
@@ -55,13 +59,18 @@ class DatosUsuario:
 
 
 class ServicioUsuarios:
+    """Casos de uso de gestión de cuentas: buscar, registrar, modificar, desactivar y asignar rol.
+    """
+
     def __init__(self, uow: UnidadDeTrabajo, repositorio: RepositorioUsuariosSQL) -> None:
+        """Recibe la unidad de trabajo y el repositorio de usuarios."""
         self.uow = uow
         self.repo = repositorio
 
     # ------------------------------ CU_USR_02: buscar -------------------
 
     async def buscar(self, filtros: FiltrosUsuario) -> list[dict]:
+        """Busca cuentas aplicando los filtros recibidos."""
         return await self.repo.buscar(
             nombre=filtros.nombre,
             apellido=filtros.apellido,
@@ -71,6 +80,7 @@ class ServicioUsuarios:
         )
 
     async def obtener(self, usuario_id: int) -> dict:
+        """Devuelve una cuenta por id o lanza ``NoEncontrado``."""
         usuario = await self.repo.por_id(usuario_id)
         if usuario is None:
             raise NoEncontrado("El usuario no existe")
@@ -79,6 +89,10 @@ class ServicioUsuarios:
     # ------------------------------ CU_USR_03: registrar -----------------
 
     async def registrar(self, datos: DatosNuevoUsuario, *, ejecutor_id: int | None) -> dict:
+        """Registra una cuenta validando rol, contraseña y username único, y lo audita.
+
+        También crea o sincroniza el perfil asociado al rol (repartidor o cliente).
+        """
         if datos.rol not in ROLES_VALIDOS:
             raise ReglaDeNegocio(f"Rol invalido: {datos.rol}")
         try:
@@ -116,6 +130,11 @@ class ServicioUsuarios:
     # ------------------------------ CU_USR_04: desactivar -----------------
 
     async def desactivar(self, usuario_id: int, *, ejecutor_id: int | None) -> dict:
+        """Desactiva una cuenta activa sin viajes abiertos y lo audita.
+
+        No permite quitarse el propio acceso ni dejar el sistema sin administradores activos.
+        """
+        # Serializa la gestión de cuentas y bloquea el perfil de repartidor.
         await self.repo.bloquear_gestion(usuario_id)
         usuario = await self.obtener(usuario_id)
         if usuario["estado"] == "INACTIVO":
@@ -144,6 +163,10 @@ class ServicioUsuarios:
     async def modificar(
         self, usuario_id: int, datos: DatosUsuario, *, ejecutor_id: int | None
     ) -> dict:
+        """Modifica datos y estado de una cuenta (CU_USR_05) y lo audita.
+
+        Desactivar por esta vía aplica las mismas protecciones que ``desactivar``.
+        """
         await self.repo.bloquear_gestion(usuario_id)
         actual = await self.obtener(usuario_id)
         if datos.estado not in ESTADOS_VALIDOS:
@@ -184,6 +207,7 @@ class ServicioUsuarios:
     # ------------------------------ CU_USR_06: asignar rol ----------------
 
     async def asignar_rol(self, usuario_id: int, rol: str, *, ejecutor_id: int | None) -> dict:
+        """Cambia el rol de una cuenta (CU_USR_06), sincroniza su perfil y lo audita."""
         if rol not in ROLES_VALIDOS:
             raise ReglaDeNegocio(f"Rol invalido: {rol}")
         await self.repo.bloquear_gestion(usuario_id)
@@ -208,6 +232,7 @@ class ServicioUsuarios:
         return await self.obtener(usuario_id)
 
     async def _proteger_administracion(self, usuario, ejecutor_id):
+        """Impide quitarse el propio acceso o dejar el sistema sin administradores activos."""
         if usuario["id"] == ejecutor_id:
             raise ReglaDeNegocio("No podés quitar tu propio acceso de administración")
         if (

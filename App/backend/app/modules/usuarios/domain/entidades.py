@@ -71,6 +71,10 @@ class ClaimsSesion:
     permisos: frozenset[str] | None = None
 
     def puede(self, permiso: str) -> bool:
+        """Indica si la sesión tiene el permiso ``modulo.accion`` indicado.
+
+        El administrador puede todo. Sin permisos cargados se usa la política inicial del rol.
+        """
         from app.modules.usuarios.domain.permisos import PERMISOS_INICIALES
 
         if self.rol == Rol.ADMINISTRADOR:

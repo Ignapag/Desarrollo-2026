@@ -1,3 +1,5 @@
+// Pantalla de Catálogo de Menú: lista los productos que ven los clientes, permite
+// darlos de alta (con foto, receta y variantes), desactivarlos y editar su receta.
 import { userErrorMessage, UserFacingError } from '../shared/api/userErrors.js';
 import { can } from '../auth/permissions';
 import { useAuth } from '../auth/AuthContext';
@@ -11,16 +13,19 @@ import RecipeEditor from './RecipeEditor';
 import RecipeModal from './RecipeModal';
 import { newRecipe, serializeRecipe } from './recipeModel';
 
+/** Gestión del catálogo de productos del menú. */
 export default function Catalog() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const query = (searchParams.get('q') || '').toLowerCase();
   const { state, createProduct, deactivateProduct, refreshCatalog, refreshInventory } = useData();
+  // Carga catálogo e inventario (necesario para armar recetas) al montar.
   useEffect(() => {
     const controller = new AbortController();
     Promise.resolve().then(() => { if (!controller.signal.aborted) return Promise.allSettled([refreshCatalog(controller.signal), refreshInventory(controller.signal)]); return undefined; });
     return () => controller.abort();
   }, [refreshCatalog, refreshInventory]);
+  // Estado del alta, de la desactivación y del producto cuya receta se edita.
   const [isAdding, setIsAdding] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
   const deleteBusy = useRef(false);
@@ -29,15 +34,18 @@ export default function Catalog() {
   const [recipe, setRecipe] = useState(newRecipe);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
+  // Lectura de la imagen elegida; se cancela al desmontar.
   const imageReader = useRef(null);
   const mounted = useRef(true);
   const [imageLoading, setImageLoading] = useState(false);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; imageReader.current?.abort?.(); imageReader.current = null; }; }, []);
+  // Errores del alta: el resumen recibe el foco al aparecer.
   const [createError, setCreateError] = useState('');
   const [fieldErrors, setFieldErrors] = useState({});
   const [showRecipeErrors, setShowRecipeErrors] = useState(false);
   const errorSummary = useRef(null);
   useEffect(() => { if (createError) errorSummary.current?.focus(); }, [createError]);
+  // Borrador del producto nuevo; solo se puede elegir una categoría ya existente.
   const [newItem, setNewItem] = useState({ 
     name: '', category: '', price: '', description: '', image: null,
   });
@@ -45,6 +53,7 @@ export default function Catalog() {
   const categories = [...new Set(state.catalog.map(p => p.category))];
   const selectedCategory = categories.includes(newItem.category) ? newItem.category : '';
 
+  // Lee la imagen elegida como data URL para enviarla con el producto.
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     imageReader.current?.abort?.();
@@ -70,6 +79,7 @@ export default function Catalog() {
     }
   };
 
+  // Valida el alta (nombre, categoría, precio o variantes y receta) y crea el producto vía API.
   const handleAdd = async () => {
     if (savingRef.current || imageLoading || !can(user, 'productos.gestionar')) return;
     setCreateError('');
@@ -111,6 +121,7 @@ export default function Catalog() {
     }
   };
 
+  // Desactiva un producto (deja de mostrarse en el menú) tras la confirmación "¿Seguro?".
   const handleDelete = async (id) => {
     if (deleteBusy.current || !can(user, 'productos.gestionar')) return;
     deleteBusy.current = true;
@@ -130,8 +141,10 @@ export default function Catalog() {
 
   return (
     <div className="space-y-6 max-w-5xl">
+      {/* Errores y estado de carga */}
       <DataError message={state.catalogError || state.inventoryError} retry={() => { void Promise.allSettled([refreshCatalog(undefined, true), refreshInventory(undefined, true)]); }} />
       {state.catalogStatus === 'loading' && <p role="status">Consultando catálogo...</p>}
+      {/* Encabezado y botón de nuevo producto */}
       <div className="flex justify-between items-end">
         <div>
           <h1 className="text-3xl font-extrabold font-heading text-monu-dark mb-1">Catálogo de Menú</h1>
@@ -148,6 +161,7 @@ export default function Catalog() {
         </button>
       </div>
 
+      {/* Formulario de alta de producto con receta */}
       {isAdding && can(user, 'productos.gestionar') && (
         <div className="bg-white p-5 rounded-2xl shadow-sm border border-monu-green/10 mb-6 flex flex-col gap-4">
           <h3 className="font-extrabold text-lg border-b pb-2">Agregar nuevo producto</h3>
@@ -198,6 +212,7 @@ export default function Catalog() {
         </div>
       )}
 
+      {/* Tabla de productos filtrada por la búsqueda (?q=) */}
       <div role="region" aria-label="Catálogo de productos" tabIndex={0} className="bg-white rounded-2xl shadow-sm border border-monu-green/10 overflow-x-auto focus-visible:ring-2 focus-visible:ring-monu-green">
         <table className="w-full text-left">
           <thead className="bg-monu-cream/50 text-monu-dark">
@@ -252,6 +267,7 @@ export default function Catalog() {
           </tbody>
         </table>
       </div>
+      {/* Editor de receta del producto elegido */}
       {editingProduct && <RecipeModal key={editingProduct.id} product={editingProduct} onClose={() => setEditingProduct(null)} />}
     </div>
   );

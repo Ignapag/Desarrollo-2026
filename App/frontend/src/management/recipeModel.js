@@ -1,7 +1,12 @@
+// Modelo de recetas: interpretación de cantidades (decimales o fracciones, en milésimas),
+// conversión desde/hacia el formato de la API y unidades visibles de los ingredientes.
 import { UserFacingError } from '../shared/api/userErrors.js';
+// Fracciones tipográficas aceptadas como atajo (¼, ½, ...).
 const fractions = { '¼': '1/4', '½': '1/2', '¾': '3/4', '⅓': '1/3', '⅔': '2/3', '⅛': '1/8' };
 const invalid = (error) => ({ valid: false, error });
 
+// Interpreta una cantidad de receta: decimal con hasta 3 decimales o fracción (redondeada a milésimas).
+// Devuelve `{ valid, amount, display, approximate, error }`.
 export function parseRecipeQuantity(value) {
   const raw = String(value ?? '').trim();
   const text = fractions[raw] || raw;
@@ -25,10 +30,12 @@ export function parseRecipeQuantity(value) {
   return { valid: true, amount, display: amount.replace('.', ','), approximate, error: '' };
 }
 
+// Receta vacía con una fila de ingrediente.
 export function newRecipe() {
   return { ingredients: [{ key: crypto.randomUUID(), ingredientId: '', quantity: '1', quantities: [] }], variants: [] };
 }
 
+// Convierte la receta de la API (ingredientes y variantes) al formato del editor, validándola.
 export function recipeFromApi(data) {
   const validIngredient = (row) => row && Number.isSafeInteger(row.ingrediente_id) && row.ingrediente_id > 0
     && ['string', 'number'].includes(typeof row.cantidad_requerida) && Number.isFinite(Number(row.cantidad_requerida))
@@ -51,6 +58,8 @@ export function recipeFromApi(data) {
   };
 }
 
+// Convierte la receta del editor al cuerpo de la API; valida ingredientes repetidos,
+// cantidades y nombres/precios de variantes.
 export function serializeRecipe(recipe, { includePrices = false } = {}) {
   if (!recipe.ingredients.length) throw new UserFacingError('Agregá al menos un ingrediente a la receta.');
   const ids = new Set();
@@ -81,4 +90,5 @@ export function serializeRecipe(recipe, { includePrices = false } = {}) {
   return { ingredientes: variants[0]?.ingredientes || rows(), variantes: variants };
 }
 
+// Unidad visible de un ingrediente según su unidad de medida.
 export const recipeUnit = (unit) => ({ UNIDAD: 'unidad', GR: 'g', KG: 'kg', LT: 'l', ML: 'ml' })[unit] || unit || 'unidad';

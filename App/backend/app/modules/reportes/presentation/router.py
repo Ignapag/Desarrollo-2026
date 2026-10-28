@@ -20,10 +20,12 @@ from app.modules.reportes.presentation.esquemas import (
 from app.modules.usuarios.domain.entidades import ClaimsSesion
 from app.modules.usuarios.presentation.dependencias import requiere_permiso
 
+# Permisos de reportes: directorio de clientes y reportes (los financieros, aparte).
 PermisoClientesVer = Annotated[ClaimsSesion, Depends(requiere_permiso("clientes", "ver"))]
 PermisoReportesVer = Annotated[ClaimsSesion, Depends(requiere_permiso("reportes", "ver"))]
 
 def requiere_reportes_financieros(sesion: PermisoReportesVer) -> ClaimsSesion:
+    """Dependencia que exige, además de ver reportes, el permiso financiero."""
     if not sesion.puede("reportes.financieros"):
         raise SinPermiso("No tenés permiso para consultar reportes financieros")
     return sesion
@@ -42,6 +44,7 @@ async def clientes(
     limite: int = Query(default=50, ge=1, le=100),
     desplazamiento: int = Query(default=0, ge=0),
 ) -> DirectorioClientes:
+    """Directorio paginado de clientes con búsqueda por nombre o teléfono."""
     datos = await servicio.clientes(
         rol=sesion.rol.value,
         q=q,
@@ -59,6 +62,7 @@ async def dashboard(
     sesion: PermisoReportesVer,
     servicio: ServicioReportesDep,
 ) -> DashboardAdministrador | DashboardDuenio:
+    """Tablero de reportes; incluye ingresos solo con permiso financiero."""
     datos = await servicio.dashboard(
         rol=sesion.rol.value,
         fecha_desde=fecha_desde,
@@ -80,6 +84,7 @@ async def ventas(
     categoria_id: int | None = Query(default=None, gt=0),
     producto_id: int | None = Query(default=None, gt=0),
 ) -> list[VentaAdministrador | VentaDuenio]:
+    """Reporte de ventas agrupado por día, semana o mes, con montos según permiso."""
     filas = await servicio.ventas(
         rol=sesion.rol.value,
         autorizado=sesion.puede("reportes.ver"),
@@ -103,6 +108,7 @@ async def rentabilidad(
     categoria_id: int | None = Query(default=None, gt=0),
     producto_id: int | None = Query(default=None, gt=0),
 ) -> list[RentabilidadEstimada]:
+    """Rentabilidad estimada por producto (requiere permiso financiero)."""
     filas = await servicio.rentabilidad_estimada(
         rol=sesion.rol.value,
         autorizado=sesion.puede("reportes.financieros"),

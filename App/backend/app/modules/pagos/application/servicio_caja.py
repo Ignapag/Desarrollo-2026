@@ -23,6 +23,7 @@ class ServicioCaja:
     """Orquesta la consolidación de ingresos por turno y cierres de caja."""
 
     def __init__(self, uow: UnidadDeTrabajo, repo: RepositorioCajaSQL) -> None:
+        """Recibe la unidad de trabajo y el repositorio de cierres de caja."""
         self.uow = uow
         self.repo = repo
 
@@ -38,6 +39,7 @@ class ServicioCaja:
         cuando su snapshot ya coincide con los conciliados; no se reparan aquí
         cierres históricos que contabilizaron fondos todavía inexistentes.
         """
+        # Un cierre aprobado solo se toca si sus totales ya coinciden con los pagos vinculados.
         if cierre.es_aprobado:
             corte = await self.repo.capturar_cierre_vinculado(cierre.id)
             if not self._coinciden_totales(cierre, corte.totales):
@@ -45,6 +47,7 @@ class ServicioCaja:
                     "El cierre aprobado histórico tiene totales inconsistentes; "
                     "requiere revisión contable antes de conciliar sus pendientes"
                 )
+        # Cada pago pendiente que se retira del cierre queda auditado.
         for pago_id in await self.repo.desvincular_no_conciliados(cierre.id):
             await auditoria.registrar(
                 self.uow,
@@ -63,6 +66,7 @@ class ServicioCaja:
 
     @staticmethod
     def _coinciden_totales(cierre: CierreCaja, totales: dict) -> bool:
+        """Compara los totales guardados en el cierre con los recalculados de sus pagos."""
         return all(
             totales[campo] == getattr(cierre, campo)
             for campo in (
@@ -75,6 +79,7 @@ class ServicioCaja:
         )
 
     async def bloquear_cierres_de_pagos(self, pago_ids: list[int]) -> None:
+        """Bloquea los cierres a los que pertenecen los pagos indicados."""
         await self.repo.bloquear_cierres_de_pagos(pago_ids)
 
     async def consolidar_turno(
@@ -84,6 +89,8 @@ class ServicioCaja:
         momento_referencia: datetime | None = None,
     ) -> ConsolidadoTurno:
         """Consolida los ingresos y egresos de un turno específico o del turno activo actual."""
+        # Turno explícito (fecha + turno) o, si no, el turno que corresponde al momento de
+        # referencia.
         if fecha is not None and turno is not None:
             fecha_caja = fecha
             turno_caja = turno
@@ -91,6 +98,7 @@ class ServicioCaja:
         else:
             turno_caja, fecha_caja, desde, hasta = determinar_turno_y_ventana(momento_referencia)
 
+        # Lectura de solo consulta: no vincula pagos ni crea un cierre.
         corte = await self.repo.capturar_turno(desde, hasta)
         totales = corte.totales
 
@@ -128,6 +136,7 @@ class ServicioCaja:
         - Totaliza y vincula exactamente ese conjunto de pagos, bloqueado por ID.
         - Registra la acción en la bitácora de auditoría.
         """
+        # Solo hace falta el fin de la ventana: se arrastran conciliados previos sin cierre.
         if fecha is not None and turno is not None:
             fecha_caja = fecha
             turno_caja = turno
@@ -135,6 +144,7 @@ class ServicioCaja:
         else:
             turno_caja, fecha_caja, _, hasta = determinar_turno_y_ventana(momento_referencia)
 
+        # Lock del turno para serializar generaciones y aprobaciones concurrentes.
         await self.repo.bloquear_turno(fecha_caja, turno_caja)
         # Regla de negocio: si el turno ya fue aprobado, es inalterable
         existente = await self.repo.obtener_cierre_por_fecha_turno(fecha_caja, turno_caja)
@@ -144,6 +154,7 @@ class ServicioCaja:
                 "ya fue aprobado y no puede reabrirse"
             )
 
+        # Al regenerar, primero se excluyen los pagos no conciliados que tuviera el cierre.
         if existente:
             await self.desvincular_no_conciliados(existente, generado_por, ip_cliente)
         corte = await self.repo.capturar_pagos_cierre(existente.id if existente else None, hasta)
@@ -226,6 +237,7 @@ class ServicioCaja:
         if cierre_actual is None:
             raise NoEncontrado(f"Cierre de caja #{cierre_id} no encontrado")
 
+        # Bloquea el turno y relee el cierre para decidir con el estado vigente.
         await self.repo.bloquear_turno(cierre_actual.fecha, cierre_actual.turno)
         cierre_actual = await self.repo.obtener_cierre_por_id(cierre_id)
 
@@ -234,6 +246,7 @@ class ServicioCaja:
                 f"El cierre de caja #{cierre_id} ya fue aprobado previamente y es inalterable"
             )
 
+        # Antes de aprobar se verifica que los totales coincidan con los pagos vinculados.
         await self.desvincular_no_conciliados(cierre_actual, aprobado_por, ip_cliente)
         corte = await self.repo.capturar_cierre_vinculado(cierre_id)
         if not self._coinciden_totales(cierre_actual, corte.totales):

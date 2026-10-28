@@ -1,8 +1,11 @@
+// Editor de recetas de productos: ingredientes del inventario con su cantidad por
+// producto y, opcionalmente, variantes (p. ej. simple/doble) con precio y cantidades propias.
 import { useId, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { buttonClass, inputClass } from '../fulfillment/operationUi';
 import { parseRecipeQuantity, recipeUnit } from './recipeModel';
 
+/** Campo de cantidad de receta con validación (acepta fracciones como 1/4) y ayuda con el valor interpretado. */
 function QuantityField({ id, label, value, unit, disabled, onChange, showErrors }) {
   const [touched, setTouched] = useState(false);
   const parsed = parseRecipeQuantity(value);
@@ -14,8 +17,14 @@ function QuantityField({ id, label, value, unit, disabled, onChange, showErrors 
   </div>;
 }
 
+/**
+ * Editor controlado de una receta (`value`/`onChange`). `lockVariants` impide agregar,
+ * quitar o cambiar el precio de variantes (edición de recetas existentes) y `basePrice`
+ * es el precio sugerido de la primera variante.
+ */
 export default function RecipeEditor({ value, onChange, inventory, disabled = false, lockVariants = false, basePrice = '', showErrors = false }) {
   const id = useId();
+  // Operaciones sobre filas de ingredientes y variantes (cada variante guarda una cantidad por ingrediente).
   const updateRow = (index, changes) => onChange({ ...value, ingredients: value.ingredients.map((row, i) => i === index ? { ...row, ...changes } : row) });
   const addVariant = () => onChange({ ...value, variants: [...value.variants, { name: value.variants.length ? '' : 'Simple', price: basePrice }], ingredients: value.ingredients.map((row) => ({ ...row, quantities: [...row.quantities, row.quantities[0] || row.quantity], variantBase: [...(row.variantBase || []), row.esBase !== false] })) });
   const removeVariant = (index) => onChange({ ...value, variants: value.variants.filter((_, i) => i !== index), ingredients: value.ingredients.map((row) => ({ ...row, quantity: row.quantities[0] || row.quantity, quantities: row.quantities.filter((_, i) => i !== index), variantBase: row.variantBase?.filter((_, i) => i !== index) })) });
@@ -23,6 +32,7 @@ export default function RecipeEditor({ value, onChange, inventory, disabled = fa
   return <fieldset disabled={disabled} className="space-y-4 min-w-0">
     <legend className="mb-2 font-extrabold text-lg text-monu-dark">Receta e ingredientes</legend>
     <p className="text-sm text-monu-text">Indicá lo que se usa en un producto. Podés escribir 1/4, 1/8, 0,25 o la cantidad que necesites.</p>
+    {/* Variantes con nombre, precio y opción de quitarlas */}
     {value.variants.length > 0 && <div className="space-y-3 rounded-xl bg-monu-cream/40 p-3">
       <p className="text-sm font-bold">Cantidades por variante</p>
       {value.variants.map((variant, index) => {
@@ -38,6 +48,7 @@ export default function RecipeEditor({ value, onChange, inventory, disabled = fa
       </div>; })}
       <p className="text-xs text-monu-text">Definí cada cantidad: una doble puede usar dos medallones y un solo pan. Las fracciones no exactas muestran su aproximación a 3 decimales.</p>
     </div>}
+    {/* Filas de ingredientes con su cantidad (una por variante si existen) */}
     <div className="space-y-3">
       {value.ingredients.map((row, index) => {
         const ingredient = inventory.find((item) => String(item.id) === row.ingredientId);
@@ -55,6 +66,7 @@ export default function RecipeEditor({ value, onChange, inventory, disabled = fa
         </div>;
       })}
     </div>
+    {/* Agregar ingrediente o variante */}
     <div className="flex flex-wrap gap-2">
       <button type="button" onClick={() => onChange({ ...value, ingredients: [...value.ingredients, { key: crypto.randomUUID(), ingredientId: '', quantity: '1', quantities: value.variants.map(() => '1') }] })} className={buttonClass}><Plus aria-hidden="true" className="h-4 w-4 inline mr-2" />Agregar ingrediente</button>
       {!lockVariants && value.variants.length < 10 && <button type="button" onClick={addVariant} className={buttonClass}><Plus aria-hidden="true" className="h-4 w-4 inline mr-2" />{value.variants.length ? 'Agregar variante' : 'Usar variantes'}</button>}

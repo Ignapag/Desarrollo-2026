@@ -18,6 +18,9 @@ _CAMPOS_ITEM = {"id", "producto_id", "cantidad", "variante", "aclaraciones"}
 
 
 def _argumentos_validos(nombre, args):
+    """Valida los argumentos de una operación del plan: campos permitidos, rangos numéricos y
+    valores de entrega y pago.
+    """
     if not isinstance(args, dict):
         return False
     campos = CAMPOS_DATOS if nombre == "datos" else ARGUMENTOS_EDICION.get(nombre, set())
@@ -30,6 +33,7 @@ def _argumentos_validos(nombre, args):
         elif (not isinstance(valor, str) or len(valor) > 300
               or (not valor.strip() and campo != "aclaraciones")):
             return False
+    # Los valores de entrega y pago deben ser opciones conocidas.
     for campo, opciones in (
         ("tipo_entrega", {"retiro", "delivery"}),
         ("metodo_pago", {"efectivo", "transferencia"}),
@@ -40,6 +44,7 @@ def _argumentos_validos(nombre, args):
 
 
 def _plan_valido(args):
+    """Valida la estructura del plan de edición múltiple y cada una de sus operaciones."""
     if not isinstance(args, dict) or set(args) != {"operaciones"}:
         return False
     operaciones = args["operaciones"]
@@ -52,10 +57,12 @@ def _plan_valido(args):
 
 
 def _items_simples(items):
+    """Copia los ítems del pedido conservando solo los campos editables."""
     return [{k: v for k, v in item.items() if k in _CAMPOS_ITEM} for item in items]
 
 
 def _guardar(b, estado, pregunta=None, edicion=None):
+    """Guarda el estado del plan en el contexto del chat y descarta la propuesta vigente."""
     b["contexto_chat"] = {"multiple": estado, "pregunta": pregunta}
     if edicion:
         edicion["datos_presentes"] = sorted(estado["datos"])
@@ -64,6 +71,7 @@ def _guardar(b, estado, pregunta=None, edicion=None):
 
 
 def _pedir_dato(b, estado, campo):
+    """Deja registrada la pregunta por un dato faltante y devuelve el texto para el cliente."""
     _guardar(b, estado, campo, {
         "accion": "datos", "argumentos": {}, "datos_presentes": sorted(estado["datos"]),
         "operacion": estado["operacion"], "solicitud_id": estado["solicitud_id"],
@@ -72,6 +80,9 @@ def _pedir_dato(b, estado, campo):
 
 
 async def _cambios_datos(bot, b, estado, pedido):
+    """Traduce los datos del plan (entrega, pago, dirección) a cambios del pedido. Devuelve
+    (cambios, None) o (None, pregunta) cuando falta un dato.
+    """
     datos = estado["datos"]
     cambios = {}
     for campo, destino in (("tipo_entrega", "tipo_entrega"),
@@ -81,6 +92,7 @@ async def _cambios_datos(bot, b, estado, pedido):
     if cambios.get("tipo_entrega") == "RETIRO":
         # Retiro no conserva una dirección de entrega pendiente.
         return cambios, None
+    # Una dirección nueva requiere calle, número y localidad completos.
     if set(datos) & {"direccion", "numero", "localidad"}:
         for campo in ("direccion", "numero", "localidad"):
             if not datos.get(campo):
@@ -91,10 +103,12 @@ async def _cambios_datos(bot, b, estado, pedido):
         }
         cambios.setdefault("tipo_entrega", "DELIVERY")
     elif "referencias" in datos:
+        # Solo referencias: se aplican sobre la dirección actual del pedido.
         direccion = await bot.repo.direccion_pedido(pedido)
         if not direccion:
             return None, _pedir_dato(b, estado, "direccion")
         cambios["direccion_nueva"] = {**direccion, "referencia": datos["referencias"]}
+    # Delivery siempre necesita una dirección, nueva o ya registrada.
     if cambios.get("tipo_entrega", pedido["tipo_entrega"]) == "DELIVERY" and not (
         cambios.get("direccion_nueva") or pedido.get("direccion_id")
     ):
@@ -103,6 +117,7 @@ async def _cambios_datos(bot, b, estado, pedido):
 
 
 def _detalle(pedido, cotizacion, cambios):
+    """Texto con el resumen del pedido cotizado, dirección y método de pago."""
     texto = resumen({**pedido, **cotizacion})
     direccion = cambios.get("direccion_nueva")
     if direccion and cotizacion["tipo_entrega"] == "DELIVERY":
@@ -115,6 +130,10 @@ def _detalle(pedido, cotizacion, cambios):
 
 
 async def editar_multiples(bot, b, entrada, accion):
+    """Procesa una edición múltiple del pedido: arma o continúa el plan, resuelve cada operación
+    sobre una copia virtual de los ítems, cotiza el resultado y lo aplica solo tras la confirmación
+    explícita del cliente.
+    """
     pedido = await bot.repo.pedido(b["pedido_id"])
     foto = bot._foto_operacion(pedido)
     nombre = accion.get("accion")
@@ -123,6 +142,7 @@ async def editar_multiples(bot, b, entrada, accion):
     estado = deepcopy(chat.get("multiple"))
     propuesta = b.get("propuesta") or {}
     confirmar = nombre == "confirmar"
+    # Confirmación: la propuesta debe seguir vigente para la misma versión y operación.
     if confirmar:
         if normalizar(entrada["texto"]) not in {
             "confirmar", "confirmo", "confirmar pedido", "confirmo pedido",
@@ -139,6 +159,7 @@ async def editar_multiples(bot, b, entrada, accion):
         items, cambios = propuesta["items"], propuesta["cambios"]
     else:
         completar = False
+        # Nuevo plan: separa los datos generales de las operaciones sobre productos.
         if nombre == "editar_pedido":
             if not _plan_valido(args):
                 bot._limpiar_solicitud(b)
@@ -157,9 +178,11 @@ async def editar_multiples(bot, b, entrada, accion):
                 "solicitud_id": entrada.get("_solicitud_id", entrada["id"]),
             }
         elif estado:
+            # Plan en curso: el pedido no debe haber cambiado desde que empezó.
             if estado["operacion"] != foto:
                 bot._limpiar_solicitud(b)
                 return "💬 Tu pedido cambió. No apliqué nada; pedí nuevamente los cambios."
+            # Respuesta a un dato o aclaración pendiente de la operación activa.
             if nombre in {"completar_edicion", "datos"}:
                 datos = {k: v for k, v in args.items() if k in CAMPOS_DATOS}
                 item = {k: v for k, v in args.items() if k not in CAMPOS_DATOS}
@@ -173,6 +196,7 @@ async def editar_multiples(bot, b, entrada, accion):
                 completar = True
                 args = item
             elif nombre in ACCIONES_PLAN - {"datos"}:
+                # Operación adicional que se suma al plan, respetando el máximo.
                 if (estado["cantidad_operaciones"] >= MAX_OPERACIONES
                         or not _argumentos_validos(nombre, args)):
                     return "💬 No pude sumar ese cambio al plan. No apliqué los cambios."
@@ -184,6 +208,7 @@ async def editar_multiples(bot, b, entrada, accion):
             return "💬 No hay cambios múltiples pendientes. Contame qué querés modificar."
         b["version"] += 1
         _guardar(b, estado)
+        # Resuelve las operaciones restantes en orden; corta si alguna requiere aclaración.
         while estado["indice"] < len(estado["operaciones"]):
             op = deepcopy(estado["operaciones"][estado["indice"]])
             pendiente = deepcopy(chat.get("edicion")) if completar else None
@@ -194,6 +219,7 @@ async def editar_multiples(bot, b, entrada, accion):
             else:
                 objetivo = op["argumentos"]
                 nombre_original = op["accion"]
+            # El índice del cliente refiere al pedido original; se traduce a la línea actual.
             if nombre_original != "agregar_producto":
                 indice = objetivo.get("item_indice")
                 if indice is None and len(estado["originales"]) == 1:
@@ -218,6 +244,7 @@ async def editar_multiples(bot, b, entrada, accion):
                 op["argumentos"]["item_indice"] = actual
                 if pendiente:
                     pendiente["argumentos"]["item_indice"] = actual
+            # Pedido virtual con los ítems acumulados por las operaciones ya resueltas.
             originales = {i["id"]: i for i in pedido["items"]}
             virtual = {**pedido, "items": [
                 {**originales.get(i.get("id"), {}), **i} for i in estado["items"]
@@ -229,6 +256,7 @@ async def editar_multiples(bot, b, entrada, accion):
                 bot, temporal, entrada, virtual, op, permitir_vacio=True,
             )
             completar = False
+            # La operación necesita una aclaración: se guarda el progreso y se pregunta.
             if isinstance(resultado, str):
                 if temporal["estado"] == "HUMANO":
                     b["estado"] = "HUMANO"
@@ -258,6 +286,7 @@ async def editar_multiples(bot, b, entrada, accion):
         cambios, pregunta = await _cambios_datos(bot, b, estado, pedido)
         if pregunta:
             return pregunta
+    # Cotiza el resultado; si implica reintegro, se deriva al personal.
     try:
         cotizacion = await bot.pedidos.cotizar_edicion(pedido["id"], items=items, cambios=cambios)
     except ErrorDominio as error:
@@ -271,6 +300,7 @@ async def editar_multiples(bot, b, entrada, accion):
             "💬 Cambiaron los precios o el envío. "
             "No apliqué nada; revisemos una nueva propuesta."
         )
+    # Sin confirmación todavía: se guarda la propuesta y se muestra el total.
     if not confirmar:
         b["propuesta"] = {
             "tipo": "MULTIPLE", "version": b["version"], "operacion": foto,

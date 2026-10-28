@@ -72,6 +72,7 @@ def mensaje_web(datos: dict, productos: list[dict], momento: datetime) -> str:
 
 
 def resumen_pedido(pedido: dict) -> str:
+    """Resumen del pedido con productos, notas, total y modalidad de entrega."""
     lineas = ["🍔 *Tu pedido*"]
     for item in pedido["items"]:
         lineas.append(f"• {item['cantidad']} × {item['nombre_producto']}")
@@ -83,6 +84,7 @@ def resumen_pedido(pedido: dict) -> str:
 
 
 def instrucciones_pago(metodo: str, transferencia: str, tipo_entrega: str) -> str:
+    """Instrucciones de pago para el cliente según el método elegido y la modalidad de entrega."""
     if metodo.upper() == "EFECTIVO":
         cuando = (
             "cuando retires en el local" if tipo_entrega == "RETIRO" else "cuando recibas el pedido"
@@ -99,6 +101,7 @@ def instrucciones_pago(metodo: str, transferencia: str, tipo_entrega: str) -> st
 
 
 def estado_pedido(pedido: dict) -> str:
+    """Mensaje para el cliente que describe el estado actual del pedido."""
     estado = pedido.get("estado", pedido.get("estado_pedido"))
     textos = {
         "PENDIENTE": "📝 Tu pedido está pendiente de confirmación.",
@@ -122,6 +125,7 @@ def estado_pedido(pedido: dict) -> str:
 
 
 def resultado_transferencia(numero: int, aprobar: bool) -> str:
+    """Aviso al cliente con el resultado de la revisión manual de su transferencia."""
     if aprobar:
         return (
             "✅ *Pago confirmado*\n"

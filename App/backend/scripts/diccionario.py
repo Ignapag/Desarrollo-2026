@@ -37,6 +37,8 @@ PALABRAS_DE_RESTRICCION = (
 
 @dataclass
 class Columna:
+    """Columna de una tabla tal como se deduce del SQL de las migraciones."""
+
     nombre: str
     tipo: str
     obligatoria: bool = False
@@ -49,6 +51,10 @@ class Columna:
 
 @dataclass
 class Tabla:
+    """Tabla del esquema con su migración de origen, columnas, únicos compuestos y restricciones con
+    nombre.
+    """
+
     nombre: str
     archivo: str
     descripcion: str
@@ -78,9 +84,13 @@ def _separar_sql(texto: str, separador: str = ",") -> list[str]:
 
 
 def _agregar_restriccion(tabla: Tabla, definicion: str) -> None:
+    """Registra una restricción de tabla (PK, UNIQUE, FK o CHECK) con su nombre explícito o el
+    implícito de PostgreSQL, y marca las columnas afectadas.
+    """
     nombre = None
     if coincidencia := re.match(r"CONSTRAINT\s+(\w+)\s+(.+)", definicion, re.I | re.S):
         nombre, definicion = coincidencia.groups()
+    # Restricciones sobre una lista de columnas: PRIMARY KEY, UNIQUE o FOREIGN KEY.
     coincidencia = re.match(
         r"(PRIMARY KEY|UNIQUE|FOREIGN KEY)\s*\(([^)]+)\)", definicion, re.I
     )
@@ -129,11 +139,15 @@ def _agregar_restriccion(tabla: Tabla, definicion: str) -> None:
 
 
 def _agregar_columna(tabla: Tabla, definicion: str) -> None:
+    """Agrega una columna (o una restricción, si la línea no es una columna) y registra sus
+    restricciones en línea.
+    """
     columna = _parsear_columna(definicion)
     if columna is None:
         _agregar_restriccion(tabla, definicion)
         return
     tabla.columnas.append(columna)
+    # PK, UNIQUE y FK de columna se registran como restricciones con nombre implícito.
     for marca, activa in (("PRIMARY KEY", columna.es_pk), ("UNIQUE", columna.es_unica)):
         if activa:
             _agregar_restriccion(tabla, f"{marca} ({columna.nombre})")
@@ -180,6 +194,9 @@ def _valores_de_check(cuerpo: str, columna: str) -> list[str]:
 
 
 def _parsear_columna(linea: str) -> Columna | None:
+    """Interpreta una línea de definición de columna; devuelve None si es una restricción o un
+    comentario.
+    """
     linea = linea.rstrip(",").strip()
     if not linea or linea.startswith("--"):
         return None
@@ -219,10 +236,12 @@ def _parsear_columna(linea: str) -> Columna | None:
 
 
 def parsear(archivo: Path) -> list[Tabla]:
+    """Extrae las tablas definidas con CREATE TABLE en un archivo de migración."""
     contenido = archivo.read_text(encoding="utf-8")
     lineas = contenido.split("\n")
     tablas: list[Tabla] = []
 
+    # Cada CREATE TABLE se lee hasta la línea que cierra con «);».
     for numero, linea in enumerate(lineas):
         coincidencia = re.match(r"CREATE TABLE (\w+)\s*\(", linea)
         if not coincidencia:
@@ -261,6 +280,7 @@ def parsear_esquema(archivos: list[Path]) -> list[Tabla]:
     tablas: dict[str, Tabla] = {}
     for archivo in sorted(archivos):
         tablas.update((tabla.nombre, tabla) for tabla in parsear(archivo))
+        # Aplica en orden los ALTER TABLE del archivo sobre las tablas ya conocidas.
         contenido = re.sub(r"--[^\n]*", "", archivo.read_text(encoding="utf-8"))
         for nombre, operaciones in re.findall(
             r"ALTER TABLE\s+(\w+)\s+([^;]+);", contenido, re.I
@@ -302,6 +322,7 @@ def parsear_esquema(archivos: list[Path]) -> list[Tabla]:
 
 
 def otros_objetos(archivo: Path) -> dict[str, list[str]]:
+    """Vistas, funciones y triggers creados por la migración."""
     contenido = archivo.read_text(encoding="utf-8")
     return {
         "vistas": re.findall(r"CREATE OR REPLACE VIEW (\w+)", contenido),
@@ -311,6 +332,9 @@ def otros_objetos(archivo: Path) -> dict[str, list[str]]:
 
 
 def _fila_columna(columna: Columna) -> str:
+    """Fila Markdown de una columna con tipo, obligatoriedad y notas (PK, único, FK, valores,
+    default).
+    """
     marcas = []
     if columna.es_pk:
         marcas.append("PK")
@@ -336,6 +360,9 @@ def _fila_columna(columna: Columna) -> str:
 
 
 def generar() -> str:
+    """Arma el diccionario de datos completo en Markdown: reglas de uso, índice y una sección por
+    migración con sus tablas y objetos.
+    """
     partes: list[str] = [
         "# Diccionario de datos — Monu Burger",
         "",
@@ -366,6 +393,7 @@ def generar() -> str:
     indice: list[str] = ["## Índice de tablas", ""]
     cuerpo: list[str] = []
 
+    # Una sección por migración, con el detalle de cada tabla nueva.
     for archivo in archivos:
         tablas = [tabla for tabla in esquema if tabla.archivo == archivo.stem]
         total_tablas += len(tablas)
@@ -389,6 +417,7 @@ def generar() -> str:
                 cuerpo += ["", "Únicos: " + ", ".join(f"`({u})`" for u in tabla.unicos)]
             cuerpo += [""]
 
+        # Objetos adicionales de la migración.
         for clave, etiqueta in (
             ("vistas", "Vistas"),
             ("funciones", "Funciones"),
@@ -405,6 +434,7 @@ def generar() -> str:
 
 
 def main() -> int:
+    """Punto de entrada CLI: escribe el diccionario en la ruta indicada."""
     parser = argparse.ArgumentParser(description="Genera el diccionario de datos")
     parser.add_argument("--salida", type=Path, default=SALIDA_POR_DEFECTO)
     args = parser.parse_args()

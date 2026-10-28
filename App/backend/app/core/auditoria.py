@@ -25,6 +25,11 @@ async def registrar(
     datos: dict[str, Any] | None = None,
     ip: str | None = None,
 ) -> None:
+    """Inserta un evento de auditoría dentro de la transacción del caso de uso.
+
+    Los datos extra se serializan a JSON (con ``default=str`` para fechas y Decimal) y el id de la
+    entidad se guarda como texto para admitir claves de cualquier tipo.
+    """
     await uow.ejecutar(
         """
         INSERT INTO auditoria (usuario_id, accion, entidad, entidad_id, datos, ip)
@@ -62,6 +67,7 @@ async def listar(
     Sin filtros devuelve las ultimas `limite` acciones registradas por
     cualquier modulo del sistema.
     """
+    # Arma el WHERE dinámicamente: solo se agregan los filtros recibidos, siempre parametrizados.
     condiciones: list[str] = []
     parametros: list[Any] = []
 
@@ -84,6 +90,7 @@ async def listar(
     where = f"WHERE {' AND '.join(condiciones)}" if condiciones else ""
     parametros.append(limite)
 
+    # Se une con usuario para mostrar el username de quien ejecutó la acción.
     return await uow.todos(
         f"""
         SELECT {_CAMPOS_EVENTO}
@@ -98,6 +105,7 @@ async def listar(
 
 
 async def obtener(uow: UnidadDeTrabajo, evento_id: int) -> dict[str, Any] | None:
+    """Devuelve un evento de auditoría puntual por id, o ``None`` si no existe."""
     return await uow.uno(
         f"""
         SELECT {_CAMPOS_EVENTO}

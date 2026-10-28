@@ -1,22 +1,30 @@
+// Modelo de pedidos del frontend: estados y etiquetas, reglas de rol/edición,
+// adaptación de pedidos de la API, cálculo de pagos exactos en centavos, comandos
+// de estado permitidos y la "valla de frescura" que evita mostrar datos viejos.
 export const ORDER_STATES = [
   ['PENDIENTE', 'Nuevos'], ['CONFIRMADO', 'Confirmados'],
   ['EN_PREPARACION', 'En preparación'], ['LISTO', 'Listos'],
   ['EN_CAMINO', 'En camino'], ['ENTREGADO', 'Entregados'], ['CANCELADO', 'Cancelados'],
 ];
+// Etiquetas visibles y reglas de rol/estado usadas por las pantallas de pedidos.
 export const knownLabel = (labels, value, fallback = 'Sin informar') => typeof value === 'string' && Object.hasOwn(labels, value) ? labels[value] : fallback;
 export const stateLabel = (state) => typeof state === 'string' ? ORDER_STATES.find(([id]) => id === state.toUpperCase())?.[1] || 'Sin informar' : 'Sin informar';
 export const paymentMethodLabel = (method) => knownLabel({ EFECTIVO: 'Efectivo', TRANSFERENCIA: 'Transferencia', MERCADO_PAGO: 'Mercado Pago', CUENTA_DNI: 'Cuenta DNI', NARANJA_X: 'Naranja X', OTRA_BILLETERA: 'Otra billetera' }, method);
 export const isStaff = (role) => ['EMPLEADO', 'ADMINISTRADOR', 'DUENIO'].includes(role);
 export const isPrivileged = (role) => ['ADMINISTRADOR', 'DUENIO'].includes(role);
 export const isClosed = (order) => ['ENTREGADO', 'CANCELADO'].includes(order.estado);
+// Indica si el pedido tiene un repartidor asignado en un viaje planificado o en ruta.
 export const hasAssignment = (order) => Boolean(order.envio?.viaje_id && order.envio?.repartidor_id
   && ['PLANIFICADO', 'EN_RUTA'].includes(order.envio?.estado_viaje));
+// Un pedido se puede editar si el usuario tiene permiso, sigue en operación y no salió a reparto.
 export const canEditOperation = (order, role, can = null) => (can ? can('pedidos.editar') : isStaff(role))
   && ['PENDIENTE', 'CONFIRMADO', 'EN_PREPARACION', 'LISTO'].includes(order.estado) && !hasAssignment(order);
 
+// Dirección legible de un pedido delivery.
 export function addressLabel(address) {
   return address ? [address.calle, address.numero, address.localidad].filter(Boolean).join(', ') : 'Dirección no disponible';
 }
+// Adapta un pedido de la API al formato usado por listas y tablero (conserva el original en `detail`).
 export function mapOrder(order) {
   return {
     ...order,
@@ -31,6 +39,7 @@ export function mapOrder(order) {
     date: order.creado_en,
   };
 }
+// Formateadores de dinero, fecha/hora y antigüedad en minutos.
 export const money = (value) => value != null && Number.isFinite(Number(value))
   ? Number(value).toLocaleString('es-AR', { style: 'currency', currency: 'ARS' }) : 'No disponible';
 export const dateTime = (value) => value && Number.isFinite(Date.parse(value))
@@ -51,6 +60,7 @@ function paymentCents(value) {
   const amount = BigInt(whole) * 100n + BigInt(fraction.padEnd(2, '0'));
   return negative ? -amount : amount;
 }
+// Un pedido está pagado si lo cobrado cubre el total y no queda saldo pendiente.
 export function isOrderPaid(order) {
   const total = paymentCents(order.total);
   const net = paymentCents(order.neto_cobrado);
@@ -58,6 +68,7 @@ export function isOrderPaid(order) {
   return total !== null && total >= 0n && net !== null && net >= total
     && balance !== null && balance <= 0n;
 }
+// El retiro en local solo se entrega si se acordó efectivo o el pedido ya está pagado.
 export const allowsPickup = (order) => order.metodo_pago_acordado === 'EFECTIVO' || isOrderPaid(order);
 
 // Solo ofrece comandos compatibles con el estado físico conocido. La API vuelve a validarlos.
@@ -85,6 +96,7 @@ export function stateCommands(order, role, can = null) {
   return commands;
 }
 
+// Arma la ruta de listado de pedidos con búsqueda, estado, activos y cliente.
 export function ordersPath({ q = '', estado = '', activos, cliente_id } = {}) {
   const query = new URLSearchParams();
   if (q.trim()) query.set('q', q.trim());
@@ -108,6 +120,7 @@ export function createFreshnessFence() {
   };
 }
 
+// Devuelve el pedido si la respuesta de la API es un pedido completo y coincide con `id`; si no, null.
 export function confirmedOrder(result, id) {
   const candidate = result?.pedido || result;
   return candidate && (id == null || candidate.id === id) && Number.isInteger(candidate.version)

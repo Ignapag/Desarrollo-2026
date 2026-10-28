@@ -1,3 +1,5 @@
+// Aviso de atención pendiente de WhatsApp: comprobantes de pago por verificar y
+// clientes que pidieron hablar con un empleado, con enlace a la bandeja de pedidos.
 import { useEffect, useRef, useState } from 'react';
 import { apiFetch } from '../shared/api/http';
 import { Link } from 'react-router-dom';
@@ -6,8 +8,13 @@ import { can } from '../auth/permissions';
 import { useAuth } from '../auth/AuthContext';
 import { useNotifications } from '../notifications/notificationHooks';
 
+// Estilo de los enlaces de acción del aviso.
 const linkClass = 'min-h-11 inline-flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold text-monu-green hover:bg-monu-green/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-monu-green';
 
+/**
+ * Aviso de WhatsApp. Usa el centro de notificaciones si está disponible; si no
+ * (p. ej. en el panel de reparto) consulta por su cuenta el resumen de avisos.
+ */
 export default function WhatsAppAttentionNotice() {
   const { user } = useAuth();
   const feed = useNotifications();
@@ -16,6 +23,7 @@ export default function WhatsAppAttentionNotice() {
   const fallbackEnabled = !feed && can(user, 'whatsapp.ver');
   const [summary, setSummary] = useState(null);
   const retry = useRef(null);
+  // Sondeo propio de /api/whatsapp/avisos cada 8 s (y al volver a la pestaña) cuando no hay centro de notificaciones.
   useEffect(() => {
     if (!fallbackEnabled) return undefined;
     let active = true;
@@ -43,6 +51,7 @@ export default function WhatsAppAttentionNotice() {
       window.removeEventListener('focus', update); document.removeEventListener('visibilitychange', update);
     };
   }, [fallbackEnabled, user]);
+  // Cantidades a mostrar, tomadas del centro de notificaciones o del sondeo propio.
   const current = fallbackEnabled && summary?.owner === user ? summary : null;
   if (!can(user, 'whatsapp.ver')) return null;
   const pending = feed?.items.filter((item) => item.pending) || [];
@@ -52,17 +61,20 @@ export default function WhatsAppAttentionNotice() {
   if (!receipts && !attention && !error) return null;
   return <section aria-label="Atención pendiente de WhatsApp" className="mb-5 space-y-2">
     <div className="grid gap-3 lg:grid-cols-2">
+      {/* Comprobantes por verificar */}
       {receipts > 0 && <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-monu-dark">
         <FileCheck2 aria-hidden="true" className="h-5 w-5 shrink-0 text-amber-800" />
         <div className="min-w-0 flex-1"><p className="font-extrabold">Comprobante por verificar</p><p className="text-sm">{receipts === 1 ? 'Hay un comprobante pendiente de revisión.' : 'Hay ' + receipts + ' comprobantes pendientes de revisión.'}</p></div>
         {can(user, 'pedidos.ver') && <Link to="/dashboard/orders?bandeja=comprobantes" className={linkClass}>Revisar <ArrowRight aria-hidden="true" className="h-4 w-4" /></Link>}
       </div>}
+      {/* Solicitudes de atención de un empleado */}
       {attention > 0 && <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-monu-green/25 bg-monu-bone px-4 py-3 text-monu-dark">
         <Headset aria-hidden="true" className="h-5 w-5 shrink-0 text-monu-green" />
         <div className="min-w-0 flex-1"><p className="font-extrabold">Se necesita un empleado</p><p className="text-sm">{attention === 1 ? 'Hay una solicitud de atención pendiente.' : 'Hay ' + attention + ' solicitudes de atención pendientes.'}</p></div>
         {can(user, 'pedidos.ver') && <Link to="/dashboard/orders?bandeja=atenciones" className={linkClass}>Atender <ArrowRight aria-hidden="true" className="h-4 w-4" /></Link>}
       </div>}
     </div>
+    {/* Error de actualización con reintento */}
     {error && <div role="status" className="flex flex-wrap items-center gap-2 text-sm text-monu-dark"><p>No se pudieron actualizar los avisos.{(feed ? feed.whatsappAvailable : current?.data) ? ' Se conserva la última consulta; puede estar desactualizada.' : ''}</p><button type="button" onClick={() => { if (feed) void feed.refresh(); else void retry.current?.(); }} className={linkClass}>Reintentar</button></div>}
   </section>;
 }

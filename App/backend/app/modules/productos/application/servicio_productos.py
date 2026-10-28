@@ -15,6 +15,10 @@ from app.modules.stock.application.servicio_stock import INGREDIENTES_QUITABLES
 
 
 def _con_personalizaciones(fila: dict) -> dict:
+    """Agrega al producto los ingredientes de su receta que el cliente puede quitar.
+
+    Reemplaza la lista interna ``ingredientes_receta`` por ``ingredientes_quitables``.
+    """
     producto = dict(fila)
     receta = producto.pop("ingredientes_receta", [])
     producto["ingredientes_quitables"] = [
@@ -24,6 +28,8 @@ def _con_personalizaciones(fila: dict) -> dict:
 
 
 class RepositorioProductos(Protocol):
+    """Puerto de persistencia del catálogo que implementa el repositorio SQL."""
+
     async def listar(self, *, solo_activos: bool) -> list[dict]: ...
     async def categoria_existe(self, categoria_id: int) -> bool: ...
     async def nombre_existe(self, categoria_id: int, nombre: str) -> bool: ...
@@ -35,14 +41,23 @@ class RepositorioProductos(Protocol):
 
 
 class ServicioProductos:
+    """Casos de uso del catálogo: listado, alta, activación y edición de recetas."""
+
     def __init__(self, repo: RepositorioProductos) -> None:
+        """Recibe el repositorio del catálogo."""
         self.repo = repo
 
     async def listar(self, *, solo_activos: bool = True) -> list[dict]:
+        """Lista productos (solo activos por defecto) con sus ingredientes quitables."""
         filas = await self.repo.listar(solo_activos=solo_activos)
         return [_con_personalizaciones(p) for p in filas]
 
     async def crear(self, datos: DatosProducto) -> dict:
+        """Valida y crea un producto con su receta y variantes.
+
+        Exige categoría activa, nombre único dentro de la categoría e ingredientes existentes y
+        activos.
+        """
         try:
             datos = validar_producto(datos)
         except ValueError as exc:
@@ -58,22 +73,30 @@ class ServicioProductos:
         return _con_personalizaciones(await self.repo.crear(datos))
 
     async def cambiar_estado(self, producto_id: int, *, activo: bool) -> dict:
+        """Activa o desactiva un producto del catálogo."""
         fila = await self.repo.cambiar_estado(producto_id, activo)
         if fila is None:
             raise NoEncontrado("El producto no existe")
         return _con_personalizaciones(fila)
 
     async def obtener_receta(self, producto_id: int) -> dict:
+        """Devuelve la receta base y por variante de un producto."""
         fila = await self.repo.obtener_receta(producto_id)
         if fila is None:
             raise NoEncontrado("El producto no existe")
         return fila
 
     async def actualizar_receta(self, producto_id: int, datos: CambioReceta) -> dict:
+        """Reemplaza la receta de un producto con control de concurrencia optimista.
+
+        Falla si la receta cambió desde que se leyó (``actualizado_en``) o si se alteran las
+        variantes existentes o su orden.
+        """
         try:
             validar_recetas_variantes(datos.ingredientes, datos.variantes)
         except ValueError as exc:
             raise DatosInvalidos(str(exc)) from exc
+        # Bloquea el producto para que dos ediciones simultáneas de la receta no se pisen.
         actual = await self.repo.obtener_receta(producto_id, bloquear=True)
         if actual is None:
             raise NoEncontrado("El producto no existe")

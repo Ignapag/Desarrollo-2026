@@ -21,12 +21,18 @@ UoW = Annotated[UnidadDeTrabajo, Depends(obtener_uow)]
 
 
 def ip_cliente(request: Request) -> str | None:
+    """Obtiene la IP real del cliente para auditoría.
+
+    Prioriza el primer valor de ``X-Forwarded-For`` (detrás de un proxy) y si no, usa la IP de la
+    conexión. Devuelve ``None`` si el valor no es una IP válida.
+    """
     reenviado = request.headers.get("x-forwarded-for")
     candidato = reenviado.split(",")[0].strip() if reenviado else None
     if candidato is None and request.client:
         candidato = request.client.host
     if not candidato:
         return None
+    # Normaliza la IP y descarta valores mal formados en el encabezado.
     try:
         return str(ip_address(candidato))
     except ValueError:

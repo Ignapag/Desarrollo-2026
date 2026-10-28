@@ -25,6 +25,7 @@ from app.modules.notificaciones.presentation.esquemas import (
 from app.modules.usuarios.domain.entidades import ClaimsSesion
 from app.modules.usuarios.presentation.dependencias import requiere_permiso
 
+# Permisos del bot de WhatsApp para gestionar y consultar notificaciones.
 PermisoWhatsappGestionarNotificaciones = Annotated[
     ClaimsSesion, Depends(requiere_permiso("whatsapp", "gestionar_notificaciones"))
 ]
@@ -46,6 +47,7 @@ async def buscar_plantillas(
     evento: str | None = None,
     activa: bool | None = None,
 ) -> list[PlantillaSalida]:
+    """Lista plantillas de notificación con filtros opcionales."""
     filas = await servicio.buscar_plantillas(nombre=nombre, evento=evento, activa=activa)
     return [PlantillaSalida(**f) for f in filas]
 
@@ -56,6 +58,7 @@ async def registrar_plantilla(
     sesion: PermisoWhatsappGestionarNotificaciones,
     servicio: ServicioNotificacionesDep,
 ) -> PlantillaSalida:
+    """Registra una plantilla nueva para un evento de notificación."""
     creada = await servicio.registrar_plantilla(
         clave=datos.clave,
         nombre=datos.nombre,
@@ -73,6 +76,7 @@ async def modificar_plantilla(
     sesion: PermisoWhatsappGestionarNotificaciones,
     servicio: ServicioNotificacionesDep,
 ) -> PlantillaSalida:
+    """Modifica nombre, cuerpo y estado de una plantilla."""
     actualizada = await servicio.modificar_plantilla(
         plantilla_id,
         nombre=datos.nombre,
@@ -89,6 +93,7 @@ async def desactivar_plantilla(
     sesion: PermisoWhatsappGestionarNotificaciones,
     servicio: ServicioNotificacionesDep,
 ) -> PlantillaSalida:
+    """Desactiva una plantilla para que deje de usarse en nuevos avisos."""
     desactivada = await servicio.desactivar_plantilla(plantilla_id, ejecutor_id=sesion.usuario_id)
     return PlantillaSalida(**desactivada)
 
@@ -103,6 +108,7 @@ async def listar_notificaciones(
     pedido_id: int | None = None,
     estado: str | None = None,
 ) -> list[NotificacionSalida]:
+    """Lista las notificaciones encoladas, filtrando por pedido y estado."""
     notificaciones = await servicio.listar(pedido_id=pedido_id, estado=estado)
     return [NotificacionSalida(**n) for n in notificaciones]
 

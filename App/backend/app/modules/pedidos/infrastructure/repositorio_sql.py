@@ -8,10 +8,14 @@ from app.modules.pedidos.domain.entidades import EstadoPedido
 
 
 class RepositorioPedidosSQL:
+    """Acceso SQL a pedidos, sus ítems, direcciones, historial y datos de cobro."""
+
     def __init__(self, uow: UnidadDeTrabajo) -> None:
+        """Recibe la unidad de trabajo cuya transacción comparten las consultas."""
         self.uow = uow
 
     async def cliente_valido(self, cliente_id: int) -> bool:
+        """Indica si el cliente existe, está activo y, si tiene cuenta, esta también."""
         return bool(
             await self.uow.valor(
                 """
@@ -27,6 +31,7 @@ class RepositorioPedidosSQL:
         )
 
     async def cliente_para_usuario(self, usuario_id: int) -> int | None:
+        """Devuelve el cliente activo vinculado a una cuenta de usuario activa."""
         return await self.uow.valor(
             """
             SELECT c.id FROM cliente c JOIN usuario u ON u.id = c.usuario_id
@@ -36,6 +41,7 @@ class RepositorioPedidosSQL:
         )
 
     async def direccion_valida(self, cliente_id: int, direccion_id: int) -> bool:
+        """Indica si la dirección es del cliente, está activa y su zona tiene cobertura."""
         return bool(
             await self.uow.valor(
                 """
@@ -49,6 +55,10 @@ class RepositorioPedidosSQL:
         )
 
     async def crear_direccion(self, cliente_id: int, datos: dict) -> int | None:
+        """Crea una dirección del cliente si la localidad es una zona activa.
+
+        Devuelve el id creado, o ``None`` si la localidad no tiene cobertura.
+        """
         zona_id = await self.uow.valor(
             "SELECT id FROM zona_cobertura WHERE lower(nombre) = lower(%s) AND activa",
             (datos["localidad"],),
@@ -74,6 +84,10 @@ class RepositorioPedidosSQL:
         return fila["id"]
 
     async def productos(self, ids: list[int]) -> list[dict]:
+        """Devuelve los productos pedidos con su disponibilidad y la de cada variante.
+
+        Toma un lock compartido (FOR SHARE) para que el catálogo no cambie durante la compra.
+        """
         return await self.uow.todos(
             """
             SELECT p.id, p.nombre, p.precio_base, p.activo,
@@ -101,6 +115,10 @@ class RepositorioPedidosSQL:
         canal: str = "WEB",
         metodo_pago_acordado: str = "EFECTIVO",
     ) -> dict:
+        """Inserta el pedido PENDIENTE con sus ítems y su primer evento de historial.
+
+        Cada ítem guarda una copia (snapshot) de la receta vigente para descontar stock luego.
+        """
         subtotal = sum(
             (Decimal(str(item["precio_unitario"])) * item["cantidad"] for item in items),
             Decimal("0"),
@@ -129,6 +147,7 @@ class RepositorioPedidosSQL:
             ),
         )
         pedido_id = fila["id"]
+        # Inserta cada línea congelando precio, nombre y receta del momento de la compra.
         for item in items:
             item_subtotal = Decimal(str(item["precio_unitario"])) * item["cantidad"]
             receta = await self.uow.todos(
@@ -170,9 +189,11 @@ class RepositorioPedidosSQL:
         return await self.detalle(pedido_id)
 
     async def items_edicion(self, pedido_id: int) -> list[dict]:
+        """Devuelve las líneas actuales del pedido para editarlas."""
         return await self._items(pedido_id)
 
     async def receta_edicion(self, producto_id: int, variante: str | None) -> list[dict]:
+        """Devuelve la receta vigente de un producto y variante, con cantidades como texto."""
         filas = await self.uow.todos(
             "SELECT ingrediente_id,cantidad_requerida,es_base FROM receta_producto(%s,%s) "
             "ORDER BY ingrediente_id", (producto_id, variante),
@@ -180,6 +201,7 @@ class RepositorioPedidosSQL:
         return [{**fila, "cantidad_requerida": str(fila["cantidad_requerida"])} for fila in filas]
 
     async def nombres_ingredientes(self, ids: list[int]) -> dict[int, str]:
+        """Devuelve el nombre de cada ingrediente indicado, por id."""
         filas = await self.uow.todos("SELECT id,nombre FROM ingrediente WHERE id=ANY(%s)", (ids,))
         return {fila["id"]: fila["nombre"] for fila in filas}
 
@@ -187,6 +209,10 @@ class RepositorioPedidosSQL:
         self, pedido_id: int, items: list[dict], subtotal: Decimal, total: Decimal,
         *, usuario_id: int | None, origen: str, anteriores: list[dict],
     ) -> dict:
+        """Guarda una nueva composición de ítems, sube la versión y registra el historial.
+
+        Si la composición no cambió, no escribe nada y devuelve el detalle actual.
+        """
         if items == anteriores:
             return await self.detalle(pedido_id)
         await self._guardar_composicion(pedido_id, items)
@@ -204,11 +230,13 @@ class RepositorioPedidosSQL:
         return await self.detalle(pedido_id)
 
     async def _guardar_composicion(self, pedido_id: int, items: list[dict]) -> None:
+        """Sincroniza las líneas del pedido: borra, actualiza o inserta según corresponda."""
         conservados = [item["id"] for item in items if item.get("id") is not None]
         await self.uow.ejecutar(
             "DELETE FROM pedido_item WHERE pedido_id=%s AND NOT (id=ANY(%s::bigint[]))",
             (pedido_id, conservados),
         )
+        # Las líneas existentes solo cambian cantidad y aclaraciones; las nuevas se insertan.
         for item in items:
             if item.get("id") is not None:
                 await self.uow.ejecutar(
@@ -233,8 +261,13 @@ class RepositorioPedidosSQL:
         self, pedido_id: int, nuevos: dict, *, usuario_id: int | None,
         origen: str, anterior: dict, anteriores: list[dict],
     ) -> dict:
+        """Guarda una edición completa (operación e ítems) con versión e historial.
+
+        También sincroniza el borrador de WhatsApp asociado al pedido, si existe.
+        """
         campos = ("tipo_entrega", "direccion_id", "metodo_pago_acordado", "observaciones",
                   "subtotal", "costo_envio", "total")
+        # Solo se registran en el historial los campos que realmente cambiaron.
         cambios = {
             campo: {"anterior": anterior.get(campo), "nuevo": nuevos.get(campo)}
             for campo in campos if anterior.get(campo) != nuevos.get(campo)
@@ -256,6 +289,7 @@ class RepositorioPedidosSQL:
             "FROM pedido WHERE id=%s",
             (usuario_id, origen, json.dumps(cambios, default=str), pedido_id),
         )
+        # Mantiene alineado el borrador del chat con la modalidad, el pago y la dirección.
         await self.uow.ejecutar(
             "UPDATE whatsapp_borrador SET tipo_entrega=%s,metodo_pago=%s,"
             "direccion=(SELECT to_jsonb(d) FROM direccion d WHERE d.id=%s),version=version+1 "
@@ -266,6 +300,7 @@ class RepositorioPedidosSQL:
         return await self.detalle(pedido_id)
 
     async def costo_direccion(self, direccion_id: int) -> Decimal | None:
+        """Devuelve el costo de envío de la zona de una dirección activa."""
         return await self.uow.valor(
             "SELECT z.costo_envio FROM direccion d JOIN zona_cobertura z ON z.id=d.zona_id "
             "WHERE d.id=%s AND d.activa AND z.activa FOR SHARE OF z,d",
@@ -273,6 +308,7 @@ class RepositorioPedidosSQL:
         )
 
     async def costo_localidad(self, localidad: str) -> Decimal | None:
+        """Devuelve el costo de envío de una localidad con cobertura activa."""
         return await self.uow.valor(
             "SELECT costo_envio FROM zona_cobertura "
             "WHERE lower(nombre)=lower(%s) AND activa FOR SHARE",
@@ -280,6 +316,7 @@ class RepositorioPedidosSQL:
         )
 
     async def neto_cobrado(self, pedido_id: int) -> Decimal:
+        """Devuelve lo cobrado neto del pedido: cobros conciliados menos devoluciones."""
         return await self.uow.valor(
             "SELECT COALESCE(sum(CASE WHEN tipo='COBRO' THEN monto ELSE -monto END),0) "
             "FROM pago WHERE pedido_id=%s AND estado='CONCILIADO'",
@@ -296,6 +333,7 @@ class RepositorioPedidosSQL:
         origen: str,
         anterior: dict,
     ) -> dict:
+        """Persiste el cambio operativo del pedido, su historial y el borrador de chat."""
         campos = (
             "tipo_entrega",
             "direccion_id",
@@ -344,6 +382,12 @@ class RepositorioPedidosSQL:
         estado: str | None = None,
         activos: bool | None = None,
     ) -> list[dict]:
+        """Lista pedidos con sus relaciones, aplicando filtros opcionales.
+
+        Filtra por cliente, estado, activos, texto libre y, para repartidores, solo los pedidos de
+        sus viajes abiertos.
+        """
+        # Cada filtro es opcional: un parámetro NULL desactiva su condición.
         pedidos = await self.uow.todos(
             """
             SELECT p.id, p.numero, p.cliente_id,
@@ -385,6 +429,7 @@ class RepositorioPedidosSQL:
         return pedidos
 
     async def detalle(self, pedido_id: int) -> dict:
+        """Devuelve el pedido completo con sus relaciones, o ``None`` si no existe."""
         pedido = await self.uow.uno(
             """
             SELECT p.id, p.numero, p.cliente_id,
@@ -412,6 +457,7 @@ class RepositorioPedidosSQL:
             return
         por_id = {pedido["id"]: pedido for pedido in pedidos}
         ids = list(por_id)
+        # Inicializa las colecciones y luego reparte cada consulta en bloque por pedido.
         for pedido in pedidos:
             pedido.update(items=[], historial=[], pagos=[], direccion=None, envio=None)
         items = await self.uow.todos(
@@ -448,6 +494,7 @@ class RepositorioPedidosSQL:
         )
         for pago in pagos:
             por_id[pago["pedido_id"]]["pagos"].append(pago)
+        # Calcula lo cobrado neto y el saldo pendiente de cada pedido.
         for pedido in pedidos:
             pedido["neto_cobrado"] = sum(
                 (
@@ -460,6 +507,7 @@ class RepositorioPedidosSQL:
             pedido["saldo_pendiente"] = max(Decimal("0"), pedido["total"] - pedido["neto_cobrado"])
 
     async def _items(self, pedido_id: int) -> list[dict]:
+        """Devuelve las líneas del pedido con su receta congelada."""
         return await self.uow.todos(
             """
             SELECT id, producto_id, nombre_producto, cantidad, precio_unitario,
@@ -470,6 +518,11 @@ class RepositorioPedidosSQL:
         )
 
     async def obtener(self, pedido_id: int, *, bloquear: bool = False) -> dict | None:
+        """Devuelve la fila del pedido; con ``bloquear`` la bloquea y agrega indicadores.
+
+        Los indicadores (puede preparar, asignado, salida y entrega reales) se calculan después del
+        lock para leer el estado vigente de pagos y envíos.
+        """
         if bloquear:
             # READ COMMITTED fija el snapshot al comenzar cada sentencia. Si
             # esperamos aqui, el siguiente SELECT ve los pagos/envios que el
@@ -506,6 +559,7 @@ class RepositorioPedidosSQL:
         return await self.uow.uno("SELECT * FROM pedido WHERE id = %s", (pedido_id,))
 
     async def items_para_stock(self, pedido_id: int) -> list[dict]:
+        """Devuelve las líneas con los datos que necesita Stock para consumir insumos."""
         return await self.uow.todos(
             "SELECT producto_id, cantidad, aclaraciones, variante, receta_snapshot "
             "FROM pedido_item "
@@ -523,7 +577,9 @@ class RepositorioPedidosSQL:
         origen: str = "PANEL",
         tratamiento_stock: str | None = None,
     ) -> dict:
+        """Actualiza el estado y sus marcas de tiempo, y registra el historial."""
         anterior = await self.uow.valor("SELECT estado FROM pedido WHERE id = %s", (pedido_id,))
+        # Cada estado fija su marca de tiempo; la cancelación guarda además el motivo.
         await self.uow.ejecutar(
             """UPDATE pedido SET estado=%s,version=version+1,
                 confirmado_en=CASE WHEN %s IN ('CONFIRMADO','EN_PREPARACION')

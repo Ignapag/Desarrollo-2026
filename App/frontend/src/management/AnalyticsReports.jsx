@@ -1,13 +1,17 @@
+// Contenido de los reportes: métricas de unidades y cobros, gráfico de unidades por día,
+// ranking de productos y, con permisos financieros, importes por producto y rentabilidad.
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { unidadesPorDia } from './datosPanel';
 import { fecha, tarjeta } from './analyticsModel';
 
+// Formateadores de cantidades, dinero y porcentajes en formato argentino.
 const cantidad = new Intl.NumberFormat('es-AR');
 const moneda = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' });
 const porcentaje = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 2 });
 const pesos = (valor) => moneda.format(Number(valor));
 const celda = 'py-3 px-2 align-top border-b border-monu-green/10';
 
+/** Tabla accesible y desplazable horizontalmente; la primera columna es el encabezado de fila. */
 function Tabla({ titulo, columnas, filas }) {
   return <div role="region" aria-label={titulo} tabIndex={0} className="overflow-x-auto rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-monu-green">
     <table className="w-full text-left text-sm">
@@ -18,11 +22,16 @@ function Tabla({ titulo, columnas, filas }) {
   </div>;
 }
 
+/**
+ * Reportes del período. `datos` trae resumen, ventas y rentabilidad; `financieros`
+ * habilita las secciones con importes.
+ */
 export function AnalyticsReports({ datos: { resumen, ventas, rentabilidad }, financieros }) {
   // Los días sin filas no se interpolan: el gráfico describe solo días con ventas.
   const dias = [...new Set(ventas.map((venta) => venta.periodo))].sort().map((dia) => ({ fecha: dia, nombre: fecha(dia) }));
   const serie = unidadesPorDia(dias, ventas);
   const unidades = serie.reduce((total, dia) => total + dia.unidades, 0);
+  // Pedidos por producto (sumados por día) para la columna opcional del ranking.
   const pedidosProducto = new Map();
   for (const venta of ventas) {
     if (venta.cantidad_pedidos != null) pedidosProducto.set(venta.producto_id, (pedidosProducto.get(venta.producto_id) || 0) + venta.cantidad_pedidos);
@@ -31,6 +40,7 @@ export function AnalyticsReports({ datos: { resumen, ventas, rentabilidad }, fin
   const hayPedidos = !financieros && ventas.length > 0 && ventas.every((venta) => venta.cantidad_pedidos != null);
   return <div className="space-y-6 text-monu-text">
     <p className="text-sm text-monu-text/80">Ventas: pedidos confirmados, sin cancelados, según su fecha de confirmación. Las unidades suman las cantidades de sus productos.</p>
+    {/* Métricas principales: unidades vendidas y cobros netos */}
     <div className="grid gap-4 sm:grid-cols-2">
       <article className={tarjeta}><h2 className="text-sm font-bold text-monu-dark">Unidades vendidas</h2><p className="mt-2 text-3xl font-extrabold text-monu-dark tabular-nums">{cantidad.format(unidades)}</p><p className="mt-2 text-sm text-monu-text/80">En el período consultado.</p></article>
       {financieros && resumen.ingreso_neto_confirmado != null && <article className={tarjeta}>
@@ -40,6 +50,7 @@ export function AnalyticsReports({ datos: { resumen, ventas, rentabilidad }, fin
       </article>}
     </div>
     {!ventas.length && <p role="status" className={tarjeta}>No hay ventas confirmadas en este período. Podés consultar otras fechas.</p>}
+    {/* Gráfico de unidades por día y ranking de productos */}
     <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
       <section className={tarjeta} aria-labelledby="ventas-titulo">
         <h2 id="ventas-titulo" className="font-bold text-lg text-monu-dark">Ventas en el tiempo · Unidades</h2>
@@ -70,6 +81,7 @@ export function AnalyticsReports({ datos: { resumen, ventas, rentabilidad }, fin
         </> : <p className="mt-4 text-monu-text/80">Sin productos vendidos en este período.</p>}
       </section>
     </div>
+    {/* Secciones financieras: importes por producto y día y rentabilidad estimada */}
     {financieros && <>
       <section className={tarjeta} aria-labelledby="importes-titulo">
         <h2 id="importes-titulo" className="font-bold text-lg text-monu-dark">Importes de ventas por producto y día</h2>

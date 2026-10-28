@@ -4,6 +4,8 @@ from enum import StrEnum
 
 
 class EstadoPedido(StrEnum):
+    """Estados del ciclo de vida de un pedido, desde su captura hasta la entrega o cancelación."""
+
     PENDIENTE = "PENDIENTE"
     CONFIRMADO = "CONFIRMADO"
     EN_PREPARACION = "EN_PREPARACION"
@@ -13,6 +15,7 @@ class EstadoPedido(StrEnum):
     CANCELADO = "CANCELADO"
 
 
+# Transiciones normales permitidas; las correcciones y recuperaciones se validan aparte.
 TRANSICIONES: dict[EstadoPedido, frozenset[EstadoPedido]] = {
     EstadoPedido.PENDIENTE: frozenset(
         {EstadoPedido.CONFIRMADO, EstadoPedido.EN_PREPARACION, EstadoPedido.CANCELADO}
@@ -29,4 +32,5 @@ TRANSICIONES: dict[EstadoPedido, frozenset[EstadoPedido]] = {
 
 
 def puede_transicionar(actual: EstadoPedido, nuevo: EstadoPedido) -> bool:
+    """Indica si el pedido puede pasar de ``actual`` a ``nuevo`` en el flujo normal."""
     return nuevo in TRANSICIONES[actual]

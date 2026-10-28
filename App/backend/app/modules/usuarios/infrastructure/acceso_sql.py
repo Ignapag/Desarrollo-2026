@@ -5,21 +5,27 @@ from app.core.db import UnidadDeTrabajo
 
 
 class RepositorioAccesoSQL:
+    """Acceso SQL a la matriz de permisos por rol y a la identidad de los usuarios."""
+
     def __init__(self, uow: UnidadDeTrabajo):
+        """Recibe la unidad de trabajo cuya transacción comparten las consultas."""
         self.uow = uow
 
     async def identidad(self, usuario_id: int) -> dict | None:
+        """Devuelve id, rol, username y estado del usuario, o ``None``."""
         return await self.uow.uno(
             "SELECT id, rol, username, estado FROM usuario WHERE id=%s", (usuario_id,),
         )
 
     async def permisos(self, rol: str) -> list[str]:
+        """Devuelve los permisos concedidos a un rol, ordenados."""
         filas = await self.uow.todos(
             "SELECT permiso FROM rol_permiso WHERE rol=%s ORDER BY permiso", (rol,),
         )
         return [fila["permiso"] for fila in filas]
 
     async def roles(self) -> list[dict]:
+        """Devuelve cada rol con su versión y la lista de permisos concedidos."""
         return await self.uow.todos(
             """SELECT r.rol, r.version,
                       COALESCE(array_agg(p.permiso ORDER BY p.permiso)
@@ -29,12 +35,18 @@ class RepositorioAccesoSQL:
         )
 
     async def guardar(self, rol, permisos, version, ejecutor_id):
+        """Reemplaza los permisos del rol si la versión coincide, y lo audita.
+
+        Devuelve ``None`` si otro administrador cambió el rol mientras tanto.
+        """
+        # Bloquea el rol y verifica la versión (concurrencia optimista).
         anterior = await self.uow.uno(
             "SELECT version FROM rol_acceso WHERE rol=%s FOR UPDATE", (rol,),
         )
         if anterior is None or anterior["version"] != version:
             return None
         previos = await self.permisos(rol)
+        # Reemplazo completo de las concesiones y aumento de versión.
         await self.uow.ejecutar("DELETE FROM rol_permiso WHERE rol=%s", (rol,))
         for permiso in permisos:
             await self.uow.ejecutar(

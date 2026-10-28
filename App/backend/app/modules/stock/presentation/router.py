@@ -20,6 +20,7 @@ from app.modules.stock.presentation.esquemas import (
 from app.modules.usuarios.domain.entidades import ClaimsSesion
 from app.modules.usuarios.presentation.dependencias import requiere_permiso
 
+# Permisos de stock: ver inventario, gestionar ingredientes y reponer.
 PermisoStockVer = Annotated[ClaimsSesion, Depends(requiere_permiso("stock", "ver"))]
 PermisoStockGestionar = Annotated[ClaimsSesion, Depends(requiere_permiso("stock", "gestionar"))]
 PermisoStockReponer = Annotated[ClaimsSesion, Depends(requiere_permiso("stock", "reponer"))]
@@ -36,6 +37,7 @@ async def listar_ingredientes(
     activo: bool | None = None,
     nivel: str | None = None,
 ) -> list[IngredienteSalida]:
+    """Lista ingredientes filtrando por nombre, responsable, estado y nivel."""
     filas = await servicio.listar(
         nombre=nombre, responsable_id=responsable_id, activo=activo, nivel=nivel
     )
@@ -46,6 +48,7 @@ async def listar_ingredientes(
 async def crear_ingrediente(
     datos: IngredienteCrear, _sesion: PermisoStockGestionar, servicio: ServicioStockDep
 ) -> IngredienteSalida:
+    """Registra un ingrediente nuevo en el inventario."""
     fila = await servicio.registrar(DatosIngrediente(**datos.model_dump()))
     return IngredienteSalida(**fila)
 
@@ -57,6 +60,7 @@ async def modificar_ingrediente(
     _sesion: PermisoStockGestionar,
     servicio: ServicioStockDep,
 ) -> IngredienteSalida:
+    """Modifica los datos enviados de un ingrediente."""
     fila = await servicio.modificar(ingrediente_id, datos.model_dump(exclude_unset=True))
     return IngredienteSalida(**fila)
 
@@ -68,6 +72,7 @@ async def reponer_ingrediente(
     sesion: PermisoStockReponer,
     servicio: ServicioStockDep,
 ) -> ReposicionSalida:
+    """Registra la reposición de un ingrediente y su movimiento de stock."""
     fila = await servicio.reponer(
         ingrediente_id, datos.cantidad, usuario_id=sesion.usuario_id, origen=datos.origen
     )
@@ -83,6 +88,7 @@ async def historial_stock(
     hasta: date | None = None,
     tipo: str | None = None,
 ) -> list[MovimientoSalida]:
+    """Consulta el historial de movimientos de stock con filtros."""
     filas = await servicio.historial(
         ingrediente_id=ingrediente_id, desde=desde, hasta=hasta, tipo=tipo
     )

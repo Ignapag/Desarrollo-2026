@@ -1,3 +1,5 @@
+// Hook de datos de la pantalla de Reportes: consulta resumen, ventas por día y (con
+// permiso financiero) rentabilidad del período, y descarta respuestas de otra consulta o sesión.
 import { useEffect, useState } from 'react';
 import { can } from '../auth/permissions';
 import { apiFetch } from '../shared/api/http';

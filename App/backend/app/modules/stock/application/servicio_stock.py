@@ -23,6 +23,8 @@ from app.modules.stock.domain.entidades import (
 
 
 class RepositorioStock(Protocol):
+    """Puerto de persistencia de stock que implementa el repositorio SQL."""
+
     async def reservas_antes_preparacion(self, pedido_id: int) -> list[dict] | None: ...
     async def bloquear_pedido(self, pedido_id: int) -> bool: ...
     async def consumo_existente(self, pedido_id: int) -> bool: ...
@@ -81,15 +83,22 @@ class RepositorioStock(Protocol):
 
 
 class PedidoYaProcesado(ReglaDeNegocio):
+    """El pedido (o el ciclo indicado) ya registró su consumo de stock."""
+
     codigo = "pedido_ya_procesado"
 
 
 class StockInsuficiente(ReglaDeNegocio):
+    """No hay cantidad suficiente de algún ingrediente para la operación pedida."""
+
     codigo = "stock_insuficiente"
 
 
 class ServicioStock:
+    """Casos de uso de inventario: consumo por pedidos, ajustes, reposición e historial."""
+
     def __init__(self, repositorio: RepositorioStock) -> None:
+        """Recibe el repositorio de stock, que comparte la transacción del llamador."""
         self.repo = repositorio
 
     async def ajustar_composicion(
@@ -98,6 +107,7 @@ class ServicioStock:
         *, aplicar: bool = True,
     ) -> None:
         """Valida toda la demanda y aplica solo su diferencial en el UoW del pedido."""
+        # Solo se edita antes de cocina, sin opciones estructuradas y una vez por versión.
         if not await self.repo.bloquear_pedido(pedido_id):
             raise NoEncontrado("El pedido no existe")
         if await self.repo.reservas_antes_preparacion(pedido_id) is None:
@@ -109,6 +119,7 @@ class ServicioStock:
         motivo = f"EDICION_ITEMS:v{version}"
         if aplicar and await self.repo.ajuste_existente(pedido_id, motivo):
             raise ReglaDeNegocio("La version ya tiene un ajuste de composicion")
+        # Si el pedido todavía no consumió stock, solo se valida la nueva demanda.
         consumido = await self.repo.consumo_existente(pedido_id)
         grupos = (anteriores, nuevos)
         sin_snapshot = {
@@ -118,6 +129,7 @@ class ServicioStock:
         recetas = await self.repo.recetas(sorted(sin_snapshot)) if sin_snapshot else []
         normalizados = []
         ingrediente_ids = set()
+        # Normaliza la receta de cada ítem (congelada o vigente) y valida sus cantidades.
         for grupo in grupos:
             filas = []
             for item in grupo:
@@ -136,12 +148,14 @@ class ServicioStock:
                 ingrediente_ids.update(i for i, _ in receta)
                 filas.append((item, receta))
             normalizados.append(filas)
+        # Bloquea los ingredientes involucrados, en orden, antes de calcular saldos.
         saldos = {
             fila["id"]: fila
             for fila in await self.repo.bloquear_ingredientes(sorted(ingrediente_ids))
         }
         if set(saldos) != ingrediente_ids:
             raise ReglaDeNegocio("La receta contiene ingredientes inexistentes")
+        # Demanda de ingredientes antes y después del cambio, sin los ingredientes retirados.
         demandas = []
         for grupo in normalizados:
             demanda = {}
@@ -154,6 +168,7 @@ class ServicioStock:
                     )
             demandas.append(demanda)
         antes, despues = demandas
+        # Un aumento de demanda no puede apoyarse en un ingrediente inactivo.
         for ingrediente_id in sorted(ingrediente_ids):
             demanda_adicional = (
                 despues.get(ingrediente_id, Decimal("0"))
@@ -164,6 +179,7 @@ class ServicioStock:
                     "La modificacion requiere un ingrediente inactivo",
                     {"ingrediente_id": ingrediente_id},
                 )
+        # Diferencia a aplicar: si no hubo consumo previo, se exige la demanda completa.
         deltas = {
             i: despues.get(i, Decimal("0")) - (antes.get(i, Decimal("0")) if consumido else 0)
             for i in ingrediente_ids
@@ -180,6 +196,7 @@ class ServicioStock:
             )
             if delta < 0 and neto < -delta:
                 raise ReglaDeNegocio("La devolucion supera el consumo neto registrado")
+        # Aplica el diferencial: consume los aumentos y devuelve las reducciones.
         if not aplicar or not consumido:
             return
         for ingrediente_id, delta in sorted(deltas.items()):
@@ -208,6 +225,7 @@ class ServicioStock:
             raise DatosInvalidos("El pedido_id no es valido")
         if not items:
             raise DatosInvalidos("El pedido debe contener al menos un item")
+        # Validaciones defensivas de los ítems recibidos.
         for item in items:
             if not isinstance(item, ItemConsumoStock):
                 raise DatosInvalidos("El item de consumo no es valido")
@@ -239,6 +257,7 @@ class ServicioStock:
         if await self.repo.pedido_tiene_opciones(pedido_id):
             raise ReglaDeNegocio("El consumo con personalizaciones todavia no esta soportado")
 
+        # Resuelve la receta de cada ítem: la congelada en el pedido o la vigente del producto.
         productos_sin_snapshot = {
             item.producto_id for item in items if item.receta_snapshot is None
         }
@@ -280,6 +299,7 @@ class ServicioStock:
         if ingrediente_ids != set(saldos):
             raise ReglaDeNegocio("La receta contiene ingredientes inexistentes")
 
+        # Suma lo requerido por ingrediente y reporta todos los faltantes juntos.
         requeridos: dict[int, Decimal] = {}
         for item, receta in recetas_items:
             for ingrediente_id, cantidad in receta:
@@ -303,6 +323,7 @@ class ServicioStock:
                 "Stock insuficiente para el pedido", {"ingredientes": faltantes}
             )
 
+        # Descuenta cada ingrediente; el ciclo opcional distingue reconsumos de recuperaciones.
         movimientos = []
         for ingrediente_id, requerido in sorted(requeridos.items()):
             if clave_ciclo is None:
@@ -358,6 +379,7 @@ class ServicioStock:
             isinstance(valor, bool) or not isinstance(valor, int) or valor <= 0
             for valor in (pedido_id, item_id)
         ):
+            # Validaciones defensivas de identificadores, cantidad y clave del cambio.
             raise DatosInvalidos("El pedido, item o usuario no es valido")
         if usuario_id is not None and (
             isinstance(usuario_id, bool) or not isinstance(usuario_id, int) or usuario_id <= 0
@@ -384,12 +406,14 @@ class ServicioStock:
         }
         if usuario_id is None and cocina_iniciada:
             raise ReglaDeNegocio("Los cambios en cocina requieren aprobacion del personal")
+        # Idempotencia: la misma clave de cambio no vuelve a ajustar el stock.
         motivo = f"WHATSAPP_CANTIDAD:{clave_cambio.strip()}"
         if await self.repo.ajuste_existente(pedido_id, motivo):
             return
         delta = nueva_cantidad - item["cantidad"]
         if delta == 0 or not await self.repo.consumo_existente(pedido_id):
             return
+        # Una reducción con la cocina iniciada no devuelve insumos: ya se usaron.
         if delta < 0 and cocina_iniciada:
             return
         if await self.repo.pedido_tiene_opciones(pedido_id):
@@ -414,6 +438,7 @@ class ServicioStock:
             for fila in recetas
             if saldos[fila["ingrediente_id"]]["nombre"].casefold() not in omitidos
         }
+        # Valida todo el ajuste antes de escribir para no dejar movimientos parciales.
         for ingrediente_id, requerido in sorted(requeridos.items()):
             if delta > 0 and saldos[ingrediente_id]["cantidad_actual"] < requerido:
                 raise StockInsuficiente(
@@ -461,6 +486,7 @@ class ServicioStock:
         motivo = f"WHATSAPP_RETIRO:{item_id}:{ingrediente_id}"
         if await self.repo.devolucion_existente(pedido_id, motivo):
             return
+        # Si el retiro ya estaba en las aclaraciones, no hay nada que devolver.
         notas = {nota.strip().casefold() for nota in (item["aclaraciones"] or "").split(",")}
         if f"sin {nombre}" in notas:
             return
@@ -478,6 +504,7 @@ class ServicioStock:
         activo: bool | None = None,
         nivel: str | None = None,
     ) -> list[dict]:
+        """Lista ingredientes validando los filtros de nivel y responsable."""
         if nivel is not None and nivel not in NIVELES:
             raise DatosInvalidos("El nivel de stock no es valido")
         if responsable_id is not None and responsable_id <= 0:
@@ -487,6 +514,7 @@ class ServicioStock:
         )
 
     async def registrar(self, datos: DatosIngrediente) -> dict:
+        """Valida y registra un ingrediente nuevo con nombre único."""
         datos = self._validar(datos)
         await self._comprobar_referencias(datos)
         if await self.repo.existe_nombre(datos.nombre):
@@ -494,6 +522,10 @@ class ServicioStock:
         return await self.repo.crear(datos)
 
     async def modificar(self, ingrediente_id: int, cambios: dict) -> dict:
+        """Modifica datos descriptivos de un ingrediente; la cantidad solo cambia con movimientos.
+
+        No permite desactivar un ingrediente usado por productos activos ni duplicar nombres.
+        """
         permitidos = {
             "nombre",
             "unidad_medida",
@@ -508,6 +540,7 @@ class ServicioStock:
         actual = await self.repo.ingrediente(ingrediente_id)
         if actual is None:
             raise NoEncontrado("El ingrediente no existe")
+        # Combina el estado actual con los cambios y valida el resultado completo.
         datos = self._validar(
             replace(
                 DatosIngrediente(
@@ -544,6 +577,7 @@ class ServicioStock:
         usuario_id: int | None = None,
         origen: str = "REPOSICION_MANUAL",
     ) -> dict:
+        """Registra la reposición de un ingrediente activo, bloqueándolo durante la operación."""
         try:
             validar_reposicion(cantidad)
         except ValueError as exc:
@@ -567,6 +601,7 @@ class ServicioStock:
         hasta: date | None = None,
         tipo: str | None = None,
     ) -> list[dict]:
+        """Consulta movimientos de stock validando rango de fechas, tipo e ingrediente."""
         if desde is not None and hasta is not None and desde > hasta:
             raise DatosInvalidos("El rango de fechas no es valido")
         if tipo is not None and tipo not in TIPOS_MOVIMIENTO:
@@ -579,12 +614,14 @@ class ServicioStock:
 
     @staticmethod
     def _validar(datos: DatosIngrediente) -> DatosIngrediente:
+        """Aplica las reglas del dominio y traduce sus errores a ``DatosInvalidos``."""
         try:
             return validar_ingrediente(datos)
         except ValueError as exc:
             raise DatosInvalidos(str(exc)) from exc
 
     async def _comprobar_referencias(self, datos: DatosIngrediente) -> None:
+        """Verifica que el responsable indicado exista y esté activo."""
         if datos.responsable_id is not None and not await self.repo.responsable_valido(
             datos.responsable_id
         ):

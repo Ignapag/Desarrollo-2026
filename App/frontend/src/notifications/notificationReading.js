@@ -1,3 +1,4 @@
+// Estado de lectura de las notificaciones de un usuario, persistido en el navegador.
 import { readNotificationKeys, saveNotificationKeys } from './notificationModel.js';
 
 // Sólo claves de eventos por usuario; nunca mensajes, teléfonos ni datos de pago.

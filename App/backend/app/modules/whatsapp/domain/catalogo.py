@@ -5,6 +5,8 @@ import unicodedata
 
 
 def normalizar(texto):
+    """Normaliza texto para comparar: minúsculas, sin tildes, espacios simples y sin signos finales.
+    """
     return " ".join("".join(
         c for c in unicodedata.normalize("NFD", texto.casefold())
         if unicodedata.category(c) != "Mn"
@@ -12,6 +14,9 @@ def normalizar(texto):
 
 
 def _coincide_descripcion(producto, buscado):
+    """Indica si la descripción del producto contiene la frase buscada como palabras completas;
+    exige al menos dos palabras significativas para evitar falsos positivos.
+    """
     descripcion = producto.get("descripcion")
     if not isinstance(descripcion, str):
         return False
@@ -22,6 +27,9 @@ def _coincide_descripcion(producto, buscado):
 
 
 def coincidencias_productos(productos, referencia):
+    """Busca productos del catálogo por nombre exacto, luego parcial y por último por descripción;
+    devuelve la primera categoría con resultados.
+    """
     buscado = normalizar(str(referencia or ""))
     if not buscado:
         return []

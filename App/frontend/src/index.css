@@ -1,6 +1,9 @@
+/* Estilos globales: importa Tailwind 4, define los tokens de marca de Monu Burger
+ * y aplica estilos base de accesibilidad (cursor y foco visible). */
 @import "tailwindcss";
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@700;800&display=swap');
 
+/* Tokens de diseño (colores, tipografías, sombras y radios) disponibles como clases Tailwind. */
 @theme {
   --color-monu-green: #1C5A3F;
   --color-monu-dark: #00422A;
@@ -21,6 +24,7 @@
   --radius-3xl: 1.5rem;
 }
 
+/* Estilos base del documento: fondo, tipografía, selección y estados de interacción. */
 @layer base {
   body {
     background-color: var(--color-monu-cream);
@@ -32,13 +36,16 @@
     background-color: var(--color-monu-orange);
     color: white;
   }
+  /* Cursor de mano en todo elemento interactivo habilitado. */
   :where(button, select, summary, a[href], input[type='checkbox'], input[type='radio'], [role='button']):not(:disabled):not([aria-disabled='true']) {
     cursor: pointer;
   }
+  /* Contorno de foco visible para navegación con teclado. */
   :where(button, select, summary, a[href], [role='button']):focus-visible {
     outline: 2px solid var(--color-monu-green);
     outline-offset: 3px;
   }
+  /* Cursor de bloqueo en elementos deshabilitados. */
   :where(button, select, [role='button']):disabled,
   [aria-disabled='true'] {
     cursor: not-allowed;

@@ -1,6 +1,9 @@
+// Integración del carrito con WhatsApp: arma el cuerpo del borrador de pedido y lo
+// registra en la API, que devuelve el mensaje y el enlace para enviarlo por WhatsApp.
 import { UserFacingError } from '../shared/api/userErrors';
 import { apiFetch } from '../shared/api/http';
 
+// Normaliza un teléfono argentino al formato internacional de WhatsApp (549 + 10 dígitos); '' si es inválido.
 function normalizeWhatsAppPhone(phone) {
   if (!/^[+0-9()\s.-]+$/.test(phone)) return '';
   let number = phone.replace(/\D/g, '');
@@ -9,6 +12,7 @@ function normalizeWhatsAppPhone(phone) {
   return /^[1-9][0-9]{9}$/.test(number) ? `549${number}` : '';
 }
 
+// Convierte el carrito y los datos del checkout al cuerpo esperado por /api/whatsapp/borradores.
 export function buildWhatsAppDraftPayload({ cart, delivery, payment, address, number, zone, contact }) {
   return {
     tipo_entrega: delivery,
@@ -30,6 +34,7 @@ export function buildWhatsAppDraftPayload({ cart, delivery, payment, address, nu
   };
 }
 
+// Registra el borrador y valida que la respuesta traiga referencia, mensaje y vencimiento.
 export async function createWhatsAppDraft(payload) {
   const result = await apiFetch('/api/whatsapp/borradores', {
     method: 'POST',

@@ -19,6 +19,7 @@ def cargar_demo_publica() -> bool:
         datos = json.loads(fila[0]) if fila else {}
     except (psycopg.Error, ValueError, TypeError):
         return False
+    # El parámetro debe habilitar la demo explícitamente con un modo de Gemini conocido.
     if not isinstance(datos, dict) or datos.get("habilitado") is not True:
         return False
     modo = datos.get("gemini_modo", "real")
@@ -27,6 +28,7 @@ def cargar_demo_publica() -> bool:
     origenes = datos.get("origenes", [])
     if not isinstance(origenes, list) or len(origenes) > 10:
         return False
+    # Cada origen debe ser un https exacto, sin credenciales ni comodines.
     for origen in origenes:
         if not isinstance(origen, str):
             return False
@@ -44,6 +46,7 @@ def cargar_demo_publica() -> bool:
             or origen != "https://" + url.netloc
         ):
             return False
+    # Perfil válido: se aplica sobre la configuración en memoria.
     settings.chat_demo_habilitado = True
     settings.chat_demo_bd_compartida_autorizada = True
     settings.chat_demo_gemini_modo = modo

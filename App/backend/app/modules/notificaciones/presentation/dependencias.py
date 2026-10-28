@@ -11,6 +11,7 @@ from app.modules.notificaciones.infrastructure.repositorio_sql import Repositori
 
 
 def obtener_servicio_notificaciones(uow: UoW) -> ServicioNotificaciones:
+    """Arma el servicio de notificaciones con el enviador simulado de desarrollo."""
     return ServicioNotificaciones(uow, RepositorioNotificacionesSQL(uow), EnviadorSimulado())
 
 

@@ -16,6 +16,8 @@ from app.modules.delivery.domain.entidades import AsignacionPropuesta
 
 
 class PedidoEnGrupo(BaseModel):
+    """Pedido incluido en una propuesta de viaje, con su zona y coordenadas."""
+
     pedido_id: int
     numero: int
     zona_nombre: str | None
@@ -35,6 +37,7 @@ class PropuestaAsignacion(BaseModel):
 
     @classmethod
     def desde_dominio(cls, propuesta: AsignacionPropuesta) -> PropuestaAsignacion:
+        """Convierte la propuesta del dominio en la respuesta HTTP."""
         return cls(
             pedidos=[
                 PedidoEnGrupo(
@@ -55,6 +58,8 @@ class PropuestaAsignacion(BaseModel):
 
 
 class ViajeCreadoSalida(BaseModel):
+    """Viaje persistido por la planificación: repartidor, pedidos y distancia."""
+
     viaje_id: int
     repartidor_id: int
     repartidor_nombre: str
@@ -63,6 +68,8 @@ class ViajeCreadoSalida(BaseModel):
 
 
 class ResultadoPlanificacionSalida(BaseModel):
+    """Resumen de una corrida de planificación: viajes creados y pedidos sin asignar."""
+
     viajes: list[ViajeCreadoSalida]
     sin_asignar: list[int]
     pedidos_evaluados: int
@@ -70,7 +77,9 @@ class ResultadoPlanificacionSalida(BaseModel):
 
     @classmethod
     def desde_dominio(cls, resultado: ResultadoPlanificacion) -> ResultadoPlanificacionSalida:
+        """Convierte el resultado del caso de uso en la respuesta HTTP."""
         def salida(v: ViajeCreado) -> ViajeCreadoSalida:
+            """Traduce un ``ViajeCreado`` del dominio a su esquema de salida."""
             return ViajeCreadoSalida(
                 viaje_id=v.viaje_id,
                 repartidor_id=v.repartidor_id,
@@ -88,6 +97,8 @@ class ResultadoPlanificacionSalida(BaseModel):
 
 
 class ViajeActivo(BaseModel):
+    """Viaje todavía abierto (planificado o en ruta) con la cantidad de envíos que lleva."""
+
     id: int
     estado: str
     creado_en: datetime
@@ -98,6 +109,8 @@ class ViajeActivo(BaseModel):
 
 
 class EnvioDelViaje(BaseModel):
+    """Envío de un viaje con los datos de entrega y contacto que necesita el repartidor."""
+
     id: int
     envio_id: int
     viaje_id: int
@@ -120,6 +133,8 @@ class EnvioDelViaje(BaseModel):
 
 
 class DetalleViaje(BaseModel):
+    """Viaje completo con sus tiempos, repartidor y la lista de envíos."""
+
     id: int
     estado: str
     creado_en: datetime
@@ -131,27 +146,39 @@ class DetalleViaje(BaseModel):
 
 
 class ResultadoInicioViaje(BaseModel):
+    """Respuesta al iniciar un viaje: pedidos que pasaron a "en camino"."""
+
     viaje_id: int
     pedidos_en_camino: list[int]
 
 
 class ResultadoEntrega(BaseModel):
+    """Respuesta al registrar una entrega; indica si el viaje quedó finalizado."""
+
     envio_id: int
     pedido_id: int
     viaje_finalizado: bool
 
 
 class MotivoOperacion(BaseModel):
+    """Cuerpo base de las operaciones manuales que exigen dejar un motivo auditable."""
+
     motivo: str = Field(min_length=1, max_length=1000)
 
 
 class AsignacionManual(MotivoOperacion):
+    """Asignación manual de un pedido o envío a un repartidor elegido por el personal."""
+
     repartidor_id: int = Field(gt=0)
 
 
 class RegresoEnvio(MotivoOperacion):
+    """Confirmación del regreso de un envío al local, con control de versión del pedido."""
+
     version_esperada: int = Field(ge=0)
 
 
 class CorreccionEntrega(RegresoEnvio):
+    """Corrección de una entrega ya registrada; exige confirmar el paquete en el local."""
+
     regreso_confirmado: Literal[True]

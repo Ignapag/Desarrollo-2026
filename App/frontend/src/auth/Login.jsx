@@ -1,3 +1,5 @@
+// Pantalla de inicio de sesión del personal: valida usuario y contraseña en el
+// cliente, llama a `login` del contexto de sesión y muestra los errores accesibles.
 import { useEffect, useRef, useState } from 'react';
 import { Eye, EyeOff, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
@@ -6,8 +8,10 @@ import { Link } from 'react-router-dom';
 import { portal } from '../shared/portal';
 import { userErrorMessage } from '../shared/api/userErrors';
 
+/** Formulario de ingreso con usuario/contraseña y opción de mostrar la contraseña. */
 export default function Login() {
   const { login, logout, sessionError, logoutFailed } = useAuth();
+  // Estado del formulario, del envío en curso y de los errores por campo o generales.
   const [showPassword, setShowPassword] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -17,11 +21,13 @@ export default function Login() {
   const [submitError, setSubmitError] = useState('');
   const usernameInput = useRef(null);
   const passwordInput = useRef(null);
+  // Lleva el foco al primer campo con error para que el usuario lo corrija rápido.
   useEffect(() => {
     if (errors.username) usernameInput.current?.focus();
     else if (errors.password) passwordInput.current?.focus();
   }, [errors]);
 
+  // Envía el formulario: valida campos vacíos, evita doble envío y traduce el resultado a mensajes.
   const handleSubmit = async (event) => {
     event.preventDefault();
     if (pending.current) return;
@@ -50,6 +56,7 @@ export default function Login() {
   return (
     <main className="min-h-screen bg-[#eadecd] flex items-center justify-center p-4">
       <section className="bg-white max-w-[348px] w-full rounded-3xl shadow-monu overflow-hidden" aria-labelledby="login-title">
+        {/* Encabezado con la imagen de marca */}
         <div className="w-full relative bg-[#f4e6b1]">
           <img src="/login-header-final.png" alt="Monu Burger" className="w-full h-auto object-cover" />
         </div>
@@ -60,6 +67,7 @@ export default function Login() {
             Ingresá con la cuenta asignada por Monu Burger{portal.modo === 'personal' ? ' al personal' : ''}.
           </p>
 
+          {/* Formulario: errores de sesión, campos de usuario y contraseña y botón de ingreso */}
           <form noValidate onSubmit={handleSubmit} className="space-y-4">
             {sessionError && <div role="alert" className="text-sm text-red-700"><p>{sessionError}</p>{logoutFailed && <button type="button" onClick={logout} className="min-h-11 underline">Reintentar cierre de sesión</button>}</div>}
             {submitError && <p role="alert" className="text-sm text-red-700">{submitError}</p>}
@@ -121,6 +129,7 @@ export default function Login() {
             </button>
           </form>
 
+          {/* Pie: aclaración de altas y acceso al menú público si el portal de clientes está activo */}
           <p className="mt-6 text-center text-xs text-monu-text/60">
             Las altas y recuperaciones de acceso se gestionan con un administrador.
           </p>

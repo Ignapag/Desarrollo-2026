@@ -11,6 +11,7 @@ from app.modules.stock.presentation.dependencias import obtener_servicio_stock
 
 
 def obtener_servicio_reportes(uow: UoW) -> ServicioReportes:
+    """Arma el servicio de reportes con su repositorio y el servicio de stock."""
     return ServicioReportes(RepositorioReportesSQL(uow), obtener_servicio_stock(uow))
 
 

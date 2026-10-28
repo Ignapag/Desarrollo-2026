@@ -1,15 +1,25 @@
+// Cliente HTTP único del frontend: llama a la API con la cookie de sesión, aplica un
+// tiempo máximo, traduce errores a mensajes para el usuario, marca como "inciertas" las
+// escrituras sin respuesta y avisa a la app cuando la sesión venció (401).
 import { UserFacingError, apiResponseError, CHECK_OPERATION_MESSAGE } from './userErrors';
 
+// Base de la API (vacía = mismo origen, vía proxy), revisión de sesión y oyentes de 401.
 const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 let sessionRevision = 0;
 const unauthorizedListeners = new Set();
 
+// Invalida las respuestas de peticiones iniciadas antes de un cambio de sesión.
 export function invalidateApiSession() { sessionRevision += 1; }
+// Registra un oyente que se ejecuta cuando la API responde 401 fuera de /api/auth.
 export function onUnauthorized(listener) {
   unauthorizedListeners.add(listener);
   return () => unauthorizedListeners.delete(listener);
 }
 
+/**
+ * Hace una petición JSON a la API. Opciones extra: `signal` (cancelación) y `timeoutMs`
+ * (30 s por defecto). Devuelve el cuerpo JSON (o null en 204) y lanza UserFacingError ante fallos.
+ */
 export async function apiFetch(path, options = {}) {
   const { signal, timeoutMs = 30000, ...requestOptions } = options;
   const write = !['GET', 'HEAD'].includes((options.method || 'GET').toUpperCase());
@@ -19,6 +29,7 @@ export async function apiFetch(path, options = {}) {
   if (signal?.aborted) cancel();
   else signal?.addEventListener('abort', cancel, { once: true });
   const timer = setTimeout(() => controller.abort(new UserFacingError(`Se agotó el tiempo de espera.${write ? ` ${CHECK_OPERATION_MESSAGE}` : ' Intentá nuevamente.'}`, { kind: 'timeout', uncertain: write })), timeoutMs);
+  // La petición se corta si se cancela externamente o vence el tiempo máximo.
   let abortListener;
   const aborted = new Promise((_, reject) => {
     abortListener = () => reject(controller.signal.reason);

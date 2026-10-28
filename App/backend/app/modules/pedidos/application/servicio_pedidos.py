@@ -13,6 +13,8 @@ from app.modules.pedidos.domain.entidades import EstadoPedido, puede_transiciona
 
 @dataclass(frozen=True, slots=True)
 class ItemNuevoPedido:
+    """Línea pedida al crear un pedido, antes de resolver precios y receta."""
+
     producto_id: int
     cantidad: int
     aclaraciones: str | None = None
@@ -20,6 +22,8 @@ class ItemNuevoPedido:
 
 
 class RepositorioPedidos(RepositorioEdicionItems, Protocol):
+    """Puerto de persistencia de pedidos que implementa el repositorio SQL."""
+
     async def cliente_para_usuario(self, usuario_id: int) -> int | None: ...
     async def cliente_valido(self, cliente_id: int) -> bool: ...
     async def direccion_valida(self, cliente_id: int, direccion_id: int) -> bool: ...
@@ -78,6 +82,8 @@ class RepositorioPedidos(RepositorioEdicionItems, Protocol):
 
 
 class ProcesadorStock(Protocol):
+    """Puerto hacia Stock para reservar, consumir y devolver insumos del pedido."""
+
     async def ajustar_composicion(
         self, pedido_id: int, anteriores: list[dict], nuevos: list[dict],
         version: int, usuario_id: int | None, *, aplicar: bool,
@@ -90,7 +96,10 @@ class ProcesadorStock(Protocol):
 
 
 class ServicioPedidos:
+    """Casos de uso de pedidos: creación, edición, consulta y cambios de estado."""
+
     def __init__(self, repo: RepositorioPedidos, stock: ProcesadorStock) -> None:
+        """Recibe el repositorio de pedidos y el procesador de stock."""
         self.repo = repo
         self.stock = stock
 
@@ -115,6 +124,7 @@ class ServicioPedidos:
         El llamador conserva la unidad de trabajo y debe revertirla ante cualquier
         error: stock, direccion y pedido pertenecen a la misma transaccion.
         """
+        # Validaciones defensivas: este caso de uso también lo invoca el canal de WhatsApp.
         if (isinstance(version_esperada, bool) or not isinstance(version_esperada, int)
                 or version_esperada < 0):
             raise DatosInvalidos("La version esperada es obligatoria")
@@ -126,11 +136,13 @@ class ServicioPedidos:
         pedido, anteriores, nuevos = await self._preparar_edicion(
             pedido_id, items=items, cambios=cambios, version_esperada=version_esperada,
         )
+        # El cliente confirmó un total: si cambió desde la cotización, no se aplica.
         if nuevos["total"] != total_esperado:
             raise ReglaDeNegocio("El total cambio; revise y confirme nuevamente la propuesta")
         await self.stock.ajustar_composicion(
             pedido_id, anteriores, nuevos["items"], pedido["version"], usuario_id, aplicar=True,
         )
+        # La dirección nueva se crea recién al aplicar, nunca al cotizar.
         if nuevos["direccion_nueva"] is not None:
             nuevos["direccion_id"] = await self.repo.crear_direccion(
                 pedido["cliente_id"], nuevos["direccion_nueva"],
@@ -146,6 +158,12 @@ class ServicioPedidos:
         self, pedido_id: int, *, items: list[dict], cambios: dict,
         version_esperada: int | None = None,
     ) -> tuple[dict, list[dict], dict]:
+        """Valida y calcula la edición completa de un pedido sin persistirla.
+
+        Bloquea el pedido, controla versión y estado (solo antes de cocina y sin asignar), resuelve
+        modalidad, dirección y costo de envío, y recalcula ítems y totales. Devuelve el pedido
+        actual, los ítems anteriores y la propuesta nueva.
+        """
         permitidos = {"tipo_entrega", "direccion_id", "direccion_nueva",
                       "metodo_pago_acordado", "observaciones"}
         if not isinstance(cambios, dict) or set(cambios) - permitidos:
@@ -169,6 +187,7 @@ class ServicioPedidos:
             not isinstance(observaciones, str) or len(observaciones) > 500
         ):
             raise DatosInvalidos("Las observaciones no son validas")
+        # Resuelve dirección y costo de envío según la modalidad elegida.
         if nuevos["tipo_entrega"] == "RETIRO":
             if nuevos["direccion_nueva"] is not None or cambios.get("direccion_id") is not None:
                 raise DatosInvalidos("La direccion requiere modalidad delivery")
@@ -190,6 +209,7 @@ class ServicioPedidos:
             nuevos["costo_envio"] = await self.repo.costo_direccion(direccion_id)
         if nuevos["costo_envio"] is None:
             raise DatosInvalidos("La direccion no tiene cobertura activa")
+        # Recalcula ítems y totales; el total nunca puede quedar por debajo de lo ya cobrado.
         anteriores = await self.repo.items_edicion(pedido_id)
         nuevos["items"] = await preparar_items(self.repo, anteriores, items)
         nuevos["subtotal"] = sum((item["subtotal"] for item in nuevos["items"]), Decimal("0"))
@@ -204,6 +224,7 @@ class ServicioPedidos:
 
     @staticmethod
     def _validar_direccion_edicion(datos: dict) -> dict:
+        """Valida y limpia los campos de una dirección nueva propuesta en una edición."""
         campos = {"calle", "numero", "localidad", "referencia"}
         if not isinstance(datos, dict) or set(datos) - campos:
             raise DatosInvalidos("La direccion no es valida")
@@ -219,6 +240,7 @@ class ServicioPedidos:
         return direccion
 
     async def cotizar_items(self, pedido_id: int, items: list[dict]) -> dict:
+        """Calcula la nueva composición y el total sin modificar el pedido ni el stock."""
         pedido, anteriores, nuevos, subtotal, total = await self._preparar_edicion_items(
             pedido_id, items
         )
@@ -232,6 +254,11 @@ class ServicioPedidos:
         usuario_id: int | None = None, origen: str = "WHATSAPP",
         total_esperado: Decimal | None = None,
     ) -> dict:
+        """Aplica una nueva composición de ítems, ajustando stock y totales.
+
+        Exige la versión esperada del pedido y, si se informa, que el total coincida con el
+        cotizado.
+        """
         if (isinstance(version_esperada, bool) or not isinstance(version_esperada, int)
                 or version_esperada < 0):
             raise DatosInvalidos("La version esperada es obligatoria")
@@ -258,6 +285,7 @@ class ServicioPedidos:
     async def _preparar_edicion_items(
         self, pedido_id: int, items: list[dict], *, version_esperada: int | None = None,
     ) -> tuple[dict, list[dict], list[dict], Decimal, Decimal]:
+        """Valida y calcula una nueva composición de ítems sin persistirla."""
         pedido = await self.repo.obtener(pedido_id, bloquear=True)
         if pedido is None:
             raise NoEncontrado("El pedido no existe")
@@ -278,6 +306,7 @@ class ServicioPedidos:
         return pedido, anteriores, nuevos, subtotal, total
 
     async def cliente_para_usuario(self, usuario_id: int) -> int:
+        """Devuelve el cliente vinculado a la cuenta, o falla si no tiene uno activo."""
         cliente_id = await self.repo.cliente_para_usuario(usuario_id)
         if cliente_id is None:
             raise DatosInvalidos("La cuenta no tiene un cliente activo vinculado")
@@ -295,12 +324,18 @@ class ServicioPedidos:
         canal: str = "WEB",
         metodo_pago_acordado: str = "EFECTIVO",
     ) -> dict:
+        """Valida y crea un pedido nuevo con precios y nombres congelados del catálogo.
+
+        Para delivery puede crear la dirección en el momento. Las líneas iguales (producto, variante
+        y aclaración) se agrupan sumando cantidades.
+        """
         if canal not in {"WEB", "WHATSAPP", "MOSTRADOR"}:
             raise DatosInvalidos("El canal del pedido no es valido")
         if cliente_id <= 0 or not await self.repo.cliente_valido(cliente_id):
             raise DatosInvalidos("El cliente no existe o esta inactivo")
         if tipo_entrega not in {"DELIVERY", "RETIRO"}:
             raise DatosInvalidos("El tipo de entrega no es valido")
+        # Delivery: usa la dirección indicada o crea una nueva si viene en el pedido.
         if tipo_entrega == "DELIVERY":
             if direccion_id is None and direccion_nueva is not None:
                 direccion_id = await self.repo.crear_direccion(cliente_id, direccion_nueva)
@@ -315,6 +350,7 @@ class ServicioPedidos:
         if len(items) > 50:
             raise DatosInvalidos("El pedido no puede contener mas de 50 lineas")
 
+        # Agrupa líneas idénticas y controla el máximo de 50 unidades por producto y variante.
         cantidades: dict[tuple[int, str | None, str | None], int] = {}
         por_producto: dict[tuple[int, str | None], int] = {}
         for item in items:
@@ -334,6 +370,7 @@ class ServicioPedidos:
             clave = (item.producto_id, item.variante, item.aclaraciones)
             cantidades[clave] = cantidades.get(clave, 0) + item.cantidad
 
+        # Todos los productos deben existir y estar disponibles.
         ids_solicitados = sorted({producto_id for producto_id, _, _ in cantidades})
         productos = await self.repo.productos(ids_solicitados)
         por_id = {fila["id"]: fila for fila in productos}
@@ -346,6 +383,7 @@ class ServicioPedidos:
                 "Hay productos sin stock o inactivos", {"producto_ids": no_disponibles}
             )
 
+        # Arma el snapshot de cada línea con el precio y nombre vigentes (de la variante si aplica).
         items_snapshot: list[dict] = []
         for (producto_id, variante, aclaracion), cantidad in cantidades.items():
             producto = por_id[producto_id]
@@ -378,6 +416,7 @@ class ServicioPedidos:
             )
         if metodo_pago_acordado not in {"EFECTIVO", "TRANSFERENCIA"}:
             raise DatosInvalidos("El metodo acordado no es valido")
+        # El método acordado solo se envía si difiere del valor por defecto.
         datos_pago = (
             {"metodo_pago_acordado": metodo_pago_acordado}
             if metodo_pago_acordado != "EFECTIVO"
@@ -402,6 +441,7 @@ class ServicioPedidos:
         estado: str | None = None,
         activos: bool | None = None,
     ) -> list[dict]:
+        """Lista pedidos; solo pasa al repositorio los filtros efectivamente recibidos."""
         if q is not None or estado is not None or activos is not None:
             return await self.repo.listar(
                 cliente_id=cliente_id,
@@ -430,9 +470,16 @@ class ServicioPedidos:
         permitir_correccion: bool | None = None,
         permitir_recuperacion: bool | None = None,
     ) -> dict:
+        """Cambia el estado de un pedido aplicando las reglas del negocio.
+
+        Además del flujo normal admite correcciones (retrocesos con motivo y versión),
+        recuperaciones de pedidos cerrados (solo administración) y la entrega directa de retiros.
+        Coordina con Stock las reservas, consumos y devoluciones que correspondan.
+        """
         pedido = await self.repo.obtener(pedido_id, bloquear=True)
         if pedido is None:
             raise NoEncontrado("El pedido no existe")
+        # Bloquea el pedido y controla que nadie lo haya cambiado desde que se leyó.
         actual = EstadoPedido(pedido["estado"])
         self._comprobar_version(pedido, version_esperada, estado_esperado)
         if correccion:
@@ -443,6 +490,7 @@ class ServicioPedidos:
                 if permitir_correccion is None else permitir_correccion
             ):
                 raise ReglaDeNegocio("La correccion requiere personal autorizado")
+        # Clasifica el pedido de cambio: recuperación de cerrado, retroceso de corrección o retiro.
         cerrado = actual in {EstadoPedido.CANCELADO, EstadoPedido.ENTREGADO}
         recuperacion = correccion and cerrado
         retroceso_inicio = correccion and (actual, nuevo) in {
@@ -474,6 +522,7 @@ class ServicioPedidos:
             and nuevo == EstadoPedido.ENTREGADO
             and pedido.get("tipo_entrega") == "RETIRO"
         )
+        # Recuperar un pedido cerrado exige declarar qué pasa con el stock.
         if recuperacion:
             if not (
                 rol in {"ADMINISTRADOR", "DUENIO"}
@@ -520,6 +569,7 @@ class ServicioPedidos:
             raise ReglaDeNegocio(
                 "Debe corregir la entrega desde reparto y confirmar el regreso al local"
             )
+        # Cancelar antes de cocina devuelve la reserva; después de cocina se declara como merma.
         if nuevo == EstadoPedido.CANCELADO:
             if actual in {EstadoPedido.PENDIENTE, EstadoPedido.CONFIRMADO} and not pedido.get(
                 "preparacion_en"
@@ -528,6 +578,7 @@ class ServicioPedidos:
                 tratamiento_stock = "RESERVA_DEVUELTA"
             elif tratamiento_stock != "MERMA":
                 raise ReglaDeNegocio("La cancelacion tras cocina requiere declarar MERMA")
+        # Stock: reconsumo en recuperaciones o consumo al confirmar o pasar a preparación.
         if recuperacion and tratamiento_stock == "RECONSUMIR":
             await self.stock.reconsumir(
                 pedido_id,
@@ -552,6 +603,8 @@ class ServicioPedidos:
 
     @staticmethod
     def _comprobar_version(pedido: dict, version: int | None, estado: str | None = None) -> None:
+        """Falla si la versión o el estado del pedido no son los esperados (concurrencia optimista).
+        """
         if version is not None and pedido.get("version") != version:
             raise ReglaDeNegocio("El pedido cambio; actualice antes de continuar")
         if estado is not None and pedido["estado"] != estado:
@@ -560,6 +613,8 @@ class ServicioPedidos:
     async def detalle(
         self, pedido_id: int, *, cliente_id: int | None = None, repartidor_id: int | None = None
     ) -> dict:
+        """Devuelve el detalle de un pedido, restringido al cliente o al repartidor si se indican.
+        """
         pedido = await self.repo.detalle(pedido_id)
         if pedido is None or cliente_id is not None and pedido["cliente_id"] != cliente_id:
             raise NoEncontrado("El pedido no existe")
@@ -580,6 +635,11 @@ class ServicioPedidos:
         origen: str = "PANEL",
         rol: str | None = None,
     ) -> dict:
+        """Edita modalidad, dirección, método de pago u observaciones de un pedido.
+
+        Requiere motivo y versión esperada; no se permite en pedidos ya en camino, cerrados o
+        asignados.
+        """
         if not motivo or not motivo.strip() or version_esperada is None:
             raise DatosInvalidos("La edicion requiere motivo y version esperada")
         permitidos = {
@@ -608,6 +668,7 @@ class ServicioPedidos:
             nuevos["direccion_id"] = await self.repo.crear_direccion(
                 pedido["cliente_id"], cambios["direccion_nueva"]
             )
+        # Recalcula el costo de envío según la modalidad y luego el total del pedido.
         if nuevos["tipo_entrega"] == "DELIVERY":
             if not nuevos.get("direccion_id") or not await self.repo.direccion_valida(
                 pedido["cliente_id"], nuevos["direccion_id"]

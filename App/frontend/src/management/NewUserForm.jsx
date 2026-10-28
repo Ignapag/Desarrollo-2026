@@ -1,26 +1,37 @@
+// Formulario de alta de cuentas del personal (nombre, apellido, usuario, contraseña
+// inicial y rol), con validaciones de contraseña previas al envío.
 import { useEffect, useRef, useState } from 'react';
 import { apiFetch } from '../shared/api/http';
 import { UserFacingError, userErrorMessage } from '../shared/api/userErrors.js';
 import { confirmsUser } from './userConfirmation';
 
+// Estilo de campo y valores iniciales del formulario.
 const field = 'min-h-11 w-full rounded-xl border border-monu-green/30 bg-white px-3 py-2 focus-visible:outline-2 focus-visible:outline-monu-green';
 const initial = { nombre: '', apellido: '', username: '', password: '', rol: 'EMPLEADO' };
 
+/**
+ * Crea una cuenta vía /api/usuarios. `onCreated` recibe la cuenta confirmada y
+ * `onPendingChange` informa si hay un alta en curso.
+ */
 export default function NewUserForm({ roles, onCreated, onPendingChange = () => {} }) {
+  // Valores, envío en curso, aviso general y errores por campo.
   const [values, setValues] = useState(initial);
   const [pending, setPending] = useState(false);
   const [feedback, setFeedback] = useState(null);
   const [errors, setErrors] = useState({});
   const summary = useRef(null);
+  // El resumen de errores recibe el foco cuando aparece.
   useEffect(() => { if (feedback?.error) summary.current?.focus(); }, [feedback]);
   const busy = useRef(false);
   const active = useRef(true);
   useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
+  // Actualiza un campo y limpia su error.
   const change = (name) => (event) => {
     setValues((previous) => ({ ...previous, [name]: event.target.value }));
     setFeedback(null);
     setErrors((previous) => ({ ...previous, [name]: '' }));
   };
+  // Valida los campos, crea la cuenta y confirma que la respuesta corresponda al usuario y rol pedidos.
   const save = async (event) => {
     event.preventDefault();
     if (busy.current) return;
@@ -57,10 +68,13 @@ export default function NewUserForm({ roles, onCreated, onPendingChange = () => 
     }
   };
   return <form noValidate onSubmit={save} className="rounded-2xl border border-monu-green/15 bg-white p-4 md:p-6 space-y-4" aria-labelledby="nueva-cuenta-titulo">
+    {/* Título y explicación */}
     <div><h3 id="nueva-cuenta-titulo" className="text-xl font-bold">Crear cuenta</h3><p className="mt-1 text-sm">Cada persona ingresa con su propio usuario y contraseña. La cuenta hereda los permisos del rol elegido.</p></div>
+    {/* Aviso del resultado y resumen de errores con enlaces a cada campo */}
     {feedback && <div ref={summary} tabIndex={-1} role={feedback.error ? 'alert' : 'status'} className={feedback.error ? 'text-red-700' : 'text-monu-green'}><p>{feedback.text}</p>
       {feedback.error && Object.values(errors).some(Boolean) && <ul className="mt-2 space-y-1 text-sm">{Object.entries(errors).filter(([, message]) => message).map(([name, message]) => <li key={name}><a href={`#nueva-cuenta-${name}`} className="underline">{message}</a></li>)}</ul>}
     </div>}
+    {/* Campos de la cuenta */}
     <fieldset disabled={pending} className="grid gap-4 sm:grid-cols-2">
       <label className="space-y-1"><span className="font-bold">Nombre</span><input id="nueva-cuenta-nombre" name="nombre" className={field} required autoComplete="given-name" aria-invalid={Boolean(errors.nombre)} aria-describedby="nueva-cuenta-nombre-error" value={values.nombre} onChange={change('nombre')} /><span id="nueva-cuenta-nombre-error" className="block text-sm text-red-700">{errors.nombre}</span></label>
       <label className="space-y-1"><span className="font-bold">Apellido</span><input id="nueva-cuenta-apellido" name="apellido" className={field} required autoComplete="family-name" aria-invalid={Boolean(errors.apellido)} aria-describedby="nueva-cuenta-apellido-error" value={values.apellido} onChange={change('apellido')} /><span id="nueva-cuenta-apellido-error" className="block text-sm text-red-700">{errors.apellido}</span></label>

@@ -27,6 +27,7 @@ from app.modules.pedidos.presentation.esquemas import PedidoSalida
 from app.modules.usuarios.domain.entidades import ClaimsSesion, Rol
 from app.modules.usuarios.presentation.dependencias import requiere_permiso
 
+# Permisos de pagos: registrar cobros, verlos (también clientes), conciliar y corregir.
 PermisoPagosRegistrar = Annotated[ClaimsSesion, Depends(requiere_permiso("pagos", "registrar"))]
 PermisoPagosVer = Annotated[ClaimsSesion, Depends(requiere_permiso("pagos", "ver", cliente=True))]
 PermisoPagosConciliar = Annotated[ClaimsSesion, Depends(requiere_permiso("pagos", "conciliar"))]
@@ -56,6 +57,7 @@ async def registrar_pago_efectivo(
     - Registra dinero sin cambiar el estado físico del pedido.
     - Registra el evento en auditoría con la IP del cliente.
     """
+    # Dejar el cobro conciliado en el acto exige además el permiso de conciliación.
     if datos.conciliar_inmediato and not sesion.puede("pagos.conciliar"):
         raise SinPermiso("Conciliar el cobro requiere permiso de conciliacion")
     resultado = await servicio.registrar_pago_efectivo(
@@ -69,6 +71,7 @@ async def registrar_pago_efectivo(
         ip_cliente=ip,
     )
     salida = ResultadoCobroEfectivoSalida.desde_dominio(resultado)
+    # Opcionalmente se devuelve el pedido actualizado para evitar otra consulta del panel.
     if incluir_pedido:
         salida.pedido = PedidoSalida.para_sesion(await pedidos.detalle(datos.pedido_id), sesion)
     return salida
@@ -90,6 +93,10 @@ async def registrar_transferencia(
     confirmar_ingreso: bool = False,
     ip: IpCliente = None,
 ) -> PagoOperacionSalida:
+    """Registra una transferencia informada por el personal, pendiente de revisión.
+
+    Con ``confirmar_ingreso`` y permiso de conciliación, la acredita en la misma transacción.
+    """
     if confirmar_ingreso and not sesion.puede("pagos.conciliar"):
         raise SinPermiso("Confirmar el ingreso requiere permiso de conciliacion")
     pago = await servicio.registrar_transferencia(
@@ -128,6 +135,7 @@ async def estado_financiero_pedido(
 está saldado."""
     estado = await servicio.obtener_estado_financiero(
         pedido_id,
+        # Un cliente solo puede consultar sus propios pedidos.
         cliente_usuario_id=sesion.usuario_id if sesion.rol == Rol.CLIENTE else None,
     )
     return EstadoFinancieroPedidoSalida.desde_dominio(estado)

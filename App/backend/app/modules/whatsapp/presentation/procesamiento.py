@@ -23,6 +23,9 @@ CONVERSACIONES_SIMULTANEAS = 3
 
 
 async def _interpretar(preparado):
+    """Obtiene la intención del mensaje con el intérprete configurado; ante cualquier error deriva
+    por falla del proveedor.
+    """
     if len(preparado["texto"]) > LIMITE_INTERPRETACION:
         # Se deriva el mensaje completo; nunca se interpreta un prefijo.
         return {"accion": "humano", "argumentos": {}, "motivo": "MENSAJE_LARGO"}
@@ -40,6 +43,10 @@ async def _interpretar(preparado):
 
 
 async def procesar_entrada(identificador):
+    """Procesa un mensaje entrante en dos transacciones: prepara el contexto, interpreta fuera de la
+    base y aplica la acción revalidada. Si el pedido cambió durante la interpretación se reintenta;
+    ante errores se cierra el mensaje derivándolo.
+    """
     for intento in range(INTENTOS_INTERPRETACION):
         async with conexion() as conn:
             uow = UnidadDeTrabajo(conn)
@@ -81,6 +88,7 @@ async def procesar_entrada(identificador):
 
 
 async def _finalizar_fallido(identificador):
+    """Cierra un mensaje que no pudo procesarse, derivándolo al personal y avisando al cliente."""
     # La transacción del intento fallido ya revirtió todos sus efectos.
     async with conexion() as conn:
         servicio = construir_servicio(UnidadDeTrabajo(conn))
@@ -101,6 +109,9 @@ async def _finalizar_fallido(identificador):
 
 
 async def enviar_uno(*, solo_demo=False):
+    """Reclama y envía una salida pendiente; devuelve False si no había ninguna. El envío ocurre
+    fuera de la transacción y su resultado se registra en otra.
+    """
     async with conexion() as conn:
         uow = UnidadDeTrabajo(conn)
         cola = ColaWhatsAppSQL(uow)
@@ -121,6 +132,7 @@ async def enviar_uno(*, solo_demo=False):
                 "UPDATE whatsapp_salida SET intentos=3 WHERE id=%s", (mensaje["id"],)
             )
             return True
+    # Envío fuera de la transacción; el resultado se registra en una nueva.
     estado, proveedor_id = "FALLIDO", None
     try:
         proveedor_id = await transporte().enviar(mensaje["telefono"], mensaje["texto"])
@@ -135,6 +147,9 @@ async def enviar_uno(*, solo_demo=False):
 
 
 async def _procesar_conversacion(entradas, cupos):
+    """Procesa en orden los mensajes de un teléfono, respetando el cupo de conversaciones
+    simultáneas.
+    """
     async with cupos:
         for entrada in entradas:
             try:
@@ -150,6 +165,9 @@ async def _procesar_conversacion(entradas, cupos):
 
 
 async def procesar_lote(limite=20, *, solo_demo=False):
+    """Ciclo del worker: procesa los mensajes pendientes agrupados por teléfono y luego envía las
+    salidas encoladas.
+    """
     async with conexion() as conn:
         pendientes = await ColaWhatsAppSQL(UnidadDeTrabajo(conn)).pendientes(
             limite, solo_demo=solo_demo,
@@ -163,6 +181,7 @@ async def procesar_lote(limite=20, *, solo_demo=False):
     await asyncio.gather(*(
         _procesar_conversacion(entradas, cupos) for entradas in conversaciones.values()
     ))
+    # Envía hasta el límite de salidas pendientes.
     for _ in range(limite):
         if not await enviar_uno(solo_demo=solo_demo):
             break

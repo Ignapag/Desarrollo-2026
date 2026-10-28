@@ -1,4 +1,6 @@
-﻿const formatoFecha = new Intl.DateTimeFormat('en-CA', {
+﻿// Datos compartidos por el Panel de Control y Reportes: validación de las respuestas
+// de reportes, período de los últimos 7 días en hora argentina y unidades por día.
+const formatoFecha = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'America/Argentina/Buenos_Aires', year: 'numeric', month: '2-digit', day: '2-digit',
 });
 const formatoDia = new Intl.DateTimeFormat('es-AR', {
@@ -20,6 +22,7 @@ export function validarReportes(resumen, ventas, rentabilidad) {
   if (!valido) throw new Error('Respuesta de reportes incompleta');
 }
 
+// Período de los últimos 7 días (incluido hoy) según la fecha de Argentina.
 export function periodoPanel(ahora = new Date()) {
   const partes = Object.fromEntries(formatoFecha.formatToParts(ahora).map(({ type, value }) => [type, value]));
   const hoy = new Date(`${partes.year}-${partes.month}-${partes.day}T12:00:00Z`);
@@ -31,6 +34,7 @@ export function periodoPanel(ahora = new Date()) {
   return { desde: dias[0].fecha, hasta: dias[6].fecha, dias };
 }
 
+// Suma las unidades vendidas por día; los días sin ventas quedan en 0.
 export function unidadesPorDia(dias, ventas) {
   const totales = new Map(dias.map(({ fecha }) => [fecha, 0]));
   for (const venta of ventas) {

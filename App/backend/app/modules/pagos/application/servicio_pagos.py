@@ -31,6 +31,8 @@ from app.modules.pagos.infrastructure.repositorio_sql import RepositorioPagosSQL
 
 @dataclass(slots=True, frozen=True)
 class ResultadoInicioBilletera:
+    """Resultado histórico de iniciar un cobro con billetera (integración deshabilitada)."""
+
     pago: Pago
     preferencia: PreferenciaCobro
 
@@ -44,6 +46,7 @@ class ServicioPagos:
         repo: RepositorioPagosSQL,
         cliente_mp: ClienteMercadoPago | None = None,
     ) -> None:
+        """Recibe la unidad de trabajo, el repositorio y el cliente de billetera (inactivo)."""
         self.uow = uow
         self.repo = repo
         self.cliente_mp = cliente_mp if cliente_mp is not None else ClienteMercadoPago()
@@ -60,6 +63,7 @@ class ServicioPagos:
         clave_operacion: str | None = None,
     ) -> ResultadoCobroEfectivo:
         """Registra el cobro en efectivo de un pedido y calcula el vuelto."""
+        # Idempotencia: un reintento con la misma clave reconstruye el resultado ya registrado.
         solicitud = solicitud_operacion(
             tipo="COBRO",
             metodo="EFECTIVO",
@@ -79,6 +83,7 @@ class ServicioPagos:
                     **{campo: Decimal(valor) for campo, valor in datos["detalle"].items()}
                 ),
             )
+        # Bloquea el pedido para serializar cobros concurrentes sobre el mismo saldo.
         pedido = await self.repo.obtener_pedido_para_actualizar(pedido_id)
         if pedido is None:
             raise NoEncontrado(f"Pedido {pedido_id} no encontrado")
@@ -97,12 +102,14 @@ class ServicioPagos:
             propina=propina,
         )
 
+        # Un cobro sin conciliar no descuenta saldo: el restante sigue siendo el saldo actual.
         ahora = datetime.now(UTC)
         estado = EstadoPago.CONCILIADO if conciliar_inmediato else EstadoPago.PENDIENTE
         conciliado_en = ahora if conciliar_inmediato else None
 
         if not conciliar_inmediato:
             detalle = replace(detalle, saldo_restante=total_pedido - total_pagado)
+        # Se guarda la solicitud y el detalle para poder responder igual ante un reintento.
         metadatos = {
             "solicitud": solicitud,
             "detalle": {campo: str(valor) for campo, valor in asdict(detalle).items()},
@@ -169,6 +176,7 @@ class ServicioPagos:
             raise NoEncontrado(f"Pedido {pedido_id} no encontrado")
         if pedido["estado"] == "CANCELADO":
             raise ReglaDeNegocio("El pedido cancelado no admite cobros")
+        # La transferencia queda pendiente hasta que una persona la verifique y concilie.
         saldo = Decimal(str(pedido["total"])) - await self.repo.total_pagado_por_pedido(pedido_id)
         if monto <= 0 or monto > saldo:
             raise DatosInvalidos("El monto debe ser positivo y no superar el saldo pendiente")

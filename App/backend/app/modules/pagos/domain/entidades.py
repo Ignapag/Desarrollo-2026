@@ -14,15 +14,20 @@ from zoneinfo import ZoneInfo
 
 from app.errores import DatosInvalidos, ReglaDeNegocio
 
+# Zona horaria contable: los turnos de caja se calculan en hora local de Argentina.
 ZONA_CAJA = ZoneInfo("America/Argentina/Buenos_Aires")
 
 
 class TipoPago(StrEnum):
+    """Sentido del movimiento: cobro al cliente o devolución de dinero."""
+
     COBRO = "COBRO"
     DEVOLUCION = "DEVOLUCION"
 
 
 class MetodoPago(StrEnum):
+    """Medios de pago aceptados por el local (efectivo, billeteras y transferencia)."""
+
     EFECTIVO = "EFECTIVO"
     MERCADO_PAGO = "MERCADO_PAGO"
     CUENTA_DNI = "CUENTA_DNI"
@@ -32,17 +37,23 @@ class MetodoPago(StrEnum):
 
 
 class EstadoPago(StrEnum):
+    """Estado de conciliación de un pago: pendiente, conciliado o anulado."""
+
     PENDIENTE = "PENDIENTE"
     CONCILIADO = "CONCILIADO"
     ANULADO = "ANULADO"
 
 
 class TurnoCierre(StrEnum):
+    """Turnos de trabajo sobre los que se arma el cierre de caja."""
+
     MEDIODIA = "MEDIODIA"
     NOCHE = "NOCHE"
 
 
 class EstadoCierre(StrEnum):
+    """Ciclo de vida del cierre de caja hasta su aprobación definitiva."""
+
     ABIERTO = "ABIERTO"
     PENDIENTE_APROBACION = "PENDIENTE_APROBACION"
     APROBADO = "APROBADO"
@@ -79,10 +90,12 @@ class Pago:
 
     @property
     def es_cobro(self) -> bool:
+        """Indica si el movimiento es un cobro (y no una devolución)."""
         return self.tipo == TipoPago.COBRO
 
     @property
     def es_conciliado(self) -> bool:
+        """Indica si el pago ya fue conciliado y cuenta para los totales."""
         return self.estado == EstadoPago.CONCILIADO
 
     def validar_inmutabilidad(
@@ -187,6 +200,7 @@ class CierreCaja:
 
     @property
     def es_aprobado(self) -> bool:
+        """Indica si el cierre ya fue aprobado."""
         return self.estado == EstadoCierre.APROBADO
 
     def validar_inmutabilidad(self) -> None:
@@ -205,13 +219,20 @@ class CorteCaja:
 
 
 def calcular_corte_caja(pagos: list[Pago]) -> CorteCaja:
+    """Calcula los totales de caja a partir de los pagos del turno.
+
+    Solo cuentan los pagos conciliados: cobros suman y devoluciones restan. Además arma el desglose
+    por método de pago, ordenado de mayor a menor total.
+    """
     conciliados = [p for p in pagos if p.es_conciliado]
     cobros = [p for p in conciliados if p.es_cobro]
     devoluciones = [p for p in conciliados if not p.es_cobro]
 
     def sumar(movimientos) -> Decimal:
+        """Suma los montos de los movimientos recibidos."""
         return sum((p.monto for p in movimientos), Decimal("0.00"))
 
+    # Desglose por método: cobros positivos y devoluciones negativas.
     metodos = {p.metodo_pago for p in conciliados}
     desglose = [
         TotalesMetodoPago(
@@ -255,10 +276,12 @@ def calcular_cobro_efectivo(
     if propina < Decimal("0.00"):
         raise DatosInvalidos("La propina no puede ser negativa")
 
+    # El saldo pendiente nunca es negativo; un pedido saldado no admite más cobros.
     saldo_pendiente = max(Decimal("0.00"), total_pedido - total_ya_pagado)
     if saldo_pendiente == Decimal("0.00"):
         raise ReglaDeNegocio("El pedido ya se encuentra totalmente saldado")
 
+    # Sin monto explícito se cobra todo el saldo pendiente.
     a_cobrar = monto_a_pagar if monto_a_pagar is not None else saldo_pendiente
 
     if a_cobrar <= Decimal("0.00"):
@@ -269,6 +292,7 @@ def calcular_cobro_efectivo(
             f"El monto a cobrar (${a_cobrar}) supera el saldo pendiente (${saldo_pendiente})"
         )
 
+    # El dinero recibido debe cubrir lo cobrado más la propina; el excedente es vuelto.
     total_necesario = a_cobrar + propina
     if monto_recibido < total_necesario:
         raise DatosInvalidos(
@@ -297,6 +321,7 @@ def calcular_estado_financiero(
     pagos: list[Pago],
 ) -> EstadoFinancieroPedido:
     """Calcula el balance y estado financiero de un pedido en base a sus pagos registrados."""
+    # Solo los pagos conciliados afectan el balance: cobros menos devoluciones.
     total_cobros = sum(
         (p.monto for p in pagos if p.es_cobro and p.es_conciliado),
         Decimal("0.00"),
@@ -333,6 +358,7 @@ def determinar_turno_y_ventana(
       Si el momento actual es de madrugada (00:00 a 04:59), la fecha contable
       corresponde al día anterior.
     """
+    # Normaliza el momento a la zona horaria de la caja.
     if momento is None:
         momento = datetime.now(ZONA_CAJA)
     elif momento.tzinfo is None:
@@ -341,6 +367,7 @@ def determinar_turno_y_ventana(
     else:
         momento = momento.astimezone(ZONA_CAJA)
 
+    # Madrugada: pertenece al turno noche del día contable anterior.
     if momento.hour < 5:
         fecha_caja = momento.date() - timedelta(days=1)
         turno = TurnoCierre.NOCHE

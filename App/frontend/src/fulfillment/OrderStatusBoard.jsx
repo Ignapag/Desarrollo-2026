@@ -1,14 +1,21 @@
+// Componentes visuales del tablero de pedidos: barra de estados con contadores,
+// columnas/paneles por estado y tarjetas de pedido con espera, total y alertas.
 import { AlertTriangle, ArrowUp, Bike, Clock, Store } from 'lucide-react';
 import { buttonClass } from './operationUi';
 import { isOrderPaid, money } from './orderModel';
 import { CLOSED_STATES, closedAt, countLabel, formatWait, isLongWait, itemsSummary, orderAlerts, shortDateTime, stateSummaryLabel, waitMinutes } from './orderBoard';
 
+// Colores de las alertas según su tono.
 const toneClass = {
   info: 'bg-monu-green/10 text-monu-dark',
   warning: 'bg-monu-yellow/25 text-monu-burnt',
   danger: 'bg-red-100 text-red-800',
 };
 
+/**
+ * Barra de botones por estado (con cantidad y esperas altas) que elige qué estado
+ * mostrar en el tablero.
+ */
 // Sólo queda fija cuando entra en una fila; en pantallas angostas taparía el contenido enfocado.
 export function StatusBar({ options, groups, known, current, onSelect, controls, selectedRef }) {
   return <div role="group" aria-label="Pedidos por estado" className="xl:sticky xl:top-16 z-[5] -mx-1 px-1 py-2 bg-monu-cream">
@@ -29,6 +36,7 @@ export function StatusBar({ options, groups, known, current, onSelect, controls,
   </div>;
 }
 
+/** Etiqueta de espera de un pedido abierto, o fecha de cierre si ya terminó. */
 function WaitTag({ id, order, now }) {
   if (CLOSED_STATES.includes(order.estado)) {
     return <span id={id} className="text-xs text-monu-text/75"><span className="sr-only">Cerrado: </span>{shortDateTime(closedAt(order))}</span>;
@@ -41,6 +49,7 @@ function WaitTag({ id, order, now }) {
   </span>;
 }
 
+/** Tarjeta de un pedido: número (abre el detalle), cliente, entrega, productos, total, pago y alertas. */
 function OrderCard({ order, now, pending, compact, onOpen, registerOpener }) {
   // La espera alta ya se muestra en su etiqueta; aquí van los demás avisos.
   const alerts = orderAlerts(order, { now, pending }).filter((alert) => alert.id !== 'wait');
@@ -49,6 +58,7 @@ function OrderCard({ order, now, pending, compact, onOpen, registerOpener }) {
   const Delivery = pickup ? Store : Bike;
   const titleId = `order-card-${order.id}`;
   return <article aria-labelledby={titleId} className={`relative rounded-xl border border-monu-green/20 bg-white p-3 text-sm space-y-1 transition-colors motion-reduce:transition-none ${pending ? 'opacity-75' : 'hover:border-monu-green'}`}>
+    {/* Número del pedido y espera */}
     <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
       <h3 id={titleId} className="text-base font-extrabold text-monu-dark">
         {/* Se extiende sobre toda la tarjeta: un destino táctil y una parada de teclado. Sigue enfocable
@@ -60,6 +70,7 @@ function OrderCard({ order, now, pending, compact, onOpen, registerOpener }) {
       </h3>
       <WaitTag id={`${titleId}-espera`} order={order} now={now} />
     </div>
+    {/* Datos del pedido: cliente, dirección, productos, total y estado del pago */}
     <div id={`${titleId}-datos`} className="space-y-1">
       <p className="font-bold truncate">{order.client}</p>
       <p className="flex items-start gap-1.5 text-monu-text/80"><Delivery aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" /><span className="line-clamp-2 break-words">{!pickup && <span className="sr-only">Envío a </span>}{order.address}</span></p>
@@ -76,6 +87,7 @@ function OrderCard({ order, now, pending, compact, onOpen, registerOpener }) {
   </article>;
 }
 
+// Lista de pedidos de un estado con su encabezado y contador.
 // `column` es la columna de alto fijo del tablero; `panel` es la vista de un estado enfocado.
 // Las listas no cortan el desplazamiento: al llegar al final, la rueda sigue con la página.
 export function OrderList({ id, label, group, known, emptyMessage, layout, now, pending, onOpen, registerOpener, onBackToStates }) {
@@ -86,6 +98,7 @@ export function OrderList({ id, label, group, known, emptyMessage, layout, now, 
       <span>{label}<span className="sr-only">{known ? `, ${countLabel(group.count)}` : ', cantidad sin consultar'}</span></span>
       <span aria-hidden="true" className="rounded-full bg-monu-dark px-2.5 py-0.5 text-sm text-white tabular-nums">{known ? group.count : '—'}</span>
     </h2>
+    {/* Pedidos del estado o mensaje vacío */}
     {group.count > 0 ? <ul className={column ? 'flex-1 overflow-y-auto p-2 space-y-2' : 'grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 md:max-h-[calc(100dvh-15rem)] md:overflow-y-auto md:p-1'}>
       {group.orders.map((order) => <li key={order.id}><OrderCard order={order} now={now} pending={pending(order.id)} compact={column} onOpen={onOpen} registerOpener={registerOpener} /></li>)}
     </ul> : <p className={`text-sm text-monu-text/80 ${column ? 'p-3' : ''}`}>{emptyMessage}</p>}

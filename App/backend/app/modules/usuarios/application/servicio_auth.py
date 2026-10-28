@@ -21,6 +21,8 @@ MENSAJE_CUENTA_INACTIVA = "La cuenta esta inactiva; contacta a un administrador"
 
 @dataclass(slots=True, frozen=True)
 class SesionIniciada:
+    """Resultado de un inicio de sesión exitoso: token y datos del usuario."""
+
     token: str
     usuario_id: int
     nombre: str
@@ -30,7 +32,10 @@ class SesionIniciada:
 
 
 class ServicioAuth:
+    """Caso de uso de inicio de sesión con auditoría de intentos."""
+
     def __init__(self, uow: UnidadDeTrabajo, repositorio: RepositorioUsuariosSQL) -> None:
+        """Recibe la unidad de trabajo y el repositorio de usuarios."""
         self.uow = uow
         self.repo = repositorio
 
@@ -44,6 +49,7 @@ class ServicioAuth:
         usuario validos por fuerza bruta.
         """
         fila = await self.repo.por_username(username)
+        # Credenciales inválidas: se audita el intento fallido sin revelar la causa.
         if fila is None or not verificar_password(password, fila["password_hash"]):
             await auditoria.registrar(
                 self.uow,
@@ -58,6 +64,7 @@ class ServicioAuth:
         if fila["estado"] != "ACTIVO":
             raise NoAutenticado(MENSAJE_CUENTA_INACTIVA)
 
+        # Inicio exitoso: se registra el acceso y se emite el token.
         await self.repo.actualizar_ultimo_acceso(fila["id"])
         await auditoria.registrar(
             self.uow,

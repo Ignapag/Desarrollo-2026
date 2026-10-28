@@ -79,7 +79,10 @@ class ErrorEnvioIncierto(ReglaDeNegocio):
 
 
 class _SinRedirecciones(HTTPRedirectHandler):
+    """Manejador de urllib que bloquea toda redirección HTTP para no reenviar credenciales."""
+
     def redirect_request(self, req, fp, code, msg, headers, newurl):
+        """Rechaza la redirección devolviendo None."""
         # urllib conserva Authorization al redirigir: se rechaza todo redirect.
         return None
 
@@ -127,6 +130,9 @@ def _causa_http_gemini(error: HTTPError) -> str:
 
 
 def _leer_json(solicitud: Request, timeout: float) -> dict:
+    """Ejecuta la solicitud y devuelve el JSON de respuesta, limitando su tamaño y exigiendo un
+    objeto.
+    """
     with _HTTP.open(solicitud, timeout=timeout) as respuesta:
         cuerpo = respuesta.read(_MAX_RESPUESTA + 1)
     if len(cuerpo) > _MAX_RESPUESTA:
@@ -138,6 +144,7 @@ def _leer_json(solicitud: Request, timeout: float) -> dict:
 
 
 def _post_json(url: str, datos: dict, cabeceras: dict) -> Request:
+    """Arma una solicitud POST con cuerpo JSON y las cabeceras indicadas."""
     return Request(
         url,
         data=json.dumps(datos, ensure_ascii=False).encode("utf-8"),
@@ -147,6 +154,7 @@ def _post_json(url: str, datos: dict, cabeceras: dict) -> Request:
 
 
 def _normalizar(texto: str) -> str:
+    """Normaliza el texto: minúsculas, sin tildes y con espacios simples."""
     return " ".join(
         "".join(
             c
@@ -157,6 +165,7 @@ def _normalizar(texto: str) -> str:
 
 
 def _humano() -> dict:
+    """Acción de derivación al personal sin argumentos."""
     return {"accion": "humano", "argumentos": {}}
 
 
@@ -175,6 +184,9 @@ def _largo() -> dict:
 
 
 def _argumentos_validos(accion: str, argumentos: dict) -> bool:
+    """Valida que la acción propuesta por el intérprete exista y que sus argumentos respeten el
+    esquema declarado (campos, obligatorios, tipos, rangos y enumeraciones).
+    """
     if not isinstance(accion, str) or not isinstance(argumentos, dict) or accion not in _ESQUEMAS:
         return False
     esquema = _ESQUEMAS[accion]
@@ -182,6 +194,7 @@ def _argumentos_validos(accion: str, argumentos: dict) -> bool:
         return False
     if not set(esquema.get("required", ())) <= argumentos.keys():
         return False
+    # El plan múltiple valida cada operación interna con su propio esquema.
     if accion == "editar_pedido":
         operaciones = argumentos["operaciones"]
         return (
@@ -198,6 +211,7 @@ def _argumentos_validos(accion: str, argumentos: dict) -> bool:
         )
     if accion == "datos" and not argumentos:
         return False
+    # Tipos y límites de cada argumento según el esquema.
     for campo, valor in argumentos.items():
         especificacion = esquema["properties"][campo]
         if campo == "pregunta_producto" and not pregunta_producto_valida(valor):
@@ -216,6 +230,7 @@ def _argumentos_validos(accion: str, argumentos: dict) -> bool:
     return True
 
 
+# Esquemas de las herramientas declaradas a Gemini, por acción.
 _ESQUEMAS = {
     "preguntar": {
         "type": "object",
@@ -317,6 +332,9 @@ class SimuladoInterpretador:
     """Interpretación guiada local; el servicio resuelve el ítem y sus permisos."""
 
     async def interpretar(self, texto: str, contexto: dict) -> dict:
+        """Interpreta con reglas locales un conjunto acotado de frases (confirmar, quitar tomate,
+        cantidad, datos de entrega y pago); el resto se deriva.
+        """
         if isinstance(texto, str) and len(texto) > LIMITE_INTERPRETACION:
             return _largo()
         if not isinstance(texto, str) or not texto.strip():
@@ -329,6 +347,7 @@ class SimuladoInterpretador:
             return _humano()
         if re.fullmatch(r"quiero cambiar (?:la )?(?:direccion|dir)[.!]*", normalizado):
             return {"accion": "preguntar", "argumentos": {"campo": "direccion"}}
+        # Un único «item N» opcional indica el producto afectado.
         item = re.search(r"\bitem\s+(\d+)\b", normalizado)
         argumentos = {"item_indice": int(item[1])} if item else {}
         if len(re.findall(r"\bitem\s+\d+\b", normalizado)) > 1:
@@ -348,6 +367,7 @@ class SimuladoInterpretador:
             accion = "cantidad"
             argumentos["cantidad"] = int(cantidad[1])
         else:
+            # Datos sueltos o con formato «campo: valor», separados por punto y coma.
             argumentos = {}
             for segmento in texto.split(";"):
                 clave, separador, valor = segmento.partition(":")
@@ -371,6 +391,7 @@ class SimuladoInterpretador:
                     r"\b(estado|total|precio|menu|hola|horario)\b", campo
                 ):
                     return {"accion": "consulta", "argumentos": {}}
+                # Respuesta corta a una pregunta de dirección pendiente.
                 conversacion = _contexto_acotado(contexto).get("conversacion", {})
                 pendiente = conversacion.get("solicitud_pendiente")
                 if (
@@ -394,6 +415,7 @@ def _contexto_acotado(contexto: dict) -> dict:
     """Proyecta catálogo y memoria semántica segura, nunca datos locales del cliente."""
     if not isinstance(contexto, dict):
         return {}
+    # Catálogo sin duplicados, con nombres, descripciones, variantes e ingredientes recortados.
     resultado = {}
     catalogo = contexto.get("catalogo")
     if isinstance(catalogo, list):
@@ -422,6 +444,7 @@ def _contexto_acotado(contexto: dict) -> dict:
                         if isinstance(valor, str):
                             seguro[campo].append(valor[:longitud])
             resultado["catalogo"].append(seguro)
+    # Edición pendiente: solo argumentos conocidos y nombres de campos presentes.
     edicion = contexto.get("edicion_pendiente")
     if (
         isinstance(edicion, dict)
@@ -467,6 +490,7 @@ def _contexto_acotado(contexto: dict) -> dict:
         valor = contexto.get(campo)
         if isinstance(valor, str) and valor in opciones:
             resultado[campo] = valor
+    # Memoria de la conversación: pregunta pendiente, campos presentes y últimos turnos.
     conversacion = contexto.get("conversacion")
     if isinstance(conversacion, dict):
         pendiente = conversacion.get("solicitud_pendiente")
@@ -499,6 +523,7 @@ def _contexto_acotado(contexto: dict) -> dict:
                 if seguro:
                     memoria["ultimos_turnos"].append(seguro)
         resultado["conversacion"] = memoria
+    # Ítems del pedido con identificadores, nombres e ingredientes conocidos.
     items = contexto.get("items", [])
     resultado["items"] = []
     if not isinstance(items, list):
@@ -530,6 +555,7 @@ def _contexto_acotado(contexto: dict) -> dict:
 def _entrada_acotada(texto: str, contexto: dict) -> str | None:
     """Las descripciones aprovechan el espacio libre sin desplazar datos operativos."""
     seguro = _contexto_acotado(contexto)
+    # Recorta progresivamente las descripciones hasta que la entrada entre en 10 KB.
     for longitud in (200, 100, 50, 25, 12, 6, 3, 1, 0):
         for producto in seguro.get("catalogo", []):
             if "descripcion" in producto:
@@ -559,6 +585,9 @@ async def _consultar_gemini(solicitud: Request, timeout: float, diagnostico: dic
 
 
 def _falta_pregunta_producto(accion, argumentos, contexto):
+    """Indica si un alta o reemplazo nombra un producto que no coincide con uno solo del catálogo y
+    no trae pregunta de aclaración; también revisa cada operación de un plan.
+    """
     if accion == "editar_pedido":
         return any(_falta_pregunta_producto(op["accion"], op["argumentos"], contexto)
                    for op in argumentos["operaciones"])
@@ -579,6 +608,7 @@ def _validar_respuesta_gemini(
     respuesta: dict, texto: str, contexto: dict | None = None,
 ) -> dict | str:
     """Devuelve una intención válida o una causa cerrada; nunca aplica operaciones."""
+    # Validación cerrada de la respuesta: un candidato, una llamada y argumentos válidos.
     try:
         candidatos = respuesta["candidates"]
         if not isinstance(candidatos, list) or len(candidatos) != 1:
@@ -614,6 +644,9 @@ class GeminiInterpretador:
         modelos_alternativos: list[str] | tuple[str, ...] = (),
         max_intentos: int = 2,
     ):
+        """Configura la clave, el modelo principal, los alternativos permitidos y el presupuesto de
+        intentos y plazo.
+        """
         if set(modelos_alternativos) - _MODELOS_ALTERNATIVOS_GRATUITOS:
             raise ValueError("Modelo alternativo sin nivel gratuito verificado")
         if not 1 <= max_intentos <= 3 or not 0 < timeout <= 30:
@@ -625,6 +658,10 @@ class GeminiInterpretador:
         self._max_intentos = max_intentos
 
     async def interpretar(self, texto: str, contexto: dict) -> dict:
+        """Envía el mensaje y el contexto acotado a Gemini y devuelve la intención validada. Ante
+        errores, cuota o salidas inválidas devuelve una derivación por proveedor sin aplicar
+        cambios.
+        """
         if isinstance(texto, str) and len(texto) > LIMITE_INTERPRETACION:
             return _largo()
         if not isinstance(texto, str) or not texto.strip():
@@ -707,6 +744,7 @@ class GeminiInterpretador:
             if entrada is None:
                 # Incluye el contexto del pedido: no es corregible por el cliente.
                 return _fallo("CONTEXTO")
+            # Declara cada acción como herramienta y obliga a llamar exactamente una.
             solicitud = _post_json(
                 f"https://generativelanguage.googleapis.com/v1beta/models/{self._modelo}:generateContent",
                 {
@@ -748,6 +786,7 @@ class GeminiInterpretador:
             referencia = uuid4().hex[:12]
             indice_modelo = 0
             causa = "TRANSITORIO"
+            # Intentos con plazo propio; ante cuota o timeout se pasa al modelo alternativo.
             for intento in range(self._max_intentos):
                 modelo = self._modelos[indice_modelo]
                 # Un thread que agotó la espera puede seguir terminando su socket:
@@ -795,6 +834,7 @@ class GeminiInterpretador:
                     referencia, modelo, intento + 1,
                     round((time.monotonic() - inicio) * 1000), causa, codigo, clase,
                 )
+                # Errores definitivos o último intento: se deriva sin reintentar.
                 if codigo is not None and codigo not in _HTTP_TRANSITORIOS | {408, 429, 404}:
                     return _fallo(causa, referencia=referencia)
                 if causa in {"CREDENCIALES", "PERMISOS"} or intento + 1 == self._max_intentos:
@@ -816,10 +856,15 @@ class SimuladoTransporte:
     """No realiza envíos; ``sim-`` NO significa aceptación ni entrega real."""
 
     async def enviar(self, telefono: str, texto: str) -> str:
+        """Devuelve un identificador simulado sin enviar nada."""
         return f"sim-{uuid4().hex}"
 
 
 class WhatsAppCloud:
+    """Transporte real por la API de WhatsApp Cloud de Meta: envío de texto y descarga de
+    comprobantes.
+    """
+
     def __init__(
         self,
         token: str,
@@ -829,6 +874,7 @@ class WhatsAppCloud:
         *,
         destinatarios_prueba_sin_9: list[str] | tuple[str, ...] = (),
     ):
+        """Valida la configuración de Meta (token, número emisor, versión y plazo)."""
         if (
             not token
             or not re.fullmatch(r"\d+", phone_number_id)
@@ -843,6 +889,9 @@ class WhatsAppCloud:
         self._destinatarios_prueba_sin_9 = frozenset(destinatarios_prueba_sin_9)
 
     async def enviar(self, telefono: str, texto: str) -> str:
+        """Envía un mensaje de texto y devuelve el ID de Meta, que acredita aceptación y no entrega.
+        Los errores 408 o 5xx se informan como envío incierto.
+        """
         if (
             not isinstance(telefono, str)
             or not re.fullmatch(r"[1-9]\d{6,14}", telefono)
@@ -869,6 +918,7 @@ class WhatsAppCloud:
             },
             {"Authorization": f"Bearer {self._token}"},
         )
+        # Solo se registran datos de diagnóstico no sensibles; el token se identifica por hash.
         try:
             respuesta = await asyncio.to_thread(_leer_json, solicitud, self._timeout)
             identificador = respuesta["messages"][0]["id"]
@@ -907,6 +957,7 @@ class WhatsAppCloud:
         solicitud = Request(
             f"https://graph.facebook.com/{self._version}/{media_id}", headers=cabeceras
         )
+        # Valida que la URL de descarga sea de Meta y que el tipo y el tamaño estén permitidos.
         try:
             metadatos = await asyncio.to_thread(_leer_json, solicitud, self._timeout)
             url = metadatos["url"]
@@ -932,6 +983,9 @@ class WhatsAppCloud:
             raise ReglaDeNegocio("No fue posible descargar el comprobante de WhatsApp") from None
 
     def _descargar(self, solicitud: Request, tipo: str) -> tuple[bytes, str]:
+        """Descarga el archivo verificando que el tipo real coincida y que no supere el tamaño
+        máximo.
+        """
         with _HTTP.open(solicitud, timeout=self._timeout) as respuesta:
             tipo_real = respuesta.headers.get("Content-Type", "").split(";")[0].strip().lower()
             if tipo_real != tipo:

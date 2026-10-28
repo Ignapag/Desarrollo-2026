@@ -1,3 +1,6 @@
+// Proveedor del centro de notificaciones del personal: combina avisos de WhatsApp
+// (comprobantes y atenciones de la bandeja) y de stock bajo o agotado, sondea cada 8 s
+// y guarda por usuario qué avisos ya se leyeron.
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import { can } from '../auth/permissions';
@@ -8,14 +11,17 @@ import { inboxNotifications, sortNotifications, stockNotifications, validateInbo
 
 import { NotificationContext } from './notificationHooks';
 import { createNotificationReading } from './notificationReading';
+// Acceso seguro a localStorage (puede no estar disponible).
 function browserStorage() { try { return window.localStorage; } catch { return null; } }
 
+/** Proveedor de notificaciones; remonta la sesión cuando cambia el usuario o sus permisos. */
 export function NotificationProvider({ children }) {
   const { user } = useAuth();
   const scope = user ? [user.id, user.backendRole, ...(user.permisos || [])].join(':') : 'visitante';
   return <NotificationSession key={scope} user={user}>{children}</NotificationSession>;
 }
 
+/** Sesión de notificaciones de un usuario concreto. */
 function NotificationSession({ user, children }) {
   const { state, refreshInventory } = useData();
   // La identidad de sesión, además del id, invalida respuestas de cuentas previas.
@@ -23,21 +29,25 @@ function NotificationSession({ user, children }) {
     if (!can(user, 'whatsapp.ver')) return Promise.reject(Error('Sin permiso'));
     return apiFetch('/api/whatsapp/bandeja', { signal, cache: 'no-store', timeoutMs: 15000 });
   }, validateInbox), [user]);
+  // Permisos que habilitan cada fuente de avisos y estado de lectura persistido.
   const inbox = useSyncExternalStore(resource.subscribe, resource.getSnapshot, resource.getSnapshot);
   const whatsappEnabled = can(user, 'whatsapp.ver');
   const stockEnabled = can(user, 'stock.ver');
   const reading = useMemo(() => createNotificationReading(browserStorage(), user?.id), [user?.id]);
   const { keys: readKeys, storageError } = useSyncExternalStore(reading.subscribe, reading.getSnapshot, reading.getSnapshot);
+  // Recarga la bandeja de WhatsApp; tras una escritura cancela la lectura en curso.
   const refreshInbox = useCallback((force = false, afterWrite = false) => {
     if (!whatsappEnabled) return Promise.reject(Error('Sin permiso'));
     if (afterWrite) resource.cancel();
     return resource.load(force);
   }, [resource, whatsappEnabled]);
+  // Refresca todas las fuentes habilitadas.
   const refresh = useCallback(() => Promise.allSettled([
     ...(whatsappEnabled ? [refreshInbox(true)] : []),
     ...(stockEnabled ? [refreshInventory()] : []),
   ]), [whatsappEnabled, stockEnabled, refreshInbox, refreshInventory]);
 
+  // Sondeo cada 8 s, al recuperar el foco y al volver a la pestaña.
   useEffect(() => {
     if (!whatsappEnabled && !stockEnabled) return undefined;
     const update = () => { if (!document.hidden) void refresh(); };
@@ -53,6 +63,7 @@ function NotificationSession({ user, children }) {
     };
   }, [refresh, resource, whatsappEnabled, stockEnabled]);
 
+  // Avisos de stock derivados del inventario y lista combinada ordenada por prioridad.
   const stock = useMemo(() => stockEnabled ? stockNotifications(state.inventory || []) : [], [stockEnabled, state.inventory]);
   const notifications = useMemo(() => sortNotifications([
     ...(whatsappEnabled ? inboxNotifications(inbox.data) : []), ...stock,
@@ -65,10 +76,12 @@ function NotificationSession({ user, children }) {
     reading.retainStock(active);
   }, [stockEnabled, state.inventoryStatus, stockKeys, reading]);
 
+  // Marca como leídos solo los avisos que siguen visibles.
   const markRead = (keys) => {
     const visible = new Set(notifications.map((item) => item.key));
     reading.mark(keys.filter((key) => visible.has(key)));
   };
+  // Avisos con su marca de lectura, errores por fuente y estado de carga.
   const read = new Set(readKeys);
   const items = notifications.map((item) => ({ ...item, read: read.has(item.key) }));
   const errors = [];

@@ -1,4 +1,7 @@
-﻿import { Outlet, NavLink, useSearchParams } from 'react-router-dom';
+﻿// Layout del panel del personal: barra lateral (escritorio y móvil) con las secciones
+// que el usuario puede visitar, encabezado con búsqueda global y notificaciones,
+// aviso de WhatsApp y el área donde se renderiza cada pantalla (Outlet).
+import { Outlet, NavLink, useSearchParams } from 'react-router-dom';
 import { canVisit } from '../auth/permissions';
 import { useAuth } from '../auth/AuthContext';
 import { preloadPage } from '../shared/pageLoaders';
@@ -21,16 +24,20 @@ import {
 } from 'lucide-react';
 import { Suspense, useState } from 'react';
 
+/** Layout del panel envuelto en el proveedor del centro de notificaciones. */
 export default function DashboardLayout() {
   return <NotificationProvider><DashboardContent /></NotificationProvider>;
 }
 
+/** Contenido del layout: navegación, encabezado y pantalla actual. */
 function DashboardContent() {
   const { logout, user } = useAuth();
+  // Estado del menú móvil y búsqueda global (?q=) compartida por las pantallas.
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const searchQuery = searchParams.get('q') || '';
   
+  // Escribe la búsqueda en la URL para que la pantalla actual la filtre.
   const handleSearch = (e) => {
     if (e.target.value) {
       setSearchParams({ q: e.target.value });
@@ -39,6 +46,7 @@ function DashboardContent() {
     }
   };
 
+  // Secciones del panel; solo se muestran las que el usuario tiene permiso de visitar.
   const navItems = [
     { to: '/dashboard', icon: LayoutDashboard, label: 'Panel de Control', end: true },
     { to: '/dashboard/orders', icon: ListOrdered, label: 'Pedidos' },
@@ -60,6 +68,7 @@ function DashboardContent() {
           <span className="text-xl font-extrabold font-heading text-monu-dark">Monu Burger</span>
         </div>
         <nav className="flex-1 px-4 space-y-2">
+          {/* Al apuntar o enfocar un enlace se precarga el código de esa pantalla */}
           {navItems.map((item) => (
             <NavLink
               key={item.to}
@@ -120,6 +129,7 @@ function DashboardContent() {
             </div>
           </div>
 
+          {/* Notificaciones y datos del usuario */}
           <div className="flex items-center gap-4">
             <NotificationBell />
             <div className="flex items-center gap-3 pl-4 border-l border-monu-green/10">

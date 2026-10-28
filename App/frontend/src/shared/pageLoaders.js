@@ -14,6 +14,7 @@ export const pageLoaders = {
   '/dashboard/caja': () => import('../cash/Caja'),
 };
 
+// Precarga el código de una pantalla (p. ej. al pasar el mouse por su enlace).
 export function preloadPage(path) {
   void pageLoaders[path]?.().catch(() => undefined);
 }

@@ -52,6 +52,7 @@ AYUDA = (
 def comando_guiado(texto, b=None):
     """Gramática explícita: permite continuar sin presentar reglas locales como IA."""
     t = normalizar(texto)
+    # Comandos fijos de consulta, confirmación, cancelación y alta.
     if t in {"ayuda", "menu", "opciones"}:
         return {"accion": "ayuda", "argumentos": {}}
     if t in {"resumen", "total", "estado"}:
@@ -62,6 +63,7 @@ def comando_guiado(texto, b=None):
         return {"accion": "cancelar", "argumentos": {}}
     if t in {"agregar", "agregar producto"}:
         return {"accion": "agregar_producto", "argumentos": {}}
+    # Comandos sobre un producto del pedido identificado por su posición.
     for patron, accion in (
         (r"quitar producto (\d+)", "quitar_producto"),
         (r"reemplazar producto (\d+)", "reemplazar_producto"),
@@ -69,6 +71,7 @@ def comando_guiado(texto, b=None):
     ):
         if m := re.fullmatch(patron, t):
             return {"accion": accion, "argumentos": {"item_indice": int(m[1])}}
+    # Con una aclaración pendiente, cantidad y variante la completan en lugar de iniciar otra.
     pendiente = ((b or {}).get("contexto_chat") or {}).get("edicion")
     if m := re.fullmatch(r"cantidad (\d+)(?: producto (\d+))?", t):
         return {
@@ -83,6 +86,7 @@ def comando_guiado(texto, b=None):
                 **({"item_indice": int(m[2])} if m[2] else {}),
             },
         }
+    # Respuestas cortas que solo tienen sentido para completar una edición pendiente.
     if pendiente:
         for patron, campo in (
             (r"catalogo (\d+)", "catalogo_indice"),
@@ -96,6 +100,7 @@ def comando_guiado(texto, b=None):
             return {"accion": "completar_edicion", "argumentos": {"aclaraciones": ""}}
         if re.fullmatch(r"sin [\w ,áéíóúñ]+", t):
             return {"accion": "completar_edicion", "argumentos": {"aclaraciones": texto.strip()}}
+    # Datos de entrega y pago, sueltos o con el formato «campo: valor; campo: valor».
     if t in {"retiro", "delivery", "efectivo", "transferencia"}:
         campo = "tipo_entrega" if t in {"retiro", "delivery"} else "metodo_pago"
         return {"accion": "datos", "argumentos": {campo: t}}
@@ -111,6 +116,9 @@ def comando_guiado(texto, b=None):
 
 
 def es_modificacion(accion, b):
+    """Indica si la acción solicitada modifica el pedido (productos, datos o confirmación de una
+    propuesta).
+    """
     nombre = accion.get("accion")
     return (
         nombre in ACCIONES_ITEMS | {"datos", "editar_pedido"}
@@ -124,18 +132,25 @@ def es_modificacion(accion, b):
 
 
 def requiere_personal(pedido):
+    """Indica si el pedido ya avanzó a preparación o tiene repartidor, por lo que solo el personal
+    puede modificarlo.
+    """
     return pedido["estado"] not in {"PENDIENTE", "CONFIRMADO"} or bool(
         pedido.get("preparacion_en") or pedido.get("asignado")
     )
 
 
 async def catalogo(bot):
+    """Productos activos del catálogo, o lista vacía si el bot no tiene acceso al catálogo."""
     if bot.productos is None:
         return []
     return await bot.productos.listar(solo_activos=True)
 
 
 def _guardar_pendiente(b, accion, argumentos, entrada, foto, campo):
+    """Guarda una edición incompleta y la pregunta pendiente en el contexto del chat, invalidando
+    cualquier propuesta anterior.
+    """
     chat = dict(b.get("contexto_chat") or {})
     anterior = chat.get("edicion") or {}
     chat.update(
@@ -153,6 +168,10 @@ def _guardar_pendiente(b, accion, argumentos, entrada, foto, campo):
 
 
 async def editar_productos(bot, b, entrada, accion):
+    """Edita los productos del pedido desde el chat. Si la edición cambia el total, primero propone
+    el nuevo importe y solo lo aplica cuando el cliente responde *confirmar*; los pedidos ya en
+    preparación se derivan al personal.
+    """
     pedido = await bot.repo.pedido(b["pedido_id"])
     if requiere_personal(pedido):
         return await bot._derivar(b, entrada, {"accion": "humano"})
@@ -160,6 +179,7 @@ async def editar_productos(bot, b, entrada, accion):
     nombre = accion.get("accion")
     propuesta = b.get("propuesta") or {}
     confirmar = nombre == "confirmar"
+    # Confirmación de una propuesta previa: debe seguir vigente para la misma versión.
     if confirmar:
         if normalizar(entrada["texto"]) not in {
             "confirmar",
@@ -174,6 +194,7 @@ async def editar_productos(bot, b, entrada, accion):
                 "💬 Tu pedido cambió. No apliqué la propuesta; "
                 "revisá el resumen y pedí el cambio nuevamente."
             )
+        # Cancelación confirmada: con pagos registrados la resuelve el personal.
         if propuesta.get("tipo") == "CANCELACION":
             if pedido["pagado"] > 0:
                 return await bot._derivar(b, entrada, {"accion": "humano"})
@@ -191,6 +212,7 @@ async def editar_productos(bot, b, entrada, accion):
         nombre, args = propuesta["accion"]["accion"], dict(propuesta["accion"]["argumentos"])
         items = propuesta["items"]
     else:
+        # Intención nueva: arma la composición de ítems o devuelve una aclaración.
         resultado = await resolver_items(bot, b, entrada, pedido, accion)
         if isinstance(resultado, str):
             return resultado
@@ -211,6 +233,7 @@ async def editar_productos(bot, b, entrada, accion):
             "💬 Cambiaron los precios o la disponibilidad. "
             "No apliqué el cambio; revisemos una nueva propuesta."
         )
+    # Si la composición resultante es idéntica a la actual, no hay nada que guardar.
     campos = ("id", "producto_id", "cantidad", "variante", "aclaraciones")
     if [{k: i.get(k) for k in campos} for i in cotizacion["items"]] == [
         {k: i.get(k) for k in campos} for i in pedido["items"]
@@ -221,6 +244,7 @@ async def editar_productos(bot, b, entrada, accion):
             "sin ese ingrediente" if nombre == "quitar_ingrediente" else "con esas opciones"
         )
         return f"✅ Tu producto ya está guardado {detalle}.\n\n" + resumen(pedido)
+    # Un cambio de importe no se aplica sin confirmación expresa del cliente.
     if not confirmar and cotizacion["total"] != pedido["total"]:
         b["propuesta"] = {
             "tipo": "COMPOSICION",
@@ -245,6 +269,7 @@ async def editar_productos(bot, b, entrada, accion):
         origen="WHATSAPP",
         total_esperado=cotizacion["total"],
     )
+    # Si el nuevo total supera lo ya transferido, el pago vuelve a quedar pendiente.
     if b["metodo_pago"] == "TRANSFERENCIA" and cotizacion["total"] > pedido["pagado"]:
         b["estado_pago"] = "PENDIENTE"
     b["version"] += 1
@@ -267,6 +292,7 @@ async def resolver_items(bot, b, entrada, pedido, accion, *, permitir_vacio=Fals
     # Una intención nueva invalida la confirmación anterior incluso si falla.
     b["propuesta"] = None
     pendiente = (b.get("contexto_chat") or {}).get("edicion") or {}
+    # Completar una edición pendiente retoma la acción y los argumentos guardados.
     if nombre == "completar_edicion":
         if not pendiente:
             return AYUDA
@@ -278,12 +304,14 @@ async def resolver_items(bot, b, entrada, pedido, accion, *, permitir_vacio=Fals
     elif pendiente:
         # Una intención nueva reemplaza explícitamente la aclaración anterior.
         b["contexto_chat"].pop("edicion", None)
+    # Argumentos fuera de lo permitido o preguntas inválidas de la IA se derivan al personal.
     permitidos = ARGUMENTOS_EDICION.get(nombre, set())
     if set(args) - permitidos:
         return await bot._derivar(b, entrada, {"accion": "humano"})
     pregunta_ia = args.pop("pregunta_producto", None)
     if pregunta_ia is not None and not pregunta_producto_valida(pregunta_ia):
         return await bot._derivar(b, entrada, {"accion": "humano"})
+    # Copia editable de los ítems actuales del pedido.
     items = [
         {
             k: i[k]
@@ -294,10 +322,12 @@ async def resolver_items(bot, b, entrada, pedido, accion, *, permitir_vacio=Fals
     ]
     if nombre == "cancelar":
         return await _cancelar(bot, b, entrada, pedido, foto)
+    # La IA pidió una aclaración sobre el producto: se guarda y se reenvía al cliente.
     if pregunta_ia:
         _guardar_pendiente(b, nombre, args, entrada, foto, "producto")
         b["contexto_chat"]["edicion"]["pregunta_producto"] = pregunta_ia.strip()
         return pregunta_ia.strip()
+    # Las acciones sobre un producto existente requieren saber cuál; con uno solo se asume.
     indice = args.get("item_indice")
     if nombre != "agregar_producto":
         if indice is None and len(items) == 1:
@@ -314,6 +344,7 @@ async def resolver_items(bot, b, entrada, pedido, accion, *, permitir_vacio=Fals
             return await _cancelar(bot, b, entrada, pedido, foto)
         items.pop(indice - 1)
     elif nombre in {"agregar_producto", "reemplazar_producto", "cambiar_variante"}:
+        # Altas, reemplazos y cambios de variante necesitan resolver el producto del catálogo.
         productos = await catalogo(bot)
         if not productos:
             return await bot._derivar(b, entrada, {"accion": "humano"})
@@ -347,6 +378,7 @@ async def resolver_items(bot, b, entrada, pedido, accion, *, permitir_vacio=Fals
                 producto = coincidencias[0]
             elif coincidencias:
                 productos = coincidencias
+        # Producto sin resolver: se ofrece el listado del catálogo para elegir.
         if producto is None:
             args.pop("catalogo_indice", None)
             _guardar_pendiente(b, nombre, args, entrada, foto, "producto")
@@ -355,6 +387,7 @@ async def resolver_items(bot, b, entrada, pedido, accion, *, permitir_vacio=Fals
             return f"🍔 Elegí un producto del catálogo:\n{listado}\nRespondé *catálogo N*."
         args.pop("catalogo_indice", None)
         args["producto"] = producto["nombre"]
+        # La variante debe ser una de las ofrecidas por el producto.
         variantes = producto.get("variantes") or []
         seleccion = next(
             (
@@ -372,6 +405,7 @@ async def resolver_items(bot, b, entrada, pedido, accion, *, permitir_vacio=Fals
                 + ", ".join(v["nombre"] for v in variantes)
                 + ". Respondé *variante NOMBRE*."
             )
+        # Los reemplazos conservan la cantidad anterior si el cliente no indicó otra.
         cantidad = args.get("cantidad")
         if nombre in {"reemplazar_producto", "cambiar_variante"} and cantidad is None:
             cantidad = items[indice - 1]["cantidad"]
@@ -406,6 +440,7 @@ async def resolver_items(bot, b, entrada, pedido, accion, *, permitir_vacio=Fals
             )
         items[indice - 1]["cantidad"] = cantidad
     elif nombre in {"personalizar", "quitar_ingrediente"}:
+        # Quitar un ingrediente se registra como aclaración «Sin X» del ítem.
         if nombre == "quitar_ingrediente":
             ingrediente = str(args.get("ingrediente", ""))
             notas = items[indice - 1].get("aclaraciones") or ""
@@ -428,6 +463,9 @@ async def resolver_items(bot, b, entrada, pedido, accion, *, permitir_vacio=Fals
 
 
 async def _cancelar(bot, b, entrada, pedido, foto):
+    """Propone cancelar el pedido pidiendo confirmación; con pagos registrados se deriva al
+    personal.
+    """
     if pedido["pagado"] > 0:
         return await bot._derivar(b, entrada, {"accion": "humano"})
     b["propuesta"] = {"tipo": "CANCELACION", "version": b["version"], "operacion": foto}

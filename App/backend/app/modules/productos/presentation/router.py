@@ -15,6 +15,7 @@ from app.modules.productos.presentation.esquemas import (
 from app.modules.usuarios.domain.entidades import ClaimsSesion
 from app.modules.usuarios.presentation.dependencias import requiere_permiso
 
+# Permisos del catálogo: gestionar productos y ver recetas.
 PermisoProductosGestionar = Annotated[
     ClaimsSesion, Depends(requiere_permiso("productos", "gestionar"))
 ]
@@ -29,6 +30,7 @@ router = APIRouter(prefix="/api/productos", tags=["productos"])
 async def listar_productos(
     servicio: ServicioProductosDep, solo_activos: bool = True
 ) -> list[ProductoSalida]:
+    """Lista el catálogo público; por defecto solo productos activos."""
     return [ProductoSalida(**fila) for fila in await servicio.listar(solo_activos=solo_activos)]
 
 
@@ -38,6 +40,7 @@ async def crear_producto(
     _sesion: PermisoProductosGestionar,
     servicio: ServicioProductosDep,
 ) -> ProductoSalida:
+    """Da de alta un producto con su receta y variantes."""
     fila = await servicio.crear(datos.a_dominio())
     return ProductoSalida(**fila)
 
@@ -48,6 +51,7 @@ async def obtener_receta(
     _sesion: PermisoProductosVerReceta,
     servicio: ServicioProductosDep,
 ) -> RecetaSalida:
+    """Devuelve la receta base y por variante de un producto."""
     return RecetaSalida(**await servicio.obtener_receta(producto_id))
 
 
@@ -58,6 +62,7 @@ async def actualizar_receta(
     _sesion: PermisoProductosGestionar,
     servicio: ServicioProductosDep,
 ) -> RecetaSalida:
+    """Reemplaza la receta de un producto, controlando que no haya cambiado."""
     return RecetaSalida(**await servicio.actualizar_receta(producto_id, datos.a_dominio()))
 
 
@@ -68,4 +73,5 @@ async def cambiar_estado_producto(
     _sesion: PermisoProductosGestionar,
     servicio: ServicioProductosDep,
 ) -> ProductoSalida:
+    """Activa o desactiva un producto del catálogo."""
     return ProductoSalida(**await servicio.cambiar_estado(producto_id, activo=datos.activo))

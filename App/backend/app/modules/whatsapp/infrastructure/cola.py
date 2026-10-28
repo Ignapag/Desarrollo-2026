@@ -5,10 +5,18 @@ from app.modules.whatsapp.domain.mensajes import ocultar_referencias
 
 
 class ColaWhatsAppSQL:
+    """Cola SQL de WhatsApp: mensajes entrantes pendientes, reclamo y resultado de salidas, estados
+    del proveedor y bandeja del personal.
+    """
+
     def __init__(self, uow: UnidadDeTrabajo):
+        """Recibe la unidad de trabajo usada para las consultas SQL."""
         self.uow = uow
 
     async def pendientes(self, limite=20, *, solo_demo=False):
+        """Mensajes entrantes pendientes de procesar, en orden de llegada; con solo_demo se limita a
+        sesiones de demostración.
+        """
         return await self.uow.todos(
             "SELECT id,texto,telefono FROM whatsapp_entrada WHERE estado='PENDIENTE' "
             "AND (NOT %s OR EXISTS(SELECT 1 FROM chat_demo_sesion d "
@@ -18,6 +26,9 @@ class ColaWhatsAppSQL:
         )
 
     async def reclamar(self, *, solo_demo=False):
+        """Reclama la próxima salida para enviar, marcándola ENVIANDO. Antes marca como INCIERTO lo
+        que quedó enviándose hace más de 5 minutos.
+        """
         # Un proceso caído pudo haber enviado: no volver a enviar sin evidencia.
         await self.uow.ejecutar(
             """UPDATE whatsapp_salida SET estado='INCIERTO',actualizado_en=now()
@@ -39,6 +50,9 @@ class ColaWhatsAppSQL:
         )
 
     async def dentro_ventana(self, telefono):
+        """Indica si el cliente escribió en las últimas 24 horas (ventana de mensajes libres de
+        WhatsApp).
+        """
         return bool(
             await self.uow.valor(
                 """SELECT EXISTS (SELECT 1 FROM whatsapp_entrada WHERE telefono=%s
@@ -48,6 +62,9 @@ class ColaWhatsAppSQL:
         )
 
     async def resultado(self, identificador, estado, proveedor_id=None):
+        """Registra el resultado de un envío y programa el próximo intento con espera exponencial;
+        con proveedor_id reconcilia los estados ya recibidos.
+        """
         if proveedor_id:
             await self.uow.valor(
                 "SELECT pg_advisory_xact_lock(hashtext(%s))", ("envio:" + proveedor_id,)
@@ -62,6 +79,8 @@ class ColaWhatsAppSQL:
             await self._reconciliar(proveedor_id)
 
     async def estado_proveedor(self, proveedor_id, telefono, estado):
+        """Registra un estado de entrega informado por el proveedor y lo reconcilia con la salida.
+        """
         if estado not in {"sent", "delivered", "read", "failed"}:
             return
         await self.uow.valor(
@@ -75,6 +94,7 @@ class ColaWhatsAppSQL:
         await self._reconciliar(proveedor_id)
 
     async def _reconciliar(self, proveedor_id):
+        """Consolida los eventos del proveedor en el estado de la salida."""
         # No se degrada una entrega probada por un evento tardío o repetido.
         await self.uow.ejecutar(
             """UPDATE whatsapp_salida s SET estado=e.estado,actualizado_en=now(),
@@ -103,6 +123,7 @@ class ColaWhatsAppSQL:
         )
 
     async def bandeja(self):
+        """Bandeja del personal: comprobantes, cambios pendientes, atenciones y últimas salidas."""
         comprobantes = await self.uow.todos(
             """SELECT c.id,c.pedido_id,p.numero,p.total,b.metodo_pago,
             c.estado,c.creado_en,c.revisado_por,c.motivo
@@ -156,6 +177,7 @@ class ColaWhatsAppSQL:
         if not atenciones:
             return []
         hashes = [a["referencia_hash"] for a in atenciones]
+        # Últimos cinco mensajes de cada conversación derivada.
         mensajes = await self.uow.todos(
             """SELECT referencia_hash,texto,respuesta,creado_en FROM (
                 SELECT referencia_hash,texto,respuesta,creado_en,row_number() OVER (
@@ -183,6 +205,7 @@ class ColaWhatsAppSQL:
             WHERE s.atencion_id = ANY(%s) ORDER BY s.id""",
             ([a["id"] for a in atenciones],),
         )
+        # Completa cada atención con su mensaje, datos pedidos, historial, productos y respuestas.
         for a in atenciones:
             hash_conversacion = a.pop("referencia_hash")
             items_borrador = a.pop("items") or []
@@ -192,6 +215,7 @@ class ColaWhatsAppSQL:
             origen = a.pop("entrada_id")
             if chat.get("bloqueo_operativo"):
                 a["mensaje"] += "\n\n" + chat["bloqueo_operativo"]
+            # En solicitudes de personal se agregan los datos de entrega que el cliente pidió.
             if a["motivo"] == "SOLICITUD" and (
                 chat.get("solicitud_id") == origen
                 or chat.get("pregunta") in {"direccion", "numero", "localidad"}

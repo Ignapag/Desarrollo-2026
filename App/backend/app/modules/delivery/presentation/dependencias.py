@@ -16,6 +16,11 @@ from app.modules.pedidos.presentation.dependencias import obtener_servicio_pedid
 
 
 def obtener_servicio_delivery(uow: UoW) -> ServicioDelivery:
+    """Arma el servicio de delivery con su repositorio y el servicio de pedidos.
+
+    El servicio de pedidos es la autoridad sobre las transiciones de estado del pedido (en camino,
+    entregado, listo).
+    """
     return ServicioDelivery(uow, RepositorioDeliverySQL(uow), obtener_servicio_pedidos(uow))
 
 

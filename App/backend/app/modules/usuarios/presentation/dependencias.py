@@ -20,6 +20,7 @@ from app.modules.usuarios.infrastructure.repositorio_sql import RepositorioUsuar
 
 
 def obtener_servicio_auth(uow: UoW) -> ServicioAuth:
+    """Arma el servicio de inicio de sesión con el repositorio de usuarios."""
     return ServicioAuth(uow, RepositorioUsuariosSQL(uow))
 
 
@@ -27,6 +28,7 @@ ServicioAuthDep = Annotated[ServicioAuth, Depends(obtener_servicio_auth)]
 
 
 def obtener_servicio_usuarios(uow: UoW) -> ServicioUsuarios:
+    """Arma el servicio de gestión de cuentas con el repositorio de usuarios."""
     return ServicioUsuarios(uow, RepositorioUsuariosSQL(uow))
 
 
@@ -34,6 +36,11 @@ ServicioUsuariosDep = Annotated[ServicioUsuarios, Depends(obtener_servicio_usuar
 
 
 def usuario_actual(request: Request) -> ClaimsSesion:
+    """Lee y valida el JWT de la cookie de sesión y devuelve su identidad.
+
+    Lanza ``NoAutenticado`` si no hay cookie o el token es inválido o venció. Los permisos se cargan
+    después desde la base.
+    """
     token = request.cookies.get(settings.cookie_sesion)
     if not token:
         raise NoAutenticado("No hay una sesion iniciada")
@@ -52,6 +59,7 @@ TokenSesion = Annotated[ClaimsSesion, Depends(usuario_actual)]
 
 
 def obtener_servicio_acceso(uow: UoW) -> ServicioAcceso:
+    """Arma el servicio de control de acceso con su repositorio SQL."""
     return ServicioAcceso(RepositorioAccesoSQL(uow))
 
 
@@ -59,6 +67,7 @@ ServicioAccesoDep = Annotated[ServicioAcceso, Depends(obtener_servicio_acceso)]
 
 
 async def sesion_vigente(token: TokenSesion, acceso: ServicioAccesoDep) -> ClaimsSesion:
+    """Completa la identidad del token con el estado, rol y permisos vigentes en la base."""
     return await acceso.sesion(token)
 
 
@@ -66,9 +75,15 @@ Sesion = Annotated[ClaimsSesion, Depends(sesion_vigente)]
 
 
 def requiere_permiso(modulo: str, accion: str, *, cliente: bool = False):
+    """Crea una dependencia que exige el permiso ``modulo.accion`` a la sesión.
+
+    Con ``cliente=True`` los clientes también pasan; cada endpoint limita luego sus datos a los
+    propios.
+    """
     permiso = f"{modulo}.{accion}"
 
     def guardia(sesion: Sesion) -> ClaimsSesion:
+        """Valida la sesión contra el permiso requerido y la devuelve."""
         if cliente and sesion.rol == Rol.CLIENTE:
             return sesion
         if sesion.rol == Rol.CLIENTE or not sesion.puede(permiso):
@@ -79,9 +94,11 @@ def requiere_permiso(modulo: str, accion: str, *, cliente: bool = False):
 
 
 def requiere_rol(*roles: Rol) -> Callable[[ClaimsSesion], ClaimsSesion]:
+    """Crea una dependencia que solo admite los roles indicados."""
     permitidos = frozenset(roles)
 
     def guardia(claims: Sesion) -> ClaimsSesion:
+        """Valida que el rol de la sesión esté entre los permitidos."""
         if claims.rol not in permitidos:
             raise SinPermiso(f"El rol {claims.rol.value} no tiene acceso a esta operacion")
         return claims
@@ -89,6 +106,7 @@ def requiere_rol(*roles: Rol) -> Callable[[ClaimsSesion], ClaimsSesion]:
     return guardia
 
 
+# Atajos de autorización por rol para usar en las firmas de los endpoints.
 PersonalInterno = Annotated[ClaimsSesion, Depends(requiere_rol(*ROLES_PERSONAL_INTERNO))]
 SoloAdministrador = Annotated[ClaimsSesion, Depends(requiere_rol(Rol.ADMINISTRADOR))]
 SoloDuenio = Annotated[ClaimsSesion, Depends(requiere_rol(Rol.DUENIO))]

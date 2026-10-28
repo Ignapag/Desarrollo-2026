@@ -27,6 +27,7 @@ _LOCALES = {"localhost", "127.0.0.1", "::1"}
 
 
 def comprobar(condicion: bool, mensaje: str) -> None:
+    """Corta la demo con un error legible si la condición no se cumple."""
     if not condicion:
         raise RuntimeError(mensaje)
 
@@ -65,6 +66,9 @@ def validar_entorno() -> None:
 
 
 async def datos_iniciales() -> tuple[int, int, dict, tuple[str, str]]:
+    """Verifica las precondiciones de la base local y devuelve cliente, empleado, ítem de prueba y
+    dos teléfonos ficticios sin uso.
+    """
     async with conexion() as conn:
         uow = UnidadDeTrabajo(conn)
         comprobar(
@@ -120,6 +124,9 @@ async def recibir_y_procesar(
     media_id: str | None = None,
     identificador: str | None = None,
 ) -> tuple[str, str]:
+    """Registra un mensaje entrante, lo procesa con el worker y devuelve el ID y la respuesta del
+    bot.
+    """
     identificador = identificador or f"demo:{uuid4().hex}"
     async with conexion() as conn:
         await construir_servicio(UnidadDeTrabajo(conn)).recibir(
@@ -144,6 +151,7 @@ async def recibir_y_procesar(
 
 
 async def pedido_de(telefono: str) -> dict:
+    """Pedido operativo creado desde la conversación del teléfono."""
     async with conexion() as conn:
         fila = await UnidadDeTrabajo(conn).uno(
             "SELECT p.id,p.numero,p.total,p.estado,b.estado_pago FROM pedido p "
@@ -155,6 +163,7 @@ async def pedido_de(telefono: str) -> dict:
 
 
 async def vista_cocina(cliente_id: int, pedido_id: int) -> dict:
+    """Muestra el primer ítem del pedido tal como lo ve cocina y lo devuelve."""
     async with conexion() as conn:
         pedidos = await construir_servicio(UnidadDeTrabajo(conn)).pedidos.listar(
             cliente_id=cliente_id
@@ -169,6 +178,9 @@ async def vista_cocina(cliente_id: int, pedido_id: int) -> dict:
 
 
 async def escenario_efectivo(cliente_id: int, item: dict, telefono: str) -> int:
+    """Escenario 1: borrador con pago en efectivo, datos guiados, idempotencia de la recepción y
+    cambios con confirmación.
+    """
     print("1. Borrador, datos guiados, recepción repetida y personalización.")
     async with conexion() as conn:
         uow = UnidadDeTrabajo(conn)
@@ -217,6 +229,9 @@ async def escenario_efectivo(cliente_id: int, item: dict, telefono: str) -> int:
 async def escenario_transferencia(
     cliente_id: int, empleado_id: int, item: dict, telefono: str
 ) -> int:
+    """Escenario 2: pago por transferencia con comprobante ficticio; cocina queda bloqueada hasta
+    que el personal aprueba el pago.
+    """
     print("2. Transferencia ficticia, revisión humana y autorización para cocina.")
     async with conexion() as conn:
         borrador = await construir_servicio(UnidadDeTrabajo(conn)).crear_borrador(
@@ -241,6 +256,7 @@ async def escenario_transferencia(
             await uow.valor("SELECT count(*) FROM pago WHERE pedido_id=%s", (pedido["id"],)) == 0,
             "Recibir un comprobante no puede acreditar el pago.",
         )
+    # Sin pago aprobado, pasar a preparación debe fallar.
     try:
         async with conexion() as conn:
             await construir_servicio(UnidadDeTrabajo(conn)).pedidos.cambiar_estado(
@@ -280,6 +296,9 @@ async def escenario_transferencia(
 
 
 async def ejecutar() -> None:
+    """Ejecuta ambos escenarios sobre la base local y verifica que todas las salidas queden
+    simuladas.
+    """
     validar_entorno()
     print("DEMO LOCAL DESCARTABLE: guarda pedidos/pagos ficticios y consume stock de prueba.")
     print("No envía WhatsApp, no llama Gemini, no imprime referencias ni borra datos.")

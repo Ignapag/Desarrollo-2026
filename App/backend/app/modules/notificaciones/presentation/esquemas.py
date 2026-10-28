@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 
 
 class PlantillaEntrada(BaseModel):
+    """Datos para registrar una plantilla de notificación para un evento."""
+
     clave: str
     nombre: str = Field(min_length=1)
     cuerpo: str = Field(min_length=1)
@@ -15,12 +17,16 @@ class PlantillaEntrada(BaseModel):
 
 
 class ModificarPlantillaEntrada(BaseModel):
+    """Datos editables de una plantilla existente."""
+
     nombre: str = Field(min_length=1)
     cuerpo: str = Field(min_length=1)
     activa: bool = True
 
 
 class PlantillaSalida(BaseModel):
+    """Plantilla de notificación tal como se devuelve al panel."""
+
     id: int
     clave: str
     nombre: str
@@ -31,6 +37,8 @@ class PlantillaSalida(BaseModel):
 
 
 class NotificacionSalida(BaseModel):
+    """Notificación encolada con su estado de envío e intentos."""
+
     id: int
     clave: str
     destinatario: str
@@ -44,6 +52,8 @@ class NotificacionSalida(BaseModel):
 
 
 class ResultadoProcesamiento(BaseModel):
+    """Resumen de una corrida de envío de notificaciones pendientes."""
+
     procesadas: int
     enviadas: int
     fallidas: int

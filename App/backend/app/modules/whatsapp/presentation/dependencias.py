@@ -20,6 +20,9 @@ from app.modules.whatsapp.infrastructure.repositorio_sql import RepositorioBotSQ
 
 
 def construir_servicio(uow: UoW) -> ServicioBot:
+    """Arma el servicio del bot con su repositorio SQL y los servicios de pedidos, stock y productos
+    de la misma unidad de trabajo.
+    """
     return ServicioBot(
         RepositorioBotSQL(uow),
         obtener_servicio_pedidos(uow),
@@ -34,6 +37,9 @@ ServicioBotDep = Annotated[ServicioBot, Depends(construir_servicio)]
 
 
 def interpretador(modo=None):
+    """Intérprete de mensajes: Gemini en modo real o el simulado local; modo permite forzarlo, por
+    ejemplo para la demostración.
+    """
     if (modo or settings.gemini_modo) == "real":
         return GeminiInterpretador(
             settings.gemini_api_key, settings.gemini_modelo,
@@ -45,6 +51,7 @@ def interpretador(modo=None):
 
 
 def transporte():
+    """Transporte de salida: WhatsApp Cloud en modo real o el simulado que no envía."""
     if settings.whatsapp_modo == "real":
         return WhatsAppCloud(
             settings.whatsapp_token,

@@ -1,3 +1,6 @@
+// Chat de demostración del cliente en un diálogo: conversación con el bot (texto,
+// borrador del carrito y comprobantes), sondeo de respuestas, recuperación de envíos
+// sin confirmar y acciones rápidas (ayuda, resumen, pedir un empleado).
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Info, LoaderCircle, MessageCircle, Paperclip, Send, X } from 'lucide-react';
 import { chatBotText, chatDraftStatus, chatMessageStatus, getChatConversation, getPendingChatSend, openChatSession, reconcileChatSend, sendChatDraft, sendChatReceipt, sendChatText } from './chatDemo';
@@ -5,15 +8,19 @@ import { useData } from '../shared/store/DataContext';
 import { buildWhatsAppDraftPayload } from './whatsapp';
 import { userErrorMessage } from '../shared/api/userErrors';
 
+// Clase base de los botones del chat.
 const buttonClass = 'min-h-11 min-w-11 inline-flex items-center justify-center gap-2 rounded-xl px-3 font-bold active:opacity-75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-monu-green focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
 
+// Convierte *texto* en negrita en los mensajes del bot.
 function messageText(value) {
   return value.split(/(\*[^*\n]+\*)/g).map((part, index) => part.startsWith('*') && part.endsWith('*') && part.length > 2
     ? <strong key={index}>{part.slice(1, -1)}</strong> : part);
 }
 
+/** Diálogo del chat de demostración. */
 export default function ChatDrawer({ isOpen, onClose }) {
   const { state, dispatch } = useData();
+  // Vacía el carrito si el borrador confirmado coincide con lo que hay en él.
   const cartSnapshot = useRef({ cart: state.cart, dispatch });
   useLayoutEffect(() => { cartSnapshot.current = { cart: state.cart, dispatch }; }, [state.cart, dispatch]);
   const clearRecoveredCart = useCallback((draft) => {
@@ -22,6 +29,7 @@ export default function ChatDrawer({ isOpen, onClose }) {
     const items = draft.items.map((item) => ({ producto_id: item.producto_id, cantidad: item.cantidad, variante: item.variante || null, aclaraciones: item.aclaraciones || null }));
     if (JSON.stringify(buildWhatsAppDraftPayload({ cart }).items) === JSON.stringify(items)) clear({ type: 'CLEAR_CART' });
   }, []);
+  // Conversación, estado de carga/envío, errores, texto en edición y envío a reintentar.
   const [conversation, setConversation] = useState(null);
   const [checkedAt, setCheckedAt] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -34,6 +42,7 @@ export default function ChatDrawer({ isOpen, onClose }) {
   const [showInfo, setShowInfo] = useState(false);
   const [showAttachment, setShowAttachment] = useState(false);
   const [localMessage, setLocalMessage] = useState(null);
+  // Refs de elementos, de vigencia (epoch/mutation) y del mensaje local aún sin confirmar.
   const dialogRef = useRef(null);
   const closeRef = useRef(null);
   const inputRef = useRef(null);
@@ -45,6 +54,7 @@ export default function ChatDrawer({ isOpen, onClose }) {
   const refreshRef = useRef(null);
   const localMessageRef = useRef(null);
 
+  // Abre el <dialog> nativo, enfoca el campo de texto y bloquea el scroll de la página.
   useEffect(() => {
     if (!isOpen) return undefined;
     const dialog = dialogRef.current;
@@ -61,10 +71,13 @@ export default function ChatDrawer({ isOpen, onClose }) {
     };
   }, [isOpen]);
 
+  // Al terminar la carga inicial, mueve el foco del botón cerrar al campo de texto.
   useEffect(() => {
     if (isOpen && !loading && document.activeElement === closeRef.current) inputRef.current?.focus();
   }, [isOpen, loading]);
 
+  // Sondeo de la conversación: rápido (600 ms) mientras se espera respuesta del bot, si no cada 6 s.
+  // Reconcilia envíos pendientes y descarta respuestas anteriores a un envío.
   useEffect(() => {
     if (!isOpen) return undefined;
     const current = ++epoch.current;
@@ -119,16 +132,20 @@ export default function ChatDrawer({ isOpen, onClose }) {
     return () => { epoch.current += 1; refreshRef.current = null; window.clearTimeout(timer); document.removeEventListener('visibilitychange', refresh); };
   }, [isOpen, clearRecoveredCart]);
 
+  // Fuerza una actualización cuando cambia la revisión.
   useEffect(() => {
     if (revision) void refreshRef.current?.();
   }, [revision]);
 
+  // Desplaza la conversación al último mensaje.
   const lastMessage = conversation?.mensajes?.at(-1);
   useEffect(() => {
     const timeline = timelineRef.current;
     if (timeline) timeline.scrollTop = timeline.scrollHeight;
   }, [lastMessage?.id, localMessage?.id, localMessage?.estado]);
 
+  // Envía texto, borrador o comprobante mostrando un mensaje local hasta que el servidor lo confirme;
+  // si falla sin confirmación, conserva el intento para reintentarlo igual.
   const send = async (operation) => {
     if (busyRef.current) return;
     busyRef.current = true;
@@ -163,6 +180,7 @@ export default function ChatDrawer({ isOpen, onClose }) {
   };
 
   if (!isOpen) return null;
+  // Mensajes a mostrar (incluido el local) y si se puede enviar algo nuevo.
   const savedMessages = conversation?.mensajes || [];
   const messages = localMessage && !savedMessages.some((message) => message.id === localMessage.id)
     ? [...savedMessages, localMessage] : savedMessages;
@@ -176,6 +194,7 @@ export default function ChatDrawer({ isOpen, onClose }) {
       onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}
       className="fixed inset-0 m-auto h-[min(48rem,calc(100dvh_-_1rem))] w-[calc(100%_-_1rem)] max-w-xl overflow-hidden rounded-3xl border border-monu-green/10 bg-monu-bone p-0 text-monu-text shadow-monu-lg backdrop:bg-black/55 backdrop:backdrop-blur-sm">
       <div className="flex h-full min-h-0 flex-col">
+        {/* Encabezado con información y cierre */}
         <header className="flex shrink-0 items-center justify-between gap-2 border-b border-monu-green/10 bg-white px-3 py-2 sm:px-4">
           <div className="min-w-0">
             <h2 id="chat-title" className="flex items-center gap-2 font-heading text-base font-extrabold text-monu-dark sm:text-lg"><MessageCircle aria-hidden="true" className="size-5 shrink-0 text-monu-green" />Chat Monu Burger</h2>
@@ -186,6 +205,7 @@ export default function ChatDrawer({ isOpen, onClose }) {
             <button ref={closeRef} type="button" onClick={onClose} aria-label="Cerrar chat" className={buttonClass + ' hover:bg-monu-green/10'}><X aria-hidden="true" className="size-5" /></button>
           </div>
         </header>
+        {/* Panel de información: modo de interpretación, borradores y acciones rápidas */}
         {showInfo && <section id="chat-info" aria-label="Información y opciones del chat" className="max-h-[40%] shrink-0 overflow-y-auto border-b border-monu-green/10 bg-white px-4 py-3 text-sm">
           <p>Demostración: los mensajes no se envían por WhatsApp.</p>
           {conversation && <p className="mt-1 text-xs text-monu-text/80">{conversation.interpretador === 'real' ? conversation.gemini_configurado ? 'Interpretación con Gemini configurado' : 'Gemini sin configurar · podés pedir atención humana' : 'Interpretación simulada'}</p>}
@@ -203,12 +223,14 @@ export default function ChatDrawer({ isOpen, onClose }) {
             <button type="button" disabled={unavailable} onClick={() => { inputRef.current?.focus(); setShowInfo(false); void send({ text: 'empleado', preserveText: true }); }} className={buttonClass + ' text-sm text-monu-green hover:bg-monu-green/10'}>Pedir atención humana</button>
           </div>}
         </section>}
+        {/* Errores con acción de reintento o actualización */}
         {error && <div id="chat-error" role="alert" className="max-h-[30%] shrink-0 overflow-y-auto border-b border-red-200 bg-red-50 p-3 text-sm text-red-800">
           <p>{error}</p>
           {fetchError && sendError && <p className="mt-1">{fetchError}</p>}
           {retry?.fileName && !retry.file && <p className="mt-1 break-words">Volvé a elegir el mismo comprobante: {retry.fileName}. El archivo no se guarda en el navegador.</p>}
           <button type="button" disabled={sending} onClick={() => retry ? retry.fileName && !retry.file ? fileRef.current?.click() : void send(retry) : setRevision((value) => value + 1)} className={buttonClass + ' mt-1 underline'}>{retry ? retry.fileName && !retry.file ? 'Elegir el mismo comprobante' : 'Reintentar mismo envío' : 'Actualizar conversación'}</button>
         </div>}
+        {/* Línea de tiempo de mensajes */}
         <div ref={timelineRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 sm:px-4">
           {loading && !conversation && <p role="status" className="py-4 text-sm">Recuperando conversación…</p>}
           {!loading && conversation && !messages.length && <p className="py-4 text-sm text-monu-text/80">¿En qué te ayudamos? Podés traer tu pedido desde el carrito.</p>}
@@ -222,12 +244,15 @@ export default function ChatDrawer({ isOpen, onClose }) {
             </li>)}
           </ol>
         </div>
+        {/* Indicador de respuesta pendiente y formulario de envío */}
         {(pending || localMessage?.estado === 'PROCESADO') && <p role="status" className="flex shrink-0 items-center gap-2 px-4 pb-2 text-xs text-monu-text/80"><LoaderCircle aria-hidden="true" className="size-3 shrink-0 motion-safe:animate-spin" />{fetchError ? 'Sin conexión. Esperando recuperar el resultado.' : delayed ? 'Está demorando. Tu mensaje está guardado; no hace falta reenviarlo.' : 'Esperando respuesta…'}</p>}
         <form className="shrink-0 border-t border-monu-green/10 bg-white p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:px-3" onSubmit={(event) => { event.preventDefault(); if (!unavailable && text.trim()) void send({ text }); }}>
+          {/* Adjuntar comprobante ficticio */}
           {showAttachment && <div id="chat-attachment" className="mb-2 rounded-xl bg-monu-bone px-3 py-2 text-xs">
             <p>Comprobante ficticio: PDF, PNG o JPEG hasta 2 MiB. Adjuntarlo no acredita dinero.</p>
             <button type="button" disabled={unavailable} onClick={() => fileRef.current?.click()} className={buttonClass + ' mt-1 text-sm text-monu-green hover:bg-monu-green/10'}>Elegir comprobante</button>
           </div>}
+          {/* Campo de mensaje y botones de adjuntar y enviar */}
           <div className="flex items-end gap-2">
             <button type="button" aria-label="Adjuntar comprobante" aria-expanded={showAttachment} aria-controls="chat-attachment" disabled={unavailable} onClick={() => { setShowAttachment((value) => !value); setShowInfo(false); }} className={buttonClass + ' shrink-0 text-monu-green hover:bg-monu-green/10'}><Paperclip aria-hidden="true" className="size-5" /></button>
             <label htmlFor="chat-text" className="sr-only">Tu mensaje</label>

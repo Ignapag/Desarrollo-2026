@@ -1,3 +1,5 @@
+// Cálculos de reposición manual de stock: interpretación de cantidades, plan de
+// reposición con saldo resultante y formateo de cantidades con su unidad.
 import { UserFacingError } from '../shared/api/userErrors.js';
 
 // Reglas locales de reposición manual. La API vuelve a validar cantidad, permiso y saldo.
@@ -9,6 +11,7 @@ const invalid = (error) => ({ valid: false, error });
 // Desde estas cantidades se muestra el resumen y se pide confirmar antes de enviar.
 export const LARGE_REPLENISHMENT = { UNIDAD: 200, GR: 5000, ML: 5000, KG: 50, LT: 50 };
 
+// Interpreta la cantidad escrita (coma decimal, hasta 3 decimales) y la convierte a milésimas.
 export function parseReplenishQuantity(value) {
   const text = String(value ?? '').trim();
   if (!text) return invalid('Ingresá la cantidad a reponer.');
@@ -30,6 +33,7 @@ export function parseReplenishQuantity(value) {
 // La reposición no es idempotente: ante cualquier duda no se reenvía sin una confirmación explícita.
 export const isUncertainReplenishment = (error) => !(error instanceof UserFacingError) || error.uncertain;
 
+// Plan de reposición: cantidad válida, saldo resultante y si supera el umbral de "grande".
 export function replenishmentPlan(item, value) {
   const parsed = parseReplenishQuantity(value);
   if (!parsed.valid) return parsed;
@@ -40,14 +44,17 @@ export function replenishmentPlan(item, value) {
   return { ...parsed, resulting, large: parsed.scaled >= threshold };
 }
 
+// Texto del resumen que se pide confirmar.
 export function replenishmentSummary(item, plan) {
   return `Vas a sumar ${scaledWithUnit(plan.scaled, item.category)} a ${item.name}; quedará en ${scaledWithUnit(plan.resulting, item.category)}.`;
 }
 
+// Unidad visible del insumo (singular/plural para unidades).
 export const unitLabel = (unit, scaled = SCALE) => unit === 'UNIDAD' || !unit
   ? (scaled === SCALE ? 'unidad' : 'unidades')
   : ({ GR: 'g', KG: 'kg', LT: 'l', ML: 'ml' })[unit] || unit;
 
+// Convierte cantidades a milésimas y las formatea con separador de miles y coma decimal.
 export const toScaled = (number) => BigInt(Math.round(number * 1000));
 
 export function formatScaled(scaled) {
@@ -60,6 +67,7 @@ export const formatQuantity = (number) => Number.isFinite(number) ? formatScaled
 export const scaledWithUnit = (scaled, unit) => `${formatScaled(scaled)} ${unitLabel(unit, scaled)}`;
 export const quantityWithUnit = (number, unit) => Number.isFinite(number) ? scaledWithUnit(toScaled(number), unit) : '—';
 
+// Milésimas a texto decimal con punto para enviar a la API.
 function scaledToAmount(scaled) {
   const decimals = String(scaled % SCALE).padStart(3, '0').replace(/0+$/, '');
   return `${scaled / SCALE}${decimals ? `.${decimals}` : ''}`;

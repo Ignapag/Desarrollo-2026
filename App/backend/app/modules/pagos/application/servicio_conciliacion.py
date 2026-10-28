@@ -30,6 +30,7 @@ class ServicioConciliacion:
         repo: RepositorioPagosSQL,
         caja: ServicioCaja,
     ) -> None:
+        """Recibe la unidad de trabajo, el repositorio de pagos y el servicio de caja."""
         self.uow = uow
         self.repo = repo
         self.caja = caja
@@ -51,18 +52,22 @@ class ServicioConciliacion:
         await self.caja.bloquear_cierres_de_pagos([pago_id])
         pago = await self.repo.obtener_pago_por_id(pago_id)
 
+        # Idempotente: conciliar un pago ya conciliado no hace nada.
         if pago.es_conciliado:
             return pago
 
         if pago.estado == EstadoPago.ANULADO:
             raise ReglaDeNegocio(f"No se puede conciliar el pago #{pago_id} porque está anulado")
 
+        # El pago no puede dejar el saldo del pedido fuera de rango al acreditarse.
         neto = await self.repo.total_pagado_por_pedido(pago.pedido_id)
         if pago.tipo == TipoPago.COBRO and pago.monto > Decimal(str(pedido["total"])) - neto:
             raise ReglaDeNegocio("El cobro supera el saldo pendiente del pedido")
         if pago.tipo == TipoPago.DEVOLUCION and pago.monto > neto:
             raise ReglaDeNegocio("La devolución supera el saldo neto acreditado")
 
+        # Si el pago estaba en un cierre, se lo retira antes de conciliar para que el cierre se
+        # recalcule.
         if pago.cierre_caja_id is not None:
             cierre = await self.caja.obtener_cierre(pago.cierre_caja_id)
             await self.caja.desvincular_no_conciliados(cierre, conciliar_por, ip_cliente)
@@ -100,9 +105,11 @@ class ServicioConciliacion:
         conciliados: list[int] = []
         fallidos: list[dict] = []
 
+        # Ids únicos y ordenados, con bloqueos previos para evitar interbloqueos entre lotes.
         pago_ids = sorted(set(pago_ids))
         await self.repo.bloquear_pedidos_de_pagos(pago_ids)
         await self.caja.bloquear_cierres_de_pagos(pago_ids)
+        # Cada pago se concilia por separado; un error de negocio no frena al resto.
         for pid in pago_ids:
             try:
                 await self.conciliar_pago(
@@ -145,6 +152,7 @@ class ServicioConciliacion:
 
         if metodo_pago not in (MetodoPago.EFECTIVO, MetodoPago.TRANSFERENCIA):
             raise DatosInvalidos("La devolución debe ser en efectivo o transferencia")
+        # Idempotencia: un reintento con la misma clave devuelve la devolución ya registrada.
         solicitud = solicitud_operacion(
             tipo="DEVOLUCION",
             metodo=metodo_pago.value,
@@ -161,6 +169,7 @@ class ServicioConciliacion:
         if pedido is None:
             raise NoEncontrado(f"Pedido #{pedido_id} no encontrado")
 
+        # No se puede devolver más de lo efectivamente acreditado en el pedido.
         total_neto_pagado = await self.repo.total_pagado_por_pedido(pedido_id)
         if monto > total_neto_pagado:
             raise DatosInvalidos(
@@ -215,6 +224,7 @@ class ServicioConciliacion:
         if pago is None:
             raise NoEncontrado(f"Pago #{pago_id} no encontrado")
 
+        # Bloquea el pedido y relee el pago para decidir con el estado vigente.
         await self.repo.obtener_pedido_para_actualizar(pago.pedido_id)
         pago = await self.repo.obtener_pago_por_id(pago_id)
 

@@ -11,6 +11,8 @@ from app.modules.usuarios.domain.entidades import ClaimsSesion, Rol
 
 
 class ItemPedidoEntrada(BaseModel):
+    """Línea solicitada al crear un pedido: producto, cantidad, variante y aclaraciones."""
+
     model_config = ConfigDict(extra="forbid")
 
     producto_id: int = Field(gt=0)
@@ -20,6 +22,8 @@ class ItemPedidoEntrada(BaseModel):
 
 
 class DireccionPedidoEntrada(BaseModel):
+    """Dirección de entrega nueva informada al crear o editar un pedido."""
+
     model_config = ConfigDict(extra="forbid")
 
     calle: str = Field(min_length=1, max_length=160)
@@ -29,6 +33,8 @@ class DireccionPedidoEntrada(BaseModel):
 
 
 class PedidoCrear(BaseModel):
+    """Datos para crear un pedido de retiro o delivery."""
+
     model_config = ConfigDict(extra="forbid")
 
     cliente_id: int | None = Field(default=None, gt=0)
@@ -41,6 +47,8 @@ class PedidoCrear(BaseModel):
 
 
 class CambiarEstadoEntrada(BaseModel):
+    """Solicitud de cambio de estado, con datos de control para correcciones."""
+
     model_config = ConfigDict(extra="forbid")
     estado: EstadoPedido
     motivo: str | None = Field(default=None, min_length=1, max_length=500)
@@ -51,6 +59,8 @@ class CambiarEstadoEntrada(BaseModel):
 
 
 class EditarOperacionEntrada(BaseModel):
+    """Cambios operativos de un pedido (modalidad, dirección, pago acordado, notas)."""
+
     model_config = ConfigDict(extra="forbid")
     motivo: str = Field(min_length=1, max_length=500)
     version_esperada: int = Field(gt=0)
@@ -62,6 +72,8 @@ class EditarOperacionEntrada(BaseModel):
 
 
 class ItemPedidoSalida(BaseModel):
+    """Línea del pedido con su precio congelado y subtotal."""
+
     id: int
     producto_id: int
     nombre_producto: str
@@ -74,8 +86,11 @@ class ItemPedidoSalida(BaseModel):
 
 
 class PedidoSalida(BaseModel):
+    """Pedido completo con ítems, historial, pagos y saldo para el panel o el cliente."""
+
     @classmethod
     def para_sesion(cls, fila: dict, sesion: ClaimsSesion) -> "PedidoSalida":
+        """Arma la salida ocultando los pagos a quien no tenga permiso para verlos."""
         salida = cls(**fila)
         if sesion.rol != Rol.CLIENTE and not sesion.puede("pagos.ver"):
             salida.pagos = []

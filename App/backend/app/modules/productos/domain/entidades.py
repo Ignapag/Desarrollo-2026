@@ -9,6 +9,8 @@ from decimal import Decimal
 
 @dataclass(frozen=True, slots=True)
 class IngredienteProducto:
+    """Ingrediente de una receta con la cantidad que consume cada unidad vendida."""
+
     ingrediente_id: int
     cantidad_requerida: Decimal
     es_base: bool = True
@@ -16,6 +18,8 @@ class IngredienteProducto:
 
 @dataclass(frozen=True, slots=True)
 class VarianteProducto:
+    """Variante vendible de un producto (por ejemplo, simple o doble) con precio y receta."""
+
     nombre: str
     precio: Decimal
     ingredientes: tuple[IngredienteProducto, ...]
@@ -23,12 +27,16 @@ class VarianteProducto:
 
 @dataclass(frozen=True, slots=True)
 class VarianteReceta:
+    """Receta de una variante existente, usada al editar recetas sin cambiar precios."""
+
     nombre: str
     ingredientes: tuple[IngredienteProducto, ...]
 
 
 @dataclass(frozen=True, slots=True)
 class CambioReceta:
+    """Nueva receta de un producto, con la marca de tiempo esperada para concurrencia."""
+
     actualizado_en_esperado: datetime
     ingredientes: tuple[IngredienteProducto, ...]
     variantes: tuple[VarianteReceta, ...] = ()
@@ -36,6 +44,8 @@ class CambioReceta:
 
 @dataclass(frozen=True, slots=True)
 class DatosProducto:
+    """Datos para dar de alta un producto del catálogo con su receta y variantes."""
+
     categoria_id: int
     nombre: str
     descripcion: str | None
@@ -48,6 +58,10 @@ class DatosProducto:
 
 
 def validar_receta(ingredientes: tuple[IngredienteProducto, ...]) -> None:
+    """Valida una receta: al menos un ingrediente, cantidades válidas y sin repetidos.
+
+    Las cantidades deben ser Decimal finitos, positivos y con hasta tres decimales.
+    """
     if not ingredientes:
         raise ValueError("El producto debe tener al menos un ingrediente en su receta")
     ids: set[int] = set()
@@ -71,6 +85,11 @@ def validar_recetas_variantes(
     ingredientes: tuple[IngredienteProducto, ...],
     variantes: tuple[VarianteProducto | VarianteReceta, ...],
 ) -> None:
+    """Valida la receta base y las de cada variante (hasta 10, con nombres únicos).
+
+    Todas las variantes deben usar los mismos ingredientes que la base, y la base debe coincidir con
+    la primera variante.
+    """
     validar_receta(ingredientes)
     nombres: set[str] = set()
     base = {i.ingrediente_id: i for i in ingredientes}
@@ -89,6 +108,10 @@ def validar_recetas_variantes(
 
 
 def validar_producto(datos: DatosProducto) -> DatosProducto:
+    """Valida los datos de alta de un producto y devuelve una copia normalizada.
+
+    Recorta espacios en nombre, descripción y nombres de variantes.
+    """
     if datos.categoria_id <= 0:
         raise ValueError("La categoria no es valida")
     if not datos.nombre.strip():
@@ -98,6 +121,7 @@ def validar_producto(datos: DatosProducto) -> DatosProducto:
     if datos.orden < 0:
         raise ValueError("El orden no puede ser negativo")
     validar_recetas_variantes(datos.ingredientes, datos.variantes)
+    # Precio de cada variante: positivo, finito y con dos decimales como máximo.
     for variante in datos.variantes:
         if (
             not isinstance(variante.precio, Decimal)

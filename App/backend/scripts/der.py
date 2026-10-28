@@ -27,10 +27,12 @@ SALIDA_POR_DEFECTO = RAIZ_REPO / "docs" / "DER.md"
 
 #: Mermaid no acepta parentesis ni comas en el tipo del atributo.
 def _tipo_mermaid(tipo: str) -> str:
+    """Tipo SQL simplificado para Mermaid: sin parametros y en minusculas."""
     return tipo.split("(")[0].lower()
 
 
 def _titulo(archivo_stem: str) -> str:
+    """Titulo legible del modulo a partir del nombre del archivo de migracion (sin el numero)."""
     return archivo_stem.split("_", 1)[1].replace("_", " ").capitalize()
 
 
@@ -69,11 +71,15 @@ def _linea_relacion(
 
 
 def generar() -> str:
+    """Arma el contenido Markdown del DER: diagrama general, un diagrama por modulo y la tabla de
+    relaciones.
+    """
     archivos = sorted(DIR_MIGRACIONES.glob("*.sql"))
     por_archivo: dict[str, list[Tabla]] = {}
     todas: list[Tabla] = []
     esquema = parsear_esquema(archivos)
 
+    # Agrupa las tablas segun la migracion que las crea.
     for archivo in archivos:
         tablas = [tabla for tabla in esquema if tabla.archivo == archivo.stem]
         if tablas:
@@ -116,11 +122,13 @@ def generar() -> str:
         "erDiagram",
     ]
 
+    # Diagrama general: solo las relaciones entre entidades.
     for origen, destino, columna, obligatoria, uno_a_uno in relaciones:
         partes.append(_linea_relacion(origen, destino, columna, obligatoria, uno_a_uno))
 
     partes += ["```", "", "---", "", "## Diagramas por módulo", ""]
 
+    # Un diagrama por modulo con sus relaciones internas y los atributos de cada tabla.
     for stem, tablas in por_archivo.items():
         nombres = {t.nombre for t in tablas}
         partes += [f"### {_titulo(stem)}", "", "```mermaid", "erDiagram"]
@@ -142,6 +150,7 @@ def generar() -> str:
 
         partes += ["```", ""]
 
+    # Tabla de relaciones ordenada, con cardinalidad y obligatoriedad.
     partes += [
         "---",
         "",
@@ -172,6 +181,7 @@ def generar() -> str:
 
 
 def main() -> int:
+    """Punto de entrada CLI: escribe el DER en la ruta indicada."""
     parser = argparse.ArgumentParser(description="Genera el diagrama entidad-relacion")
     parser.add_argument("--salida", type=Path, default=SALIDA_POR_DEFECTO)
     args = parser.parse_args()

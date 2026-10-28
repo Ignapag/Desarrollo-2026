@@ -26,6 +26,7 @@ from app.core.errores import manejador_base_no_disponible, manejador_error_domin
 from app.errores import ErrorDominio
 from app.registro_modulos import registrar_routers
 
+# Logging global: DEBUG en desarrollo, INFO en el resto de los entornos.
 logging.basicConfig(
     level=logging.DEBUG if settings.debug else logging.INFO,
     format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
@@ -35,7 +36,14 @@ log = logging.getLogger("monuburger")
 
 @asynccontextmanager
 async def ciclo_de_vida(_: FastAPI) -> AsyncIterator[None]:
+    """Abre el pool de conexiones al arrancar la API y lo cierra al apagarla.
+
+    Si la base no responde al inicio solo se registra una advertencia: la API levanta igual y el
+    problema se informa en /api/salud.
+    """
+    # Abre el pool sin esperar a que la base esté disponible.
     await abrir_pool()
+    # Verificación informativa: un fallo acá no impide el arranque.
     try:
         await verificar_conexion()
         log.info("Conectado a la base %s", settings.dsn_visible)
@@ -45,6 +53,7 @@ async def ciclo_de_vida(_: FastAPI) -> AsyncIterator[None]:
             settings.dsn_visible,
             exc.__class__.__name__,
         )
+    # Mientras la app atiende requests; al salir se libera el pool pase lo que pase.
     try:
         yield
     finally:
@@ -52,6 +61,7 @@ async def ciclo_de_vida(_: FastAPI) -> AsyncIterator[None]:
         log.info("Pool de conexiones cerrado")
 
 
+# Aplicación FastAPI única del monolito modular.
 app = FastAPI(
     title=settings.app_nombre,
     version="0.1.0",
@@ -61,6 +71,7 @@ app = FastAPI(
     lifespan=ciclo_de_vida,
 )
 
+# CORS restringido a los frontends conocidos (configurable por entorno).
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.origenes_permitidos,
@@ -69,6 +80,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Traducción de errores de dominio e indisponibilidad de la base a respuestas HTTP.
 app.add_exception_handler(ErrorDominio, manejador_error_dominio)  # type: ignore[arg-type]
 app.add_exception_handler(PoolTimeout, manejador_base_no_disponible)
 app.add_exception_handler(OperationalError, manejador_base_no_disponible)
@@ -83,6 +95,7 @@ modulos_registrados = registrar_routers(app)
 async def salud() -> dict:
     """Healthcheck: verifica que la API responde y la base esta accesible."""
     estado_bd = "ok"
+    # Si la base falla, la API sigue respondiendo pero informa estado degradado.
     try:
         await verificar_conexion()
     except Exception as exc:  # pragma: no cover - diagnostico de infraestructura

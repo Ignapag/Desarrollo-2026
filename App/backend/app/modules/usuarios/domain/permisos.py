@@ -1,5 +1,6 @@
 """Catálogo de capacidades; las concesiones vigentes se guardan por rol en SQL."""
 
+# Catálogo de módulos: (clave, nombre visible, acciones con su etiqueta).
 MODULOS = (
     ("pedidos", "Pedidos", (
         ("ver", "Ver pedidos"), ("crear", "Crear pedidos"), ("editar", "Modificar pedidos"),
@@ -40,6 +41,7 @@ MODULOS = (
     )),
 )
 
+# Permisos derivados del catálogo y concesiones iniciales por rol.
 TODOS_LOS_PERMISOS = frozenset(
     f"{modulo}.{accion}" for modulo, _, acciones in MODULOS for accion, _ in acciones
 )
@@ -68,6 +70,11 @@ PERMISOS_INICIALES = {
 
 
 def permisos_disponibles(rol: str) -> frozenset[str]:
+    """Permisos que se le pueden conceder a un rol.
+
+    El administrador tiene todos, el cliente ninguno y el resto todo salvo la administración de
+    usuarios; al repartidor además se le excluyen pagos, crear pedidos y planificar repartos.
+    """
     if rol == "ADMINISTRADOR":
         return TODOS_LOS_PERMISOS
     if rol == "CLIENTE":
@@ -82,6 +89,7 @@ def permisos_disponibles(rol: str) -> frozenset[str]:
 
 
 def catalogo_modulos() -> list[dict]:
+    """Devuelve el catálogo de módulos y acciones en formato apto para el panel."""
     return [
         {"clave": clave, "nombre": nombre,
          "acciones": [{"clave": accion, "nombre": etiqueta} for accion, etiqueta in acciones]}

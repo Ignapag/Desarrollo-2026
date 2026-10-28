@@ -15,6 +15,7 @@ from app.errores import ErrorDominio
 
 
 async def manejador_error_dominio(_: Request, exc: ErrorDominio) -> JSONResponse:
+    """Convierte un ``ErrorDominio`` en JSON con su código HTTP, código y detalles."""
     # Los detalles pueden traer Decimal (cantidades de stock, importes): sin
     # convertirlos, json.dumps falla y un 409 previsto termina como 500.
     return JSONResponse(

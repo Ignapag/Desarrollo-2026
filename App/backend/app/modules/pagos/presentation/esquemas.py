@@ -164,6 +164,7 @@ class PagoSalida(BaseModel):
 
     @classmethod
     def desde_dominio(cls, pago: Pago) -> PagoSalida:
+        """Convierte la entidad ``Pago`` en su representación HTTP."""
         return cls(
             id=pago.id,
             pedido_id=pago.pedido_id,
@@ -207,6 +208,7 @@ class ResultadoCobroEfectivoSalida(BaseModel):
 
     @classmethod
     def desde_dominio(cls, res: ResultadoCobroEfectivo) -> ResultadoCobroEfectivoSalida:
+        """Convierte el resultado del cobro (pago y desglose) en la respuesta HTTP."""
         return cls(
             pago=PagoSalida.desde_dominio(res.pago),
             detalle=DetalleCobroEfectivoSalida(
@@ -235,6 +237,7 @@ class EstadoFinancieroPedidoSalida(BaseModel):
 
     @classmethod
     def desde_dominio(cls, estado: EstadoFinancieroPedido) -> EstadoFinancieroPedidoSalida:
+        """Convierte el balance del pedido y sus pagos en la respuesta HTTP."""
         return cls(
             pedido_id=estado.pedido_id,
             numero=estado.numero,
@@ -257,6 +260,7 @@ class TotalesMetodoPagoSalida(BaseModel):
 
     @classmethod
     def desde_dominio(cls, item: TotalesMetodoPago) -> TotalesMetodoPagoSalida:
+        """Convierte el subtotal de un método de pago en su esquema de salida."""
         return cls(
             metodo_pago=item.metodo_pago,
             total=item.total,
@@ -283,6 +287,7 @@ class ConsolidadoTurnoSalida(BaseModel):
 
     @classmethod
     def desde_dominio(cls, c: ConsolidadoTurno) -> ConsolidadoTurnoSalida:
+        """Convierte el consolidado del turno y su desglose en la respuesta HTTP."""
         return cls(
             fecha=c.fecha,
             turno=c.turno,
@@ -347,6 +352,7 @@ class CierreCajaSalida(BaseModel):
 
     @classmethod
     def desde_dominio(cls, c: CierreCaja) -> CierreCajaSalida:
+        """Convierte la entidad ``CierreCaja`` en su representación HTTP."""
         return cls(
             id=c.id,
             fecha=c.fecha,

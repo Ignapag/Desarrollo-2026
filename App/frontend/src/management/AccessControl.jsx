@@ -1,4 +1,6 @@
-﻿import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+﻿// Pantalla de Control de Acceso (solo administrador): alta de cuentas del personal,
+// asignación de roles a usuarios y configuración de permisos por rol y módulo.
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Users, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { apiFetch } from '../shared/api/http';
@@ -6,15 +8,19 @@ import { UserFacingError, userErrorMessage } from '../shared/api/userErrors.js';
 import NewUserForm from './NewUserForm';
 import { confirmsUser } from './userConfirmation';
 
+// Clases de campos y botones de la pantalla.
 const field = 'min-h-11 w-full rounded-xl border border-monu-green/30 bg-white px-3 py-2 focus-visible:outline-2 focus-visible:outline-monu-green';
 const button = 'min-h-11 rounded-xl bg-monu-green px-4 py-2 font-bold text-white disabled:opacity-50 disabled:cursor-not-allowed';
+// Compara dos listas de permisos sin importar el orden.
 function samePermissions(left, right) {
   return left.length === right.length && left.every((key) => right.includes(key)) && right.every((key) => left.includes(key));
 }
+// Valida la estructura de /api/acceso (roles con permisos y módulos con acciones).
 function validAccess(access) {
   return Array.isArray(access?.roles) && access.roles.every((role) => role && typeof role.rol === 'string' && typeof role.nombre === 'string' && Array.isArray(role.permisos) && Array.isArray(role.disponibles))
     && Array.isArray(access.modulos) && access.modulos.every((module) => module && typeof module.clave === 'string' && typeof module.nombre === 'string' && Array.isArray(module.acciones) && module.acciones.every((action) => action && typeof action.clave === 'string' && typeof action.nombre === 'string'));
 }
+/** Formulario para cambiar el rol de un usuario; confirma con la API que el cambio se aplicó. */
 export function UserRoleEditor({ person, roles, onSaved }) {
   const [selected, setSelected] = useState(person.rol);
   const [pending, setPending] = useState(false);
@@ -22,6 +28,7 @@ export function UserRoleEditor({ person, roles, onSaved }) {
   const active = useRef(true);
   const busy = useRef(false);
   useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
+  // Guarda el rol elegido y verifica que la respuesta corresponda al usuario y rol esperados.
   const save = async (event) => {
     event.preventDefault();
     if (busy.current || selected === person.rol || !roles.some((role) => role.rol === selected)) return;
@@ -41,6 +48,10 @@ export function UserRoleEditor({ person, roles, onSaved }) {
     {feedback && <p role={feedback.error ? 'alert' : 'status'} className={feedback.error ? 'text-red-700' : 'text-monu-green'}>{feedback.text}</p>}
   </form>;
 }
+/**
+ * Editor de permisos de un rol, agrupados por módulo. Usa la versión del rol para
+ * detectar si otro administrador lo modificó (409) y ofrece recargarlo.
+ */
 export function RolePermissionsEditor({ role, modules, onSaved, refreshRole }) {
   const [selected, setSelected] = useState(role.permisos);
   const [pending, setPending] = useState(false);
@@ -50,6 +61,7 @@ export function RolePermissionsEditor({ role, modules, onSaved, refreshRole }) {
   const busy = useRef(false);
   useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
   const dirty = !samePermissions(selected, role.permisos);
+  // Recarga el rol desde la API tras un conflicto de versiones.
   const reload = async () => {
     if (busy.current) return;
     busy.current = true;
@@ -58,6 +70,7 @@ export function RolePermissionsEditor({ role, modules, onSaved, refreshRole }) {
     catch (error) { if (active.current) setFeedback({ error: true, text: userErrorMessage(error, 'No pudimos cargar el rol. Intentá nuevamente más tarde.') }); }
     finally { busy.current = false; if (active.current) setPending(false); }
   };
+  // Guarda los permisos marcados con la versión esperada y valida el rol devuelto.
   const save = async (event) => {
     event.preventDefault();
     if (!role.editable || !dirty || busy.current || conflicted) return;
@@ -87,6 +100,7 @@ export function RolePermissionsEditor({ role, modules, onSaved, refreshRole }) {
     {conflicted && <button type="button" className={button} disabled={pending} onClick={reload}>Actualizar permisos del rol</button>}
   </form>;
 }
+/** Pantalla principal de control de acceso. */
 export default function AccessControl() {
   const { user, refreshSession } = useAuth();
   const [snapshot, setSnapshot] = useState(null);
@@ -96,8 +110,10 @@ export default function AccessControl() {
   const [retry, setRetry] = useState(0);
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
+  // Recuerda el usuario actual para descartar respuestas que lleguen tras un cambio de sesión.
   const owner = useRef(user);
   useLayoutEffect(() => { owner.current = user; }, [user]);
+  // Carga roles/módulos y usuarios en paralelo y valida ambas respuestas.
   useEffect(() => {
     if (user?.backendRole !== 'ADMINISTRADOR') return undefined;
     const controller = new AbortController();
@@ -112,33 +128,41 @@ export default function AccessControl() {
   if (error) return <section className="space-y-4"><h1 className="text-3xl font-bold">Control de Acceso</h1><p role="alert">{error}</p><button className={button} onClick={() => setRetry((value) => value + 1)}>Reintentar</button></section>;
   if (!snapshot || snapshot.owner !== user) return <p role="status">Cargando usuarios y permisos…</p>;
   const { access, people } = snapshot;
+  // Reemplaza el rol actualizado en el estado local y refresca la sesión (los permisos propios pueden cambiar).
   const updateRole = (updated) => {
     if (owner.current !== user) return;
     setSnapshot((previous) => ({ ...previous, access: { ...previous.access, roles: previous.access.roles.map((role) => role.rol === updated.rol ? updated : role) } }));
     void refreshSession();
   };
+  // Vuelve a leer un rol concreto desde /api/acceso.
   const refreshRole = async (rol) => {
     const current = await apiFetch('/api/acceso');
     const updated = validAccess(current) && current.roles.find((role) => role.rol === rol);
     if (!updated) throw new Error('Respuesta del rol incompleta');
     updateRole(updated);
   };
+  // Filtro de usuarios por texto (nombre, apellido o usuario) y por rol.
   const normalized = query.trim().toLocaleLowerCase('es');
   const filtered = people.filter((person) => (!roleFilter || person.rol === roleFilter) && `${person.nombre} ${person.apellido} ${person.username}`.toLocaleLowerCase('es').includes(normalized));
   return <div className="space-y-6 min-w-0">
+    {/* Encabezado */}
     <div><h1 className="text-3xl font-extrabold font-heading text-monu-dark">Control de Acceso</h1><p className="mt-2">Asigná roles a usuarios y configurá las acciones permitidas por módulo.</p></div>
+    {/* Resumen de usuarios y roles */}
     <div className="flex flex-wrap gap-4 rounded-2xl bg-white border border-monu-green/10 p-4"><p className="flex items-center gap-2"><Users aria-hidden="true" size={20} />{people.length} usuarios</p><p className="flex items-center gap-2"><ShieldCheck aria-hidden="true" size={20} />{access.roles.length} roles · {access.roles.filter((role) => role.editable).length} editables</p></div>
+    {/* Alta de cuentas nuevas */}
     <div><button type="button" className={button} disabled={creating} aria-expanded={showCreate} aria-controls="crear-cuenta" onClick={() => setShowCreate((value) => !value)}>{showCreate ? 'Cerrar formulario' : 'Crear cuenta'}</button></div>
     {showCreate && <section id="crear-cuenta"><NewUserForm roles={access.roles} onPendingChange={setCreating} onCreated={(created) => {
       if (owner.current !== user) return;
       setSnapshot((previous) => ({ ...previous, people: [created, ...previous.people.filter((person) => person.id !== created.id)] }));
       setQuery(''); setRoleFilter('');
     }} /></section>}
+    {/* Asignación de roles a usuarios con búsqueda y filtro */}
     <section className="space-y-4" aria-labelledby="usuarios-acceso"><h2 id="usuarios-acceso" className="text-2xl font-bold">Roles de usuarios</h2><div className="grid gap-3 sm:grid-cols-2"><label className="space-y-1"><span className="font-bold">Buscar usuario</span><input type="search" className={field} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Nombre, apellido o usuario" /></label><label className="space-y-1"><span className="font-bold">Filtrar por rol</span><select className={field} value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}><option value="">Todos los roles</option>{access.roles.map((role) => <option key={role.rol} value={role.rol}>{role.nombre}</option>)}</select></label></div><p role="status">{filtered.length} de {people.length} usuarios</p><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{filtered.map((person) => <UserRoleEditor key={`${person.id}-${person.rol}`} person={person} roles={access.roles} onSaved={(updated) => {
       if (owner.current !== user) return;
       setSnapshot((previous) => ({ ...previous, people: previous.people.map((candidate) => candidate.id === updated.id ? updated : candidate) }));
       void refreshSession();
     }} />)}</div>{!filtered.length && <p>No hay usuarios que coincidan con la búsqueda.</p>}</section>
+    {/* Permisos por rol y módulo */}
     <section className="space-y-4" aria-labelledby="permisos-acceso"><h2 id="permisos-acceso" className="text-2xl font-bold">Permisos por rol y módulo</h2><p>Los cambios se aplican al guardar cada rol. Las sesiones abiertas actualizan sus accesos automáticamente.</p>{access.roles.map((role) => <RolePermissionsEditor key={`${role.rol}-${role.version}-${retry}`} role={role} modules={access.modulos} onSaved={updateRole} refreshRole={refreshRole} />)}</section>
   </div>;
 }

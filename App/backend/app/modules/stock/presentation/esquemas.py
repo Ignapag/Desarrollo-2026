@@ -8,12 +8,15 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+# Tipos literales compartidos con las reglas del dominio de stock.
 Unidad = Literal["KG", "GR", "LT", "ML", "UNIDAD"]
 Nivel = Literal["NORMAL", "BAJO_UMBRAL", "SIN_STOCK"]
 TipoMovimiento = Literal["CONSUMO", "REPOSICION", "AJUSTE", "DEVOLUCION", "MERMA"]
 
 
 class IngredienteCrear(BaseModel):
+    """Datos para registrar un ingrediente nuevo en el inventario."""
+
     model_config = ConfigDict(extra="forbid")
 
     nombre: str = Field(min_length=1)
@@ -27,6 +30,8 @@ class IngredienteCrear(BaseModel):
 
 
 class IngredienteModificar(BaseModel):
+    """Campos editables de un ingrediente; solo se aplican los enviados."""
+
     model_config = ConfigDict(extra="forbid")
 
     nombre: str | None = Field(default=None, min_length=1)
@@ -39,6 +44,8 @@ class IngredienteModificar(BaseModel):
 
 
 class FiltrosIngredientes(BaseModel):
+    """Filtros del listado de ingredientes."""
+
     nombre: str | None = None
     responsable_id: int | None = Field(default=None, gt=0)
     activo: bool | None = None
@@ -46,11 +53,15 @@ class FiltrosIngredientes(BaseModel):
 
 
 class ReposicionCrear(BaseModel):
+    """Cantidad recibida en una reposición y su origen."""
+
     cantidad: Decimal = Field(gt=0, max_digits=12, decimal_places=3)
     origen: str = Field(default="REPOSICION_MANUAL", min_length=1)
 
 
 class FiltrosHistorial(BaseModel):
+    """Filtros del historial de movimientos de stock."""
+
     ingrediente_id: int | None = Field(default=None, gt=0)
     desde: date | None = None
     hasta: date | None = None
@@ -58,6 +69,8 @@ class FiltrosHistorial(BaseModel):
 
 
 class IngredienteSalida(BaseModel):
+    """Ingrediente con su stock actual, nivel y datos de reposición."""
+
     id: int
     nombre: str
     unidad_medida: Unidad
@@ -73,6 +86,8 @@ class IngredienteSalida(BaseModel):
 
 
 class MovimientoSalida(BaseModel):
+    """Movimiento del historial de stock con saldos antes y después."""
+
     id: int
     ingrediente_id: int
     creado_en: datetime
@@ -86,6 +101,8 @@ class MovimientoSalida(BaseModel):
 
 
 class ReposicionSalida(BaseModel):
+    """Resultado de una reposición: saldos y movimiento generado."""
+
     ingrediente_id: int
     saldo_anterior: Decimal
     cantidad: Decimal

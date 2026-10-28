@@ -10,6 +10,12 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    """Parámetros de la aplicación leídos de variables de entorno y de los archivos ``.env``.
+
+    Se buscan tanto en el directorio actual como en el padre para que funcione al correr desde la
+    raíz del backend o desde el repositorio.
+    """
+
     model_config = SettingsConfigDict(
         env_file=(".env", "../.env"),
         env_file_encoding="utf-8",
@@ -95,12 +101,14 @@ class Settings(BaseSettings):
     @field_validator("origenes_permitidos", mode="before")
     @classmethod
     def _parsear_origenes(cls, valor: object) -> object:
+        """Acepta ORIGENES_PERMITIDOS como lista separada por comas."""
         if isinstance(valor, str):
             return [item.strip() for item in valor.split(",") if item.strip()]
         return valor
 
     @property
     def es_produccion(self) -> bool:
+        """Indica si el entorno configurado corresponde a producción."""
         return self.entorno.lower() in {"produccion", "production", "prod"}
 
     @property
@@ -114,6 +122,7 @@ class Settings(BaseSettings):
 
 @lru_cache
 def obtener_settings() -> Settings:
+    """Construye la configuración una sola vez y la reutiliza (cache)."""
     return Settings()
 
 

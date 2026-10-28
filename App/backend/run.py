@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import sys
 
+# En Windows psycopg async requiere SelectorEventLoop: se fija antes de importar uvicorn.
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
@@ -26,6 +27,7 @@ import uvicorn  # noqa: E402  - despues de fijar la politica del event loop
 
 from app.core.config import settings  # noqa: E402
 
+# Levanta la API local en 127.0.0.1:8000, con recarga automatica si debug esta activo.
 if __name__ == "__main__":
     uvicorn.run(
         "app.main:app",

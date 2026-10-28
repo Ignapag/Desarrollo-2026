@@ -13,6 +13,8 @@ from app.modules.usuarios.domain.permisos import (
 
 
 class RepositorioAcceso(Protocol):
+    """Puerto de persistencia de roles y permisos."""
+
     async def identidad(self, usuario_id: int) -> dict | None: ...
     async def permisos(self, rol: str) -> list[str]: ...
     async def roles(self) -> list[dict]: ...
@@ -22,10 +24,18 @@ class RepositorioAcceso(Protocol):
 
 
 class ServicioAcceso:
+    """Casos de uso de control de acceso: sesión vigente y matriz de permisos por rol."""
+
     def __init__(self, repo: RepositorioAcceso):
+        """Recibe el repositorio de acceso."""
         self.repo = repo
 
     async def sesion(self, token: ClaimsSesion) -> ClaimsSesion:
+        """Reconstruye la sesión desde la base a partir del token.
+
+        Falla si la cuenta ya no está activa; el rol y los permisos se leen siempre de la base, no
+        del token.
+        """
         usuario = await self.repo.identidad(token.usuario_id)
         if not usuario or usuario["estado"] != "ACTIVO":
             raise NoAutenticado("La cuenta no está activa. Volvé a iniciar sesión.")
@@ -38,6 +48,7 @@ class ServicioAcceso:
 
     @staticmethod
     def _salida(fila: dict) -> dict:
+        """Arma la vista de un rol con sus permisos actuales, disponibles y si es editable."""
         rol = fila["rol"]
         return {
             **fila, "nombre": ROLES[rol], "editable": rol not in {"ADMINISTRADOR", "CLIENTE"},
@@ -46,6 +57,7 @@ class ServicioAcceso:
         }
 
     async def consultar(self) -> dict:
+        """Devuelve el catálogo de módulos y la matriz de permisos de cada rol."""
         return {
             "modulos": catalogo_modulos(),
             "roles": [self._salida(fila) for fila in await self.repo.roles()],
@@ -54,6 +66,11 @@ class ServicioAcceso:
     async def guardar(
         self, rol: str, permisos: list[str], version: int, ejecutor_id: int | None,
     ) -> dict:
+        """Reemplaza los permisos de un rol editable con control de versión.
+
+        Rechaza roles protegidos, permisos desconocidos o incompatibles con el rol, y versiones
+        desactualizadas.
+        """
         if rol not in ROLES:
             raise NoEncontrado("El rol no existe")
         if rol in {"ADMINISTRADOR", "CLIENTE"}:

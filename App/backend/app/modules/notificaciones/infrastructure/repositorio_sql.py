@@ -7,12 +7,16 @@ from app.modules.notificaciones.domain.entidades import NotificacionPendiente, P
 
 
 class RepositorioNotificacionesSQL:
+    """Acceso SQL a plantillas y a la cola de notificaciones."""
+
     def __init__(self, uow: UnidadDeTrabajo) -> None:
+        """Recibe la unidad de trabajo cuya transacción comparten las consultas."""
         self.uow = uow
 
     # ------------------------------ plantillas (CU_BOT_04 a 07) ----------
 
     async def plantilla_activa(self, clave: str) -> PlantillaActiva | None:
+        """Devuelve la plantilla activa más reciente de un evento, o ``None``."""
         fila = await self.uow.uno(
             """
             SELECT id, clave, nombre, cuerpo FROM notificacion_plantilla
@@ -27,6 +31,8 @@ class RepositorioNotificacionesSQL:
     async def buscar_plantillas(
         self, *, nombre: str | None, evento: str | None, activa: bool | None
     ) -> list[dict]:
+        """Busca plantillas con filtros opcionales por nombre, evento y estado."""
+        # WHERE dinámico: solo se agregan los filtros recibidos, siempre parametrizados.
         condiciones: list[str] = []
         parametros: list[object] = []
         if nombre:
@@ -49,6 +55,7 @@ class RepositorioNotificacionesSQL:
         )
 
     async def obtener_plantilla(self, plantilla_id: int) -> dict | None:
+        """Devuelve una plantilla por id, o ``None`` si no existe."""
         return await self.uow.uno(
             """
             SELECT id, clave, nombre, cuerpo, activa, actualizado_por, actualizado_en
@@ -60,6 +67,7 @@ class RepositorioNotificacionesSQL:
     async def crear_plantilla(
         self, *, clave: str, nombre: str, cuerpo: str, activa: bool, actualizado_por: int | None
     ) -> int:
+        """Inserta una plantilla nueva y devuelve su id."""
         fila = await self.uow.uno(
             """
             INSERT INTO notificacion_plantilla (clave, nombre, cuerpo, activa, actualizado_por)
@@ -79,6 +87,7 @@ class RepositorioNotificacionesSQL:
         activa: bool,
         actualizado_por: int | None,
     ) -> None:
+        """Actualiza el contenido y estado de una plantilla."""
         await self.uow.ejecutar(
             """
             UPDATE notificacion_plantilla
@@ -92,6 +101,7 @@ class RepositorioNotificacionesSQL:
     async def cambiar_estado_plantilla(
         self, plantilla_id: int, *, activa: bool, actualizado_por: int | None
     ) -> None:
+        """Activa o desactiva una plantilla."""
         await self.uow.ejecutar(
             """
             UPDATE notificacion_plantilla
@@ -113,6 +123,7 @@ class RepositorioNotificacionesSQL:
         pedido_id: int | None,
         cuerpo_renderizado: str,
     ) -> int:
+        """Encola una notificación ya renderizada (estado PENDIENTE) y devuelve su id."""
         fila = await self.uow.uno(
             """
             INSERT INTO notificacion
@@ -125,6 +136,7 @@ class RepositorioNotificacionesSQL:
         return fila["id"]  # type: ignore[index]
 
     async def pendientes(self, *, limite: int) -> list[NotificacionPendiente]:
+        """Devuelve las notificaciones PENDIENTE más antiguas, hasta ``limite``."""
         filas = await self.uow.todos(
             """
             SELECT id, destinatario, cuerpo_renderizado, intentos
@@ -138,6 +150,7 @@ class RepositorioNotificacionesSQL:
         return [NotificacionPendiente(**f) for f in filas]
 
     async def marcar_enviada(self, notificacion_id: int) -> None:
+        """Marca la notificación como enviada y suma un intento."""
         await self.uow.ejecutar(
             """
             UPDATE notificacion
@@ -148,6 +161,7 @@ class RepositorioNotificacionesSQL:
         )
 
     async def marcar_fallida(self, notificacion_id: int, *, error: str) -> None:
+        """Marca la notificación como fallida, guarda el error y suma un intento."""
         await self.uow.ejecutar(
             """
             UPDATE notificacion
@@ -160,6 +174,7 @@ class RepositorioNotificacionesSQL:
     async def listar(
         self, *, pedido_id: int | None, estado: str | None, limite: int
     ) -> list[dict]:
+        """Lista notificaciones, de la más reciente a la más vieja, con filtros opcionales."""
         condiciones: list[str] = []
         parametros: list[object] = []
         if pedido_id is not None:

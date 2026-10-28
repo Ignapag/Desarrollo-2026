@@ -5,9 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
+# Catálogos admitidos de unidades, niveles de stock y tipos de movimiento.
 UNIDADES = frozenset({"KG", "GR", "LT", "ML", "UNIDAD"})
 NIVELES = frozenset({"NORMAL", "BAJO_UMBRAL", "SIN_STOCK"})
 TIPOS_MOVIMIENTO = frozenset({"CONSUMO", "REPOSICION", "AJUSTE", "DEVOLUCION", "MERMA"})
+# Ingredientes que el cliente puede pedir quitar ("sin X") sin alterar el producto.
 INGREDIENTES_QUITABLES = frozenset({
     "tomate", "lechuga", "cebolla cruda", "cebolla en cubos", "cebolla caramelizada",
     "cebolla crispy", "pepinillos", "panceta", "bacon en cubos", "queso cheddar",
@@ -17,6 +19,8 @@ INGREDIENTES_QUITABLES = frozenset({
 
 @dataclass(frozen=True, slots=True)
 class DatosIngrediente:
+    """Datos de alta o edición de un ingrediente del inventario."""
+
     nombre: str
     unidad_medida: str
     cantidad_actual: Decimal
@@ -29,6 +33,8 @@ class DatosIngrediente:
 
 @dataclass(frozen=True, slots=True)
 class ItemConsumoStock:
+    """Línea de pedido a descontar del stock, con retiros y receta congelada."""
+
     producto_id: int
     cantidad: int
     opciones: tuple[object, ...] = ()
@@ -57,6 +63,10 @@ def ingredientes_omitidos_de_aclaraciones(aclaraciones: str | None) -> tuple[str
 
 
 def validar_ingrediente(datos: DatosIngrediente) -> DatosIngrediente:
+    """Valida los datos de un ingrediente y devuelve una copia con el nombre recortado.
+
+    Exige unidad válida, cantidad no negativa, umbral positivo y costo no negativo.
+    """
     nombre = datos.nombre.strip() if isinstance(datos.nombre, str) else ""
     if not nombre:
         raise ValueError("El nombre es obligatorio")
@@ -95,11 +105,13 @@ def validar_ingrediente(datos: DatosIngrediente) -> DatosIngrediente:
 
 
 def validar_reposicion(cantidad: Decimal) -> None:
+    """Exige que la cantidad repuesta sea un Decimal finito y positivo."""
     if not isinstance(cantidad, Decimal) or not cantidad.is_finite() or cantidad <= 0:
         raise ValueError("La cantidad recibida debe ser mayor que cero")
 
 
 def nivel_stock(cantidad: Decimal, umbral: Decimal) -> str:
+    """Clasifica el stock: sin stock, bajo el umbral mínimo o normal."""
     if cantidad == 0:
         return "SIN_STOCK"
     if cantidad <= umbral:

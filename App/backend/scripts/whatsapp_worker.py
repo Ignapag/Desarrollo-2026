@@ -31,6 +31,7 @@ async def procesar_continuamente(*, solo_demo=False):
 
 
 async def ejecutar(una_vez=False, *, solo_demo=False):
+    """Carga el perfil de demo, abre el pool y procesa un lote o en forma continua."""
     cargar_demo_publica()
     await abrir_pool()
     try:
@@ -42,6 +43,7 @@ async def ejecutar(una_vez=False, *, solo_demo=False):
         await cerrar_pool()
 
 
+# Punto de entrada CLI del worker.
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--una-vez", action="store_true")

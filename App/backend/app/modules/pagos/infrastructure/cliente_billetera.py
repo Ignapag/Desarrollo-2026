@@ -34,14 +34,18 @@ class ClienteMercadoPago:
     """Compatibilidad histórica: la integración está deshabilitada en todos los entornos."""
 
     def __init__(self, access_token: str | None = None) -> None:
+        """Acepta el token por compatibilidad, pero no lo usa."""
         pass
 
     @property
     def esta_configurado(self) -> bool:
+        """Siempre ``False``: la integración está deshabilitada."""
         return False
 
     async def crear_preferencia(self, **kwargs) -> PreferenciaCobro:
+        """Siempre falla: no se generan cobros por Mercado Pago."""
         raise ReglaDeNegocio("La integración con Mercado Pago está deshabilitada")
 
     async def consultar_pago(self, payment_id: str) -> DetallePagoExterno:
+        """Siempre falla: no se consultan pagos en Mercado Pago."""
         raise ReglaDeNegocio("La integración con Mercado Pago está deshabilitada")

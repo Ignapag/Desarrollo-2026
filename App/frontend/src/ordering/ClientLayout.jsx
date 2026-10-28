@@ -1,4 +1,6 @@
-﻿import { Outlet, Link, useSearchParams } from 'react-router-dom';
+﻿// Layout público del portal de clientes: encabezado con marca, horario, búsqueda en el
+// menú, carrito, chat de demostración y acceso del personal; debajo, la pantalla actual.
+import { Outlet, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { useData } from '../shared/store/DataContext';
 import { ShoppingCart, Search, LogOut, MessageCircle } from 'lucide-react';
@@ -9,9 +11,11 @@ import { useEffect, useState } from 'react';
 import { portal } from '../shared/portal';
 import { userErrorMessage } from '../shared/api/userErrors';
 
+/** Layout del menú público con carrito y chat de demostración. */
 export default function ClientLayout() {
   const { logout, user } = useAuth();
   const { state } = useData();
+  // Diálogos abiertos (carrito y chat), configuración del chat y búsqueda (?q=).
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatConfig, setChatConfig] = useState({ status: 'loading' });
@@ -19,6 +23,7 @@ export default function ClientLayout() {
   const [searchParams, setSearchParams] = useSearchParams();
   const searchQuery = searchParams.get('q') || '';
 
+  // Consulta si el chat de demostración está habilitado (se repite al reintentar).
   useEffect(() => {
     let active = true;
     getChatConfig().then((data) => { if (active) setChatConfig({ ...data, status: 'ready' }); })
@@ -26,6 +31,7 @@ export default function ClientLayout() {
     return () => { active = false; };
   }, [configRevision]);
 
+  // Escribe la búsqueda en la URL para filtrar el menú.
   const handleSearch = (e) => {
     if (e.target.value) {
       setSearchParams({ q: e.target.value });
@@ -50,6 +56,7 @@ export default function ClientLayout() {
               </span>
             </div>
           </div>
+          {/* Búsqueda, carrito, chat y acceso del personal */}
           <div className="flex items-center gap-3 w-full md:w-auto">
             <div className="relative flex-1 md:w-64">
               <input 
@@ -77,8 +84,10 @@ export default function ClientLayout() {
               )}
             </button>
 
+            {/* Botón del chat de demostración (solo si está habilitado) */}
             {chatConfig.habilitado && <button type="button" onClick={() => setIsChatOpen(true)} aria-haspopup="dialog" aria-label="Abrir chat de demostración" className="relative min-w-11 min-h-11 p-2 hover:bg-white/10 rounded-full transition-colors flex-shrink-0 focus-visible:ring-2 focus-visible:ring-monu-green"><MessageCircle aria-hidden="true" className="size-6" /></button>}
 
+            {/* Sesión del personal: acceso al panel y cierre, o enlace al login */}
             {portal.personal && (user ? (
               <div className="flex items-center gap-3 pl-3 border-l border-white/20 ml-1">
                 <span className="hidden sm:inline text-sm font-bold opacity-80">{user.name}</span>
@@ -101,6 +110,7 @@ export default function ClientLayout() {
         <Outlet />
       </main>
 
+      {/* Diálogos de carrito y chat */}
       <CartDrawer isOpen={isCartOpen} onClose={() => setIsCartOpen(false)} chatConfig={chatConfig} onRetryChatConfig={() => { setChatConfig({ status: 'loading' }); setConfigRevision((value) => value + 1); }} onOpenChat={() => { setIsCartOpen(false); setIsChatOpen(true); }} />
       <ChatDrawer isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} />
     </div>

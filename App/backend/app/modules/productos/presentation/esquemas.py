@@ -16,6 +16,8 @@ from app.modules.productos.domain.entidades import (
 
 
 class IngredienteProductoEntrada(BaseModel):
+    """Ingrediente de una receta con su cantidad requerida."""
+
     model_config = ConfigDict(extra="forbid")
 
     ingrediente_id: int = Field(gt=0)
@@ -24,6 +26,8 @@ class IngredienteProductoEntrada(BaseModel):
 
 
 class VarianteRecetaEntrada(BaseModel):
+    """Receta de una variante identificada por su nombre."""
+
     model_config = ConfigDict(extra="forbid")
 
     nombre: str = Field(min_length=1, max_length=60)
@@ -32,6 +36,7 @@ class VarianteRecetaEntrada(BaseModel):
     @field_validator("nombre")
     @classmethod
     def normalizar_nombre(cls, valor: str) -> str:
+        """Recorta espacios y exige un nombre de variante no vacío."""
         valor = valor.strip()
         if not valor:
             raise ValueError("El nombre de la variante es obligatorio")
@@ -39,16 +44,20 @@ class VarianteRecetaEntrada(BaseModel):
 
 
 class VarianteProductoEntrada(VarianteRecetaEntrada):
+    """Variante nueva de un producto, con precio propio y receta."""
+
     precio: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
 
 
 def _ingredientes_dominio(
     items: list[IngredienteProductoEntrada],
 ) -> tuple[IngredienteProducto, ...]:
+    """Convierte los ingredientes recibidos en entidades del dominio."""
     return tuple(IngredienteProducto(**item.model_dump()) for item in items)
 
 
 def _validar_recetas(datos):
+    """Aplica las reglas de dominio de recetas al esquema recibido y lo devuelve."""
     validar_recetas_variantes(
         _ingredientes_dominio(datos.ingredientes),
         tuple(
@@ -59,6 +68,8 @@ def _validar_recetas(datos):
 
 
 class ProductoCrear(BaseModel):
+    """Datos para dar de alta un producto del catálogo con receta y variantes."""
+
     model_config = ConfigDict(extra="forbid")
 
     categoria_id: int = Field(gt=0)
@@ -73,9 +84,11 @@ class ProductoCrear(BaseModel):
 
     @model_validator(mode="after")
     def validar_recetas(self):
+        """Valida receta base y variantes con las reglas del dominio."""
         return _validar_recetas(self)
 
     def a_dominio(self) -> DatosProducto:
+        """Convierte la entrada HTTP en ``DatosProducto`` del dominio."""
         return DatosProducto(
             **self.model_dump(exclude={"ingredientes", "variantes"}),
             ingredientes=_ingredientes_dominio(self.ingredientes),
@@ -87,6 +100,8 @@ class ProductoCrear(BaseModel):
 
 
 class RecetaActualizar(BaseModel):
+    """Nueva receta de un producto con la marca de tiempo esperada (concurrencia)."""
+
     model_config = ConfigDict(extra="forbid")
 
     actualizado_en_esperado: AwareDatetime
@@ -95,9 +110,11 @@ class RecetaActualizar(BaseModel):
 
     @model_validator(mode="after")
     def validar_recetas(self):
+        """Valida receta base y variantes con las reglas del dominio."""
         return _validar_recetas(self)
 
     def a_dominio(self) -> CambioReceta:
+        """Convierte la entrada HTTP en ``CambioReceta`` del dominio."""
         return CambioReceta(
             self.actualizado_en_esperado,
             _ingredientes_dominio(self.ingredientes),
@@ -109,6 +126,8 @@ class RecetaActualizar(BaseModel):
 
 
 class IngredienteRecetaSalida(BaseModel):
+    """Ingrediente de una receta con su nombre, unidad y cantidad."""
+
     ingrediente_id: int
     nombre: str
     unidad_medida: str
@@ -117,6 +136,8 @@ class IngredienteRecetaSalida(BaseModel):
 
 
 class VarianteRecetaSalida(BaseModel):
+    """Variante con su precio, receta e indicador de receta propia configurada."""
+
     nombre: str
     precio: Decimal
     ingredientes: list[IngredienteRecetaSalida]
@@ -124,6 +145,8 @@ class VarianteRecetaSalida(BaseModel):
 
 
 class RecetaSalida(BaseModel):
+    """Receta completa de un producto: base y variantes."""
+
     producto_id: int
     actualizado_en: datetime
     ingredientes: list[IngredienteRecetaSalida]
@@ -131,12 +154,16 @@ class RecetaSalida(BaseModel):
 
 
 class VarianteProductoSalida(BaseModel):
+    """Variante vendible con su precio y disponibilidad según stock."""
+
     nombre: str
     precio: Decimal
     disponible: bool = True
 
 
 class ProductoSalida(BaseModel):
+    """Producto del catálogo tal como lo ven el menú y el panel."""
+
     id: int
     categoria_id: int
     categoria: str
@@ -151,4 +178,6 @@ class ProductoSalida(BaseModel):
 
 
 class EstadoProductoEntrada(BaseModel):
+    """Activación o desactivación de un producto."""
+
     activo: bool
