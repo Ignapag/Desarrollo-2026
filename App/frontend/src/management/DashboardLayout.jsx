@@ -37,7 +37,7 @@ export default function DashboardLayout() {
   const navItems = [
     { to: '/dashboard', icon: LayoutDashboard, label: 'Panel de Control', end: true },
     { to: '/dashboard/orders', icon: ListOrdered, label: 'Pedidos' },
-    { to: '/dashboard/kitchen', icon: ChefHat, label: 'Cocina / KDS' },
+    { to: '/dashboard/kitchen', icon: ChefHat, label: 'Cocina' },
     { to: '/dashboard/catalog', icon: Store, label: 'Menú / Catálogo' },
     { to: '/dashboard/customers', icon: Users, label: 'Clientes' },
     { to: '/dashboard/inventory', icon: Package, label: 'Inventario' },

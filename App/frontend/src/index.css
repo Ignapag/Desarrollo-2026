@@ -43,6 +43,12 @@
   [aria-disabled='true'] {
     cursor: not-allowed;
   }
+  /* Gestión de pedidos: el foco no queda bajo el encabezado y la barra de estados fijos. */
+  @media (min-width: 1280px) {
+    html:has(#orders-board) {
+      scroll-padding-top: 9rem;
+    }
+  }
 }
 
 /* Custom scrollbar to match the design */
