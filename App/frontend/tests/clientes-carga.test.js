@@ -75,7 +75,7 @@ test('un error de clientes muestra reintento y nunca rellena personas de muestra
     return response([]);
   };
   const container = await mount(t, createElement(Customers));
-  assert.match(container.textContent, /No se pudieron cargar los clientes/);
+  assert.match(container.textContent, /No pudimos cargar los clientes/);
   assert.doesNotMatch(container.textContent, /Martina Gómez|Lucas Fernández|No hay clientes/);
 });
 
@@ -85,13 +85,14 @@ test('un error del directorio no se muestra en la siguiente sesión', async (t) 
     return response([]);
   };
   const container = await mount(t, createElement(Customers));
-  assert.match(container.textContent, /Error exclusivo de la sesión anterior/);
+  assert.match(container.textContent, /No pudimos cargar los clientes/);
+  assert.doesNotMatch(container.textContent, /Error exclusivo de la sesión anterior/);
   const waiting = deferred();
   globalThis.fetch = async (path) => path.startsWith('/api/reportes/clientes') ? waiting.promise : response([]);
   setTestUser({ id: 2, role: 'admin', backendRole: 'EMPLEADO', permisos: ['clientes.ver'] });
   t.after(() => setTestUser({ id: 1, role: 'admin', backendRole: 'EMPLEADO', permisos: ['pedidos.ver', 'pedidos.cambiar_estado', 'clientes.ver', 'stock.ver', 'stock.gestionar', 'stock.reponer', 'productos.gestionar', 'pagos.ver', 'pagos.registrar', 'pagos.conciliar', 'reportes.ver'] }));
   await act(async () => container.rerender());
-  assert.doesNotMatch(container.textContent, /Error exclusivo de la sesión anterior/);
+  assert.doesNotMatch(container.textContent, /Error exclusivo de la sesión anterior|No pudimos cargar los clientes|Revisá tu conexión/);
   assert.match(container.textContent, /Consultando clientes/);
   await act(async () => waiting.resolve(response({ clientes: [], total: 0 })));
 });
@@ -136,7 +137,8 @@ test('un permiso rechazado retira las filas del directorio ya cargadas', async (
   globalThis.fetch = async () => ({ ok: false, status: 403, json: async () => ({ detail: 'Directorio sin acceso' }) });
   const refresh = elements(container, (node) => node.localName === 'button' && node.textContent === 'Actualizar clientes')[0];
   await act(async () => reactProps(refresh).onClick());
-  assert.match(container.textContent, /Directorio sin acceso/);
+  assert.match(container.textContent, /No tenés acceso/);
+  assert.doesNotMatch(container.textContent, /Directorio sin acceso/);
   assert.doesNotMatch(container.textContent, /Cliente real reciente/);
 });
 

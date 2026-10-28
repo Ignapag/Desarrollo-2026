@@ -5,7 +5,8 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { can, canVisit } from '../auth/permissions';
 import { useAuth } from '../auth/AuthContext';
 import { apiFetch } from '../shared/api/http';
-import { periodoPanel, unidadesPorDia } from './datosPanel';
+import { userErrorMessage } from '../shared/api/userErrors.js';
+import { periodoPanel, unidadesPorDia, validarReportes } from './datosPanel';
 
 const cantidad = new Intl.NumberFormat('es-AR');
 const moneda = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
@@ -39,13 +40,14 @@ function useReportes(user, refreshSession) {
         const fallida = respuestas.find((respuesta) => respuesta.status === 'rejected');
         if (fallida) throw fallida.reason;
         const [resumen, ventas] = respuestas.map((respuesta) => respuesta.value);
+        validarReportes(resumen, ventas);
         if (activo) {
           setEstado({ owner: user, datos: { resumen, serie: unidadesPorDia(periodo.dias, ventas) }, error: '', cargando: false });
         }
       } catch (fallo) {
         if (activo) {
           const sinAcceso = [401, 403].includes(fallo.status);
-          setEstado((anterior) => ({ owner: user, datos: !sinAcceso && anterior?.owner === user ? anterior.datos : null, error: fallo.message || 'No se pudo cargar el panel.', cargando: false }));
+          setEstado((anterior) => ({ owner: user, datos: !sinAcceso && anterior?.owner === user ? anterior.datos : null, error: userErrorMessage(fallo, 'No pudimos cargar el panel. Intentá nuevamente más tarde.'), cargando: false }));
           if (sinAcceso) void refreshSession?.();
         }
       } finally {

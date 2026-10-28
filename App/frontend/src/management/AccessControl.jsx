@@ -2,13 +2,18 @@
 import { Users, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { apiFetch } from '../shared/api/http';
+import { UserFacingError, userErrorMessage } from '../shared/api/userErrors.js';
 import NewUserForm from './NewUserForm';
 import { confirmsUser } from './userConfirmation';
 
 const field = 'min-h-11 w-full rounded-xl border border-monu-green/30 bg-white px-3 py-2 focus-visible:outline-2 focus-visible:outline-monu-green';
 const button = 'min-h-11 rounded-xl bg-monu-green px-4 py-2 font-bold text-white disabled:opacity-50 disabled:cursor-not-allowed';
 function samePermissions(left, right) {
-  return left.length === right.length && left.every((key) => right.includes(key));
+  return left.length === right.length && left.every((key) => right.includes(key)) && right.every((key) => left.includes(key));
+}
+function validAccess(access) {
+  return Array.isArray(access?.roles) && access.roles.every((role) => role && typeof role.rol === 'string' && typeof role.nombre === 'string' && Array.isArray(role.permisos) && Array.isArray(role.disponibles))
+    && Array.isArray(access.modulos) && access.modulos.every((module) => module && typeof module.clave === 'string' && typeof module.nombre === 'string' && Array.isArray(module.acciones) && module.acciones.every((action) => action && typeof action.clave === 'string' && typeof action.nombre === 'string'));
 }
 export function UserRoleEditor({ person, roles, onSaved }) {
   const [selected, setSelected] = useState(person.rol);
@@ -24,9 +29,9 @@ export function UserRoleEditor({ person, roles, onSaved }) {
     setPending(true); setFeedback(null);
     try {
       const updated = await apiFetch(`/api/usuarios/${person.id}/rol`, { method: 'POST', body: JSON.stringify({ rol: selected }) });
-      if (!confirmsUser(updated, { id: person.id, role: selected })) throw new Error('No pudimos confirmar el rol: respuesta incompleta. Actualizá el listado antes de reintentar.');
+      if (!confirmsUser(updated, { id: person.id, role: selected })) throw new UserFacingError('No pudimos confirmar el cambio de rol. Actualizá el listado antes de repetirlo.');
       if (active.current) { onSaved(updated); setFeedback({ text: 'Rol actualizado.', error: false }); }
-    } catch (error) { if (active.current) setFeedback({ text: error.message, error: true }); }
+    } catch (error) { if (active.current) setFeedback({ text: userErrorMessage(error, 'No pudimos cambiar el rol. Actualizá el listado antes de repetir el cambio.'), error: true }); }
     finally { busy.current = false; if (active.current) setPending(false); }
   };
   return <form onSubmit={save} className="rounded-xl border border-monu-green/15 p-4 space-y-3">
@@ -50,7 +55,7 @@ export function RolePermissionsEditor({ role, modules, onSaved, refreshRole }) {
     busy.current = true;
     setPending(true);
     try { await refreshRole(role.rol); }
-    catch (error) { if (active.current) setFeedback({ error: true, text: `No se pudo actualizar el rol. ${error.message}` }); }
+    catch (error) { if (active.current) setFeedback({ error: true, text: userErrorMessage(error, 'No pudimos cargar el rol. Intentá nuevamente más tarde.') }); }
     finally { busy.current = false; if (active.current) setPending(false); }
   };
   const save = async (event) => {
@@ -60,12 +65,12 @@ export function RolePermissionsEditor({ role, modules, onSaved, refreshRole }) {
     setPending(true); setFeedback(null);
     try {
       const updated = await apiFetch(`/api/acceso/roles/${role.rol}`, { method: 'PUT', body: JSON.stringify({ permisos: selected, version: role.version }) });
-      if (updated?.rol !== role.rol || !Number.isInteger(updated.version) || updated.version <= role.version || typeof updated.nombre !== 'string' || typeof updated.editable !== 'boolean' || !Array.isArray(updated.disponibles) || !Array.isArray(updated.permisos) || !updated.permisos.every((permission) => typeof permission === 'string')) throw new Error('No pudimos confirmar los permisos: respuesta incompleta. Actualizá el rol antes de reintentar.');
+      if (updated?.rol !== role.rol || !Number.isInteger(updated.version) || updated.version <= role.version || typeof updated.nombre !== 'string' || typeof updated.editable !== 'boolean' || !Array.isArray(updated.disponibles) || !Array.isArray(updated.permisos) || !updated.permisos.every((permission) => typeof permission === 'string') || !samePermissions(updated.permisos, selected)) throw new UserFacingError('No pudimos confirmar el cambio de permisos. Actualizá el rol antes de repetirlo.');
       if (active.current) { onSaved(updated); setFeedback({ error: false, text: 'Permisos guardados.' }); }
     } catch (error) {
       if (active.current) {
         if (error.status === 409) { setConflicted(true); setFeedback({ error: true, text: 'Otro administrador modificó este rol. Actualizá sus permisos antes de volver a editar. Tus cambios no se guardaron.' }); }
-        else setFeedback({ error: true, text: error.message });
+        else setFeedback({ error: true, text: userErrorMessage(error, 'No pudimos guardar los permisos. Actualizá el rol antes de repetir el cambio.') });
       }
     } finally { busy.current = false; if (active.current) setPending(false); }
   };
@@ -98,8 +103,9 @@ export default function AccessControl() {
     const controller = new AbortController();
     Promise.resolve().then(() => { if (!controller.signal.aborted) { setSnapshot(null); setError(null); } });
     Promise.all([apiFetch('/api/acceso', { signal: controller.signal }), apiFetch('/api/usuarios', { signal: controller.signal })]).then(([access, people]) => {
+      if (!validAccess(access) || !Array.isArray(people) || !people.every((person) => confirmsUser(person, { role: person?.rol }))) throw new Error('Respuesta de usuarios y permisos incompleta');
       if (!controller.signal.aborted && owner.current === user) setSnapshot({ owner: user, access, people });
-    }).catch((failure) => { if (!controller.signal.aborted && owner.current === user) setError(failure.message); });
+    }).catch((failure) => { if (!controller.signal.aborted && owner.current === user) setError(userErrorMessage(failure, 'No pudimos cargar los usuarios y permisos. Intentá nuevamente más tarde.')); });
     return () => controller.abort();
   }, [user, retry]);
   if (user?.backendRole !== 'ADMINISTRADOR') return <p role="alert">El control de acceso está reservado al administrador.</p>;
@@ -113,7 +119,9 @@ export default function AccessControl() {
   };
   const refreshRole = async (rol) => {
     const current = await apiFetch('/api/acceso');
-    updateRole(current.roles.find((role) => role.rol === rol));
+    const updated = validAccess(current) && current.roles.find((role) => role.rol === rol);
+    if (!updated) throw new Error('Respuesta del rol incompleta');
+    updateRole(updated);
   };
   const normalized = query.trim().toLocaleLowerCase('es');
   const filtered = people.filter((person) => (!roleFilter || person.rol === roleFilter) && `${person.nombre} ${person.apellido} ${person.username}`.toLocaleLowerCase('es').includes(normalized));

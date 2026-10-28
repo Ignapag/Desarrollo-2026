@@ -47,3 +47,22 @@ test('doble submit de login envía una sola solicitud y muestra fallo persistent
   await act(async () => { wait.resolve({ error: 'Credenciales inválidas' }); await Promise.all([one, two]); });
   assert.match(container.textContent, /Credenciales inválidas/);
 });
+
+test('una excepción inesperada conserva los datos y muestra un mensaje accesible sin detalles internos', async (t) => {
+  const container = await mount(t, { login: async () => { throw new Error('SQL password_hash /app/auth.py HTTP 500'); } });
+  await change(field(container, 'username'), 'ana'); await change(field(container, 'password'), 'secret');
+  await act(async () => reactProps(form(container)).onSubmit(submit));
+  assert.match(container.textContent, /No pudimos iniciar sesión/);
+  assert.doesNotMatch(container.textContent, /SQL|password_hash|auth\.py|HTTP/);
+  assert.equal(reactProps(field(container, 'username')).value, 'ana');
+  assert.equal(reactProps(field(container, 'password')).value, 'secret');
+  assert.ok(elements(container, (node) => node.getAttribute?.('role') === 'alert').length);
+  assert.equal(reactProps(elements(container, (node) => node.localName === 'button' && reactProps(node).type === 'submit')[0]).disabled, false);
+});
+
+test('un fallo al consultar sesión se anuncia en login sin ofrecer un cierre pendiente inexistente', async (t) => {
+  const container = await mount(t, { sessionError: 'No pudimos comprobar tu sesión. Revisá tu conexión e intentá ingresar nuevamente.', logoutFailed: false });
+  assert.match(container.textContent, /No pudimos comprobar tu sesión/);
+  assert.doesNotMatch(container.textContent, /Reintentar cierre/);
+  assert.ok(elements(container, (node) => node.getAttribute?.('role') === 'alert').length);
+});

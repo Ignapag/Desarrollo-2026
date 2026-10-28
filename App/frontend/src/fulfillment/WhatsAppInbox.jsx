@@ -3,7 +3,9 @@ import { MessageCircle, ChevronDown, RefreshCw, Download, Phone, ExternalLink } 
 import { useAuth } from '../auth/AuthContext';
 import { can } from '../auth/permissions';
 import { apiFetch } from '../shared/api/http';
+import { apiResponseError, UserFacingError, userErrorMessage } from '../shared/api/userErrors.js';
 import { useData } from '../shared/store/DataContext';
+import { knownLabel, paymentMethodLabel, stateLabel } from './orderModel';
 
 const actionClass = 'min-h-11 px-4 py-2 rounded-xl text-sm font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-monu-green focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
 
@@ -12,11 +14,13 @@ async function downloadReceipt(kind, id) {
   const base = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
   const response = await fetch(`${base}/api/whatsapp/${kind}/${id}/archivo`, { credentials: 'include' });
   if (!response.ok) {
-    const body = await response.json().catch(() => null);
-    const message = body?.mensaje || body?.detail;
-    throw new Error(typeof message === 'string' ? message : 'No se pudo descargar el comprobante.');
+    throw apiResponseError(response.status, null);
   }
-  const url = URL.createObjectURL(await response.blob());
+  const file = await response.blob();
+  if (!file.size || !['application/pdf', 'image/png', 'image/jpeg'].includes(file.type)) {
+    throw new UserFacingError('No pudimos descargar el comprobante. Intentá nuevamente más tarde.');
+  }
+  const url = URL.createObjectURL(file);
   const link = document.createElement('a');
   link.href = url;
   link.download = `comprobante-${kind}-${id}`;
@@ -116,9 +120,12 @@ function ReviewCard({ record, kind, onReviewed, onReviewFailed }) {
           }),
         }),
       });
-      await onReviewed(`Revisión registrada para el pedido #${record.numero || record.pedido_id}: ${result.estado || 'procesada'}.`);
+      if (!['APROBADO', 'APLICADO', 'RECHAZADO'].includes(result?.estado)) {
+        throw new UserFacingError('No pudimos confirmar la revisión. Actualizá el pedido y comprobá su estado antes de repetirla.');
+      }
+      await onReviewed(`Revisión registrada para el pedido #${record.numero || record.pedido_id}. Actualizá el pedido para comprobar el resultado.`);
     } catch (failure) {
-      const message = failure.message || 'No se pudo registrar la revisión. Volvé a intentarlo.';
+      const message = userErrorMessage(failure, 'No pudimos confirmar la revisión. Actualizá el pedido y comprobá su estado antes de repetirla.');
       setError(message);
       await onReviewFailed?.(message);
     } finally {
@@ -134,7 +141,7 @@ function ReviewCard({ record, kind, onReviewed, onReviewFailed }) {
     try {
       await downloadReceipt('comprobantes', record.id);
     } catch (failure) {
-      setError(failure.message || 'No se pudo descargar el comprobante.');
+      setError(userErrorMessage(failure, 'No pudimos descargar el comprobante. Intentá nuevamente.'));
     } finally {
       setDownloading(false);
     }
@@ -143,11 +150,11 @@ function ReviewCard({ record, kind, onReviewed, onReviewFailed }) {
   return (
     <article className="p-4 bg-white border border-monu-green/20 rounded-xl space-y-3 min-w-0" aria-labelledby={`${cardId}-title`}>
       <h4 id={`${cardId}-title`} className="font-extrabold text-monu-dark">Pedido #{record.numero || record.pedido_id} · {isReceipt ? 'Comprobante' : 'Cambio'} #{record.id}</h4>
-      <p className="text-sm text-monu-text">Estado: <strong>{record.estado}</strong>{!isReceipt && ` · Versión ${record.version}`}</p>
+      <p className="text-sm text-monu-text">Estado: <strong>{knownLabel({ PENDIENTE: 'Pendiente', PENDIENTE_EMPLEADO: 'Pendiente de revisión', APROBADO: 'Aprobado', APLICADO: 'Aplicado', RECHAZADO: 'Rechazado' }, record.estado)}</strong></p>
       {isReceipt ? (
         <>
           <p className="text-sm text-monu-dark font-bold">Total vigente a verificar: {hasReceiptTotal ? Number(record.total).toLocaleString('es-AR', { style: 'currency', currency: 'ARS' }) : 'No disponible. Actualizá antes de aprobar.'}</p>
-          <p className="text-sm text-monu-text">Forma de pago: {record.metodo_pago || 'No informada'}</p>
+          <p className="text-sm text-monu-text">Forma de pago: {paymentMethodLabel(record.metodo_pago)}</p>
           <button type="button" disabled={downloading || busy} onClick={download} className={`${actionClass} flex gap-2 items-center border border-monu-green text-monu-green hover:bg-monu-green/10`}>
             <Download aria-hidden="true" className="w-4 h-4" />{downloading ? 'Descargando...' : 'Descargar comprobante'}
           </button>
@@ -157,12 +164,12 @@ function ReviewCard({ record, kind, onReviewed, onReviewFailed }) {
           <p className="text-sm text-monu-text">Acción solicitada: {describeChangeAction(record.accion)}</p>
           <ChangeDetails anterior={record.anterior} posterior={record.posterior} />
           {priceChanged && <p className="text-sm text-orange-800">El cambio no acredita cobros: cualquier saldo adicional queda pendiente. Si hay dinero a devolver, registrá primero la devolución en pagos antes de aprobar. Coordiná el cambio con cocina y caja.</p>}
-          <p className="text-sm text-monu-text">El servidor verificará que la versión siga vigente antes de aplicar la decisión.</p>
+          <p className="text-sm text-monu-text">Si el pedido cambió, actualizá sus datos antes de revisar la solicitud.</p>
         </>
       )}
       {error && <p role="alert" id={`${cardId}-error`} className="p-3 rounded-lg bg-red-50 text-red-800 text-sm">{error}</p>}
       {pending ? (
-        <form onSubmit={review} className="space-y-3">
+        <form noValidate onSubmit={review} className="space-y-3">
           <label className="block text-sm font-bold text-monu-dark space-y-1">
             <span>Motivo y verificación realizada (obligatorio)</span>
             <textarea ref={reasonRef} required maxLength={500} rows={3} disabled={busy} value={reason} onChange={(event) => setReason(event.target.value)} aria-describedby={error ? `${cardId}-error` : undefined} className="w-full px-3 py-2 text-base font-normal border border-monu-green/30 rounded-lg focus:outline-none focus:ring-2 focus:ring-monu-green" />
@@ -192,11 +199,11 @@ function ReviewCard({ record, kind, onReviewed, onReviewFailed }) {
 const reasonLabels = {
   COMPROBANTE: 'Comprobante sin pedido vinculado. Revisá la conversación antes de registrar un pago.',
   SOLICITUD: 'El cliente pidió atención o el bot no pudo clasificar el mensaje',
-  PROVEEDOR: 'Falló el intérprete automático; no se aplicaron cambios',
+  PROVEEDOR: 'No pudimos procesar el mensaje automáticamente. Revisá la conversación antes de continuar.',
 };
 
 const deliveryStates = {
-  PENDIENTE: 'En cola: todavía no se envió. El worker la procesará.',
+  PENDIENTE: 'Pendiente de envío: todavía no llegó al cliente.',
   ENVIANDO: 'Enviándose ahora.',
   SIMULADO: 'Modo simulado: no se envió a WhatsApp.',
   ACEPTADO: 'Aceptada por WhatsApp; todavía sin confirmación de entrega.',
@@ -215,6 +222,8 @@ function newRequestId() {
 }
 
 function AttentionForm({ id, label, help, maxLength, submitLabel, busyLabel, onSubmit }) {
+  const { user } = useAuth();
+  const manage = can(user, 'whatsapp.gestionar');
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -238,7 +247,7 @@ function AttentionForm({ id, label, help, maxLength, submitLabel, busyLabel, onS
       setResult(await onSubmit(value.trim()));
       setValue('');
     } catch (failure) {
-      setError(failure.message || 'No se pudo completar la operación. Volvé a intentarlo.');
+      setError(userErrorMessage(failure, 'No pudimos confirmar la acción. Actualizá la bandeja y comprobá su estado antes de repetirla.'));
     } finally {
       submittingRef.current = false;
       setBusy(false);
@@ -263,20 +272,36 @@ function AttentionCard({ record, onChanged }) {
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState('');
   const requestIdRef = useRef(newRequestId());
+  const pendingReply = useRef(null);
   const cardId = `whatsapp-atencion-${record.id}`;
   const phone = /^[0-9]{11,15}$/.test(record.telefono || '') ? record.telefono : null;
   const title = record.pedido_id ? `Pedido #${record.numero || record.pedido_id}` : 'Conversación sin pedido registrado';
 
   const reply = async (text) => {
     // El mismo identificador en un reintento evita encolar la respuesta dos veces.
-    const result = await apiFetch(`/api/whatsapp/atenciones/${record.id}/respuesta`, {
-      method: 'POST',
-      body: JSON.stringify({ texto: text, solicitud_id: requestIdRef.current }),
-    });
+    if (pendingReply.current && pendingReply.current !== text) throw new UserFacingError('Hay una respuesta por verificar. Actualizá la bandeja y reintentá con el mismo texto antes de enviar otra.');
+    pendingReply.current = text;
+    let result;
+    try {
+      result = await apiFetch(`/api/whatsapp/atenciones/${record.id}/respuesta`, {
+        method: 'POST',
+        body: JSON.stringify({ texto: text, solicitud_id: requestIdRef.current }),
+      });
+    } catch (failure) {
+      if (failure.status >= 400 && failure.status < 500 && failure.status !== 408) {
+        pendingReply.current = null;
+        requestIdRef.current = newRequestId();
+      }
+      throw failure;
+    }
+    if (!Number.isSafeInteger(result?.id) || result.id <= 0 || result.atencion_id !== record.id || !Object.hasOwn(deliveryStates, result.estado)) {
+      throw new UserFacingError('No pudimos confirmar el envío. Actualizá la bandeja y comprobá su estado antes de repetirlo.');
+    }
     requestIdRef.current = newRequestId();
+    pendingReply.current = null;
     const refreshed = await onChanged();
-    const state = deliveryStates[result.estado] || result.estado;
-    return `Respuesta #${result.id} registrada en la cola de salida. Estado: ${result.estado}. ${state}${refreshed ? '' : ' No se pudo actualizar la bandeja; actualizala para ver el envío.'}`;
+    const state = deliveryStates[result.estado];
+    return `Respuesta registrada. ${state}${refreshed ? '' : ' No se pudo actualizar la bandeja; actualizala para ver el envío.'}`;
   };
 
   const resolve = async (text) => {
@@ -284,25 +309,26 @@ function AttentionCard({ record, onChanged }) {
       method: 'POST',
       body: JSON.stringify({ resolucion: text }),
     });
-    const refreshed = await onChanged(`Atención de ${title.toLowerCase()} marcada como ${result.estado.toLowerCase()}.`);
+    if (result?.id !== record.id || result.estado !== 'RESUELTA') throw new UserFacingError('No pudimos confirmar el cierre de la atención. Actualizá la bandeja y comprobá su estado antes de repetirlo.');
+    const refreshed = await onChanged(`Atención de ${title.toLowerCase()} marcada como resuelta.`);
     return refreshed ? 'Atención resuelta.' : 'Atención resuelta, pero no se pudo actualizar la bandeja. Actualizala.';
   };
 
   return (
     <article className="p-4 bg-white border border-orange-200 rounded-xl space-y-3 min-w-0" aria-labelledby={`${cardId}-title`}>
       <h4 id={`${cardId}-title`} className="font-extrabold text-monu-dark">{title} · Atención #{record.id}</h4>
-      <p className="text-sm text-orange-900">{reasonLabels[record.motivo] || 'Requiere atención de personal'}</p>
+      <p className="text-sm text-orange-900">{knownLabel(reasonLabels, record.motivo, 'Requiere atención de personal')}</p>
       <dl className="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-[max-content_1fr]">
         <dt className="font-bold text-monu-dark">Cliente</dt><dd className="text-monu-text break-words">{record.cliente || 'Sin nombre registrado'}</dd>
         <dt className="font-bold text-monu-dark">Teléfono</dt><dd className="text-monu-text">{phone ? `+${phone}` : 'No disponible'}</dd>
-        <dt className="font-bold text-monu-dark">Estado</dt><dd className="text-monu-text">{record.pedido_id ? `Pedido ${record.estado_pedido}` : record.estado_conversacion ? 'Borrador sin pedido operativo' : 'Consulta sin compra vinculada'}{record.total != null && ` · Total ${Number(record.total).toLocaleString('es-AR', { style: 'currency', currency: 'ARS' })}`}</dd>
-        <dt className="font-bold text-monu-dark">Entrega y pago</dt><dd className="text-monu-text">{record.tipo_entrega || 'Entrega sin definir'} · {record.metodo_pago || 'Pago sin definir'}</dd>
+        <dt className="font-bold text-monu-dark">Estado</dt><dd className="text-monu-text">{record.pedido_id ? `Pedido ${stateLabel(record.estado_pedido)}` : record.estado_conversacion ? 'Borrador sin pedido operativo' : 'Consulta sin compra vinculada'}{record.total != null && ` · Total ${Number(record.total).toLocaleString('es-AR', { style: 'currency', currency: 'ARS' })}`}</dd>
+        <dt className="font-bold text-monu-dark">Entrega y pago</dt><dd className="text-monu-text">{knownLabel({ DELIVERY: 'Delivery', RETIRO: 'Retiro en el local' }, record.tipo_entrega, 'Entrega sin definir')} · {paymentMethodLabel(record.metodo_pago)}</dd>
       </dl>
       {record.tiene_archivo && record.motivo === 'COMPROBANTE' && <button type="button" disabled={downloading} className={`${actionClass} inline-flex items-center gap-2 border border-monu-green text-monu-green hover:bg-monu-green/10`} onClick={async () => {
         if (downloading) return;
         setDownloading(true);
         setDownloadError('');
-        try { await downloadReceipt('atenciones', record.id); } catch (failure) { setDownloadError(failure.message); } finally { setDownloading(false); }
+        try { await downloadReceipt('atenciones', record.id); } catch (failure) { setDownloadError(userErrorMessage(failure, 'No pudimos descargar el comprobante. Intentá nuevamente.')); } finally { setDownloading(false); }
       }}><Download aria-hidden="true" className="h-4 w-4" />{downloading ? 'Descargando...' : 'Descargar comprobante'}</button>}
       {downloadError && <p role="alert" className="text-sm text-red-800">{downloadError}</p>}
       {record.borrador_vencido && <p className="p-2 rounded-lg bg-orange-50 text-orange-900 text-sm">El borrador venció: el cliente debe prepararlo nuevamente desde la web. Sus datos siguen visibles aquí.</p>}
@@ -345,7 +371,7 @@ function AttentionCard({ record, onChanged }) {
             {record.respuestas.map((answer) => (
               <li key={answer.id} className="p-2 rounded-lg border border-monu-green/10 text-sm break-words space-y-1">
                 <p className="whitespace-pre-wrap text-monu-dark">{answer.texto}</p>
-                <p className="text-monu-text"><strong>{answer.estado}</strong> · {deliveryStates[answer.estado] || 'Estado desconocido.'}{answer.empleado ? ` · ${answer.empleado}` : ''}</p>
+                <p className="text-monu-text">{knownLabel(deliveryStates, answer.estado, 'Estado de envío sin informar.')}{answer.empleado ? ` · ${answer.empleado}` : ''}</p>
               </li>
             ))}
           </ul>
@@ -377,9 +403,11 @@ function InboxContent({ section, requestKey }) {
     setLoading(true);
     setError('');
     try {
-      setInbox(await apiFetch('/api/whatsapp/bandeja'));
+      const data = await apiFetch('/api/whatsapp/bandeja');
+      if (!['comprobantes', 'cambios', 'atenciones', 'salidas'].every((key) => Array.isArray(data?.[key]))) throw new UserFacingError('No pudimos cargar la bandeja. Intentá actualizarla nuevamente.');
+      setInbox(data);
     } catch (failure) {
-      setError(failure.message || 'No se pudo actualizar la bandeja. Intentá nuevamente.');
+      setError(userErrorMessage(failure, 'No pudimos actualizar la bandeja. Intentá nuevamente.'));
       throw failure;
     } finally {
       loadingRef.current = false;
@@ -476,7 +504,7 @@ function InboxContent({ section, requestKey }) {
                 <p className="text-sm text-monu-text">SIMULADO: no se envió a WhatsApp. INCIERTO: no hay confirmación de envío; verificá antes de reenviar. ACEPTADO: recibido por el proveedor, todavía no confirma entrega al cliente.</p>
                 {inbox.salidas.length === 0 && <p className="text-sm text-monu-text">No hay mensajes de salida.</p>}
                 <ul className="space-y-2">
-                  {inbox.salidas.map((record) => <li key={record.id} className="p-3 rounded-xl bg-white text-sm text-monu-dark border border-monu-green/10">Mensaje #{record.id} · <strong>{record.estado}</strong> · Intentos: {record.intentos}</li>)}
+                  {inbox.salidas.map((record) => <li key={record.id} className="p-3 rounded-xl bg-white text-sm text-monu-dark border border-monu-green/10">Mensaje #{record.id} · <strong>{knownLabel(deliveryStates, record.estado, 'Estado de envío sin informar.')}</strong> · Intentos: {record.intentos}</li>)}
                 </ul>
               </div>
             </>

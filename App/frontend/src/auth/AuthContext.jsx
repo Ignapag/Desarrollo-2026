@@ -1,11 +1,18 @@
 ﻿import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiFetch, invalidateApiSession, onUnauthorized } from '../shared/api/http';
+import { UserFacingError, userErrorMessage } from '../shared/api/userErrors';
 import { aceptaSesion, portal } from '../shared/portal';
 import { can as hasPermission, homeFor } from './permissions';
 
 const AuthContext = createContext(null);
+const SESSION_CHECK_ERROR = 'No pudimos comprobar tu sesión. Revisá tu conexión e intentá ingresar nuevamente.';
 function mapUser(data) {
+  if (!data || !Number.isSafeInteger(data.id) || data.id <= 0 || typeof data.username !== 'string'
+    || typeof data.nombre !== 'string' || typeof data.apellido !== 'string' || typeof data.rol !== 'string'
+    || !Array.isArray(data.permisos) || data.permisos.some((permission) => typeof permission !== 'string')) {
+    throw new UserFacingError('No pudimos confirmar tu sesión. Volvé a ingresar.');
+  }
   return { id: data.id, username: data.username,
     role: ['ADMINISTRADOR', 'DUENIO', 'EMPLEADO'].includes(data.rol) ? 'admin' : data.rol.toLowerCase(),
     backendRole: data.rol, permisos: [...(data.permisos || [])].sort(),
@@ -15,6 +22,8 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(portal.personal);
   const [sessionError, setSessionError] = useState('');
+  const [logoutFailed, setLogoutFailed] = useState(false);
+  const initialSessionCheck = useRef(true);
   const signedOut = useRef(false);
   const navigate = useNavigate();
   const epoch = useRef(0);
@@ -34,10 +43,12 @@ export function AuthProvider({ children }) {
       if (token !== epoch.current || busy.current) return;
       const next = aceptaSesion(data.rol, portal.modo) ? mapUser(data) : null;
       setUser((previous) => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
+      setSessionError((previous) => previous === SESSION_CHECK_ERROR ? '' : previous);
     }).catch((error) => {
       if (token === epoch.current && [401, 403].includes(error.status)) setUser(null);
+      else if (token === epoch.current && initialSessionCheck.current) setSessionError(SESSION_CHECK_ERROR);
     }).finally(() => {
-      if (token === epoch.current) setLoading(false);
+      if (token === epoch.current) { initialSessionCheck.current = false; setLoading(false); }
       if (refreshRequest.current === request) refreshRequest.current = null;
     });
     refreshRequest.current = request;
@@ -72,6 +83,7 @@ export function AuthProvider({ children }) {
     invalidateApiSession();
     signedOut.current = false;
     setSessionError('');
+    setLogoutFailed(false);
     busy.current = true;
     refreshRequest.current = null;
     setUser(null);
@@ -86,7 +98,7 @@ export function AuthProvider({ children }) {
       setUser(authenticated);
       navigate(homeFor(authenticated));
       return { success: true };
-    } catch (error) { return { error: error.message }; }
+    } catch (error) { return { error: userErrorMessage(error, 'No pudimos iniciar sesión. Intentá nuevamente más tarde.') }; }
     finally { if (token === epoch.current) { busy.current = false; setLoading(false); } }
   };
   const logout = async () => {
@@ -94,18 +106,20 @@ export function AuthProvider({ children }) {
     invalidateApiSession();
     signedOut.current = true;
     setSessionError('');
+    setLogoutFailed(false);
     busy.current = true;
     refreshRequest.current = null;
     setUser(null);
     setLoading(false);
     navigate('/login');
     try { await mutateAuth(() => apiFetch('/api/auth/logout', { method: 'POST' })); }
-    catch (error) {
-      if (token === epoch.current) setSessionError(`No se pudo cerrar la sesión en el servidor. Reintentá el cierre. ${error.message}`);
-      return { error: error.message };
+    catch {
+      const message = 'No pudimos confirmar el cierre de sesión. Reintentá cerrar la sesión antes de dejar este dispositivo.';
+      if (token === epoch.current) { setSessionError(message); setLogoutFailed(true); }
+      return { error: message };
     }
     finally { if (token === epoch.current) busy.current = false; }
   };
-  return <AuthContext.Provider value={{ user, loading, sessionError, login, logout, refreshSession, can: (permission) => hasPermission(user, permission) }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ user, loading, sessionError, logoutFailed, login, logout, refreshSession, can: (permission) => hasPermission(user, permission) }}>{children}</AuthContext.Provider>;
 }
 export const useAuth = () => useContext(AuthContext);

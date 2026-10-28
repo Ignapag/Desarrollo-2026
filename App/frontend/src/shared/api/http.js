@@ -1,3 +1,5 @@
+import { UserFacingError, apiResponseError, CHECK_OPERATION_MESSAGE } from './userErrors';
+
 const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 let sessionRevision = 0;
 const unauthorizedListeners = new Set();
@@ -10,12 +12,13 @@ export function onUnauthorized(listener) {
 
 export async function apiFetch(path, options = {}) {
   const { signal, timeoutMs = 30000, ...requestOptions } = options;
+  const write = !['GET', 'HEAD'].includes((options.method || 'GET').toUpperCase());
   const revision = sessionRevision;
   const controller = new AbortController();
   const cancel = () => controller.abort(signal.reason);
   if (signal?.aborted) cancel();
   else signal?.addEventListener('abort', cancel, { once: true });
-  const timer = setTimeout(() => controller.abort(new Error('Se agotó el tiempo de espera. Comprobá el estado de la operación antes de reintentar.')), timeoutMs);
+  const timer = setTimeout(() => controller.abort(new UserFacingError(`Se agotó el tiempo de espera.${write ? ` ${CHECK_OPERATION_MESSAGE}` : ' Intentá nuevamente.'}`, { kind: 'timeout', uncertain: write })), timeoutMs);
   let abortListener;
   const aborted = new Promise((_, reject) => {
     abortListener = () => reject(controller.signal.reason);
@@ -41,24 +44,23 @@ export async function apiFetch(path, options = {}) {
         try { body = await response.json(); } catch { validJson = false; }
       }
       controller.signal.throwIfAborted();
-      if (revision !== sessionRevision) throw new Error('La sesión cambió. Volvé a consultar los datos antes de continuar.');
+      if (revision !== sessionRevision) throw new UserFacingError(`La sesión cambió. Volvé a ingresar.${write ? ` ${CHECK_OPERATION_MESSAGE}` : ''}`, { uncertain: write });
       if (!response.ok) {
-        const detail = body?.mensaje || body?.detail;
-        const message = Array.isArray(detail) ? detail.map((item) => `${(item.loc || []).filter((part) => part !== 'body').join('.')}: ${item.msg || 'Valor inválido'}`).join('; ') : detail;
-        const error = new Error(typeof message === 'string' ? message : `No se pudo completar la operación (HTTP ${response.status}).`);
-        error.status = response.status;
+        const error = apiResponseError(response.status, body, { path, write });
         if (response.status === 401 && !path.startsWith('/api/auth/')) {
           for (const listener of unauthorizedListeners) listener();
         }
         throw error;
       }
       if (response.status === 204) return null;
-      if (!validJson) throw new Error('El servidor no devolvió una respuesta válida. No pudimos confirmar la operación; comprobá su estado antes de reintentar.');
+      if (!validJson || body === null || typeof body !== 'object') throw new UserFacingError(write ? CHECK_OPERATION_MESSAGE : 'No pudimos cargar la información. Intentá nuevamente.', { kind: 'request', uncertain: write });
       return body;
     })()]);
   } catch (error) {
-    if (error instanceof TypeError) throw new Error('No se pudo conectar con el servidor. Revisá la conexión y comprobá la operación antes de reintentar.', { cause: error });
-    throw error;
+    if (error instanceof UserFacingError) throw error;
+    if (signal?.aborted && error?.name === 'AbortError') throw error;
+    // No guardar la excepción original: podría contener cuerpos, URLs o secretos.
+    throw new UserFacingError(`No pudimos conectar. Revisá tu conexión.${write ? ` ${CHECK_OPERATION_MESSAGE}` : ' Intentá nuevamente.'}`, { kind: 'connection', uncertain: write });
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener('abort', cancel);

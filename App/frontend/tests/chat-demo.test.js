@@ -35,6 +35,14 @@ before(async () => {
   testStore = await server.ssrLoadModule('/src/shared/store/DataContext.jsx');
 });
 beforeEach(() => storage.clear());
+
+test('un estado inesperado del chat siempre tiene una etiqueta de texto segura', () => {
+  for (const direccion of ['cliente', 'bot']) {
+    for (const estado of ['SQL interno', '__proto__', 'constructor', 'toString']) {
+      assert.equal(chat.chatMessageStatus({ direccion, estado }), 'Estado por actualizar');
+    }
+  }
+});
 after(async () => { globalThis.fetch = originalFetch; await server?.close(); dom?.restore(); if (originalStorage) Object.defineProperty(globalThis, 'sessionStorage', originalStorage); else delete globalThis.sessionStorage; });
 
 async function mount(t, Component, props) {
@@ -94,7 +102,7 @@ test('reintento conserva UUID y contenido sin volver a crear un borrador públic
     return response({ id: 'entrada', estado: 'PENDIENTE' }, 202);
   };
   const draft = { items: [{ producto_id: 1, cantidad: 2 }], tipo_entrega: null, metodo_pago: null };
-  await assert.rejects(chat.sendChatDraft(draft), /Respuesta perdida/);
+  await assert.rejects(chat.sendChatDraft(draft), /No pudimos/);
   await chat.sendChatDraft(draft);
   assert.deepEqual(calls.map(({ url }) => url), ['/api/chat-demo/borradores', '/api/chat-demo/borradores']);
   assert.equal(calls[0].options.body, calls[1].options.body);
@@ -112,7 +120,7 @@ test('respuesta inválida conserva UUID y no confirma un envío que no está per
 test('recarga recupera el mismo envío incierto y lo reconcilia sólo con su ID del servidor', async () => {
   let request;
   globalThis.fetch = async (_url, options) => { request = JSON.parse(options.body); throw new Error('Respuesta perdida'); };
-  await assert.rejects(chat.sendChatText('Agregar una Crispy'), /Respuesta perdida/);
+  await assert.rejects(chat.sendChatText('Agregar una Crispy'), /No pudimos/);
   const reloaded = await server.ssrLoadModule('/src/ordering/chatDemo.js?recarga');
   assert.equal(reloaded.getPendingChatSend().text, 'Agregar una Crispy');
   assert.equal(reloaded.reconcileChatSend({ mensajes: [{ id: 'otra-entrada', texto: 'Agregar una Crispy' }] }), false);
@@ -126,7 +134,7 @@ test('recarga recupera el mismo envío incierto y lo reconcilia sólo con su ID 
 test('un envío incierto impide reemplazar la solicitud por otro mensaje', async () => {
   let calls = 0;
   globalThis.fetch = async () => { calls += 1; throw new Error('Sin conexión'); };
-  await assert.rejects(chat.sendChatText('Mensaje original'), /Sin conexión/);
+  await assert.rejects(chat.sendChatText('Mensaje original'), /conexión/);
   await assert.rejects(chat.sendChatText('Otro mensaje'), /envío anterior/);
   assert.equal(calls, 1);
 });
@@ -155,11 +163,23 @@ test('rechazo HTTP permite corregir el texto y conserva el UUID para replay del 
   assert.equal(requests[0].solicitud_id, requests[2].solicitud_id);
 });
 
+test('un rechazo por tiempo de espera conserva el envío incierto y bloquea otro contenido', async () => {
+  const requests = [];
+  globalThis.fetch = async (_url, options) => { requests.push(JSON.parse(options.body)); return requests.length === 1 ? response({ detail: 'upstream timeout' }, 408) : response({ id: 'entrada', estado: 'PENDIENTE' }, 202); };
+  await assert.rejects(chat.sendChatText('Mi pedido con espera agotada'));
+  assert.equal(chat.getPendingChatSend()?.text, 'Mi pedido con espera agotada');
+  await assert.rejects(chat.sendChatText('Otro pedido distinto'), /envío anterior/);
+  assert.equal(requests.length, 1);
+  await chat.sendChatText('Mi pedido con espera agotada');
+  assert.equal(requests[0].solicitud_id, requests[1].solicitud_id);
+  assert.equal(chat.getPendingChatSend(), null);
+});
+
 test('comprobante incierto se recupera por el mismo contenido tras recargar sin guardar el binario', async () => {
   let first;
   globalThis.fetch = async (_url, options) => { first = options; throw new Error('Respuesta perdida'); };
   const file = new Blob(['%PDF-original'], { type: 'application/pdf' });
-  await assert.rejects(chat.sendChatReceipt(file), /Respuesta perdida/);
+  await assert.rejects(chat.sendChatReceipt(file), /No pudimos/);
   const reloaded = await server.ssrLoadModule('/src/ordering/chatDemo.js?recarga-comprobante');
   assert.equal(reloaded.getPendingChatSend().fileName, 'comprobante');
   assert.equal(reloaded.getPendingChatSend().file, undefined);
@@ -176,7 +196,7 @@ test('sin espacio en sessionStorage conserva el envío incierto en memoria duran
   try {
     const privateChat = await server.ssrLoadModule('/src/ordering/chatDemo.js?sin-espacio');
     globalThis.fetch = async () => { throw new Error('Respuesta perdida'); };
-    await assert.rejects(privateChat.sendChatText('Conservar este intento'), /Respuesta perdida/);
+    await assert.rejects(privateChat.sendChatText('Conservar este intento'), /No pudimos/);
     assert.equal(privateChat.getPendingChatSend().text, 'Conservar este intento');
     await assert.rejects(privateChat.sendChatText('Otro mensaje'), /envío anterior/);
   } finally { globalThis.sessionStorage.setItem = setItem; }
@@ -201,7 +221,35 @@ test('texto vacío o excesivo no hace llamadas y un fallo no simula éxito', asy
   await assert.rejects(chat.sendChatText(' '), /1 a 2000/);
   await assert.rejects(chat.sendChatText('x'.repeat(2001)), /1 a 2000/);
   assert.equal(calls, 0);
-  await assert.rejects(chat.sendChatText('Consultar mi pedido'), /Sesión vencida/);
+  await assert.rejects(chat.sendChatText('Consultar mi pedido'), /abrir el chat/);
+});
+
+test('configuración y conversación inesperadas muestran mensajes seguros y permiten volver a consultar', async () => {
+  globalThis.fetch = async () => response({ detail: 'SQL /app/internal.py' });
+  await assert.rejects(chat.getChatConfig(), /disponibilidad del chat/);
+  await assert.rejects(chat.getChatConversation(), /recuperar la conversación/);
+  globalThis.fetch = async () => response({ mensajes: [null], borradores: [] });
+  await assert.rejects(chat.getChatConversation(), /recuperar la conversación/);
+  globalThis.fetch = async () => response({ habilitado: false });
+  assert.equal((await chat.getChatConfig()).habilitado, false);
+});
+
+test('un archivo no admitido conserva el compositor, anuncia cómo corregirlo y no envía solicitudes', async (t) => {
+  let sends = 0;
+  globalThis.fetch = async (url) => {
+    if (url.endsWith('/comprobantes')) sends += 1;
+    return response(url.endsWith('/conversacion') ? conversation() : {});
+  };
+  const container = await mount(t, ChatDrawer, { isOpen: true, onClose() {} });
+  const input = elements(container, (node) => node.localName === 'textarea')[0];
+  await act(async () => reactProps(input).onChange({ target: { value: 'Mi consulta pendiente' } }));
+  const fileInput = elements(container, (node) => node.localName === 'input' && reactProps(node).type === 'file')[0];
+  await act(async () => reactProps(fileInput).onChange({ target: { files: [new Blob(['texto'], { type: 'text/plain' })], value: 'archivo.txt' } }));
+  assert.equal(sends, 0);
+  assert.match(container.textContent, /Elegí un archivo PDF, PNG o JPEG/);
+  assert.equal(reactProps(input).value, 'Mi consulta pendiente');
+  assert.ok(input.getAttribute('aria-describedby').includes('chat-error'));
+  assert.ok(elements(container, (node) => node.getAttribute?.('id') === 'chat-error' && node.getAttribute('role') === 'alert').length);
 });
 
 test('chat recupera historial al reabrir, suspende polling oculto y no inventa respuestas', async (t) => {
@@ -241,7 +289,7 @@ test('error de envío conserva texto y reintento aunque el polling siga funciona
   const input = elements(container, (node) => node.localName === 'textarea')[0];
   await act(async () => reactProps(input).onChange({ target: { value: 'Sin tomate' } }));
   await act(async () => { reactProps(elements(container, (node) => node.localName === 'form')[0]).onSubmit({ preventDefault() {} }); await firstAttempt.promise; });
-  assert.match(container.textContent, /Respuesta perdida/);
+  assert.match(container.textContent, /No pudimos/);
   await act(async () => tick());
   assert.ok(button(container, 'Reintentar mismo envío'));
   assert.equal(reactProps(input).value, 'Sin tomate');
@@ -256,7 +304,7 @@ test('error de envío conserva texto y reintento aunque el polling siga funciona
 test('al recargar el chat muestra el intento incierto y un historial persistido lo resuelve sin reenviar', async (t) => {
   let request;
   globalThis.fetch = async (_url, options) => { request = JSON.parse(options.body); throw new Error('Respuesta perdida'); };
-  await assert.rejects(chat.sendChatText('Sin bacon en la Crispy'), /Respuesta perdida/);
+  await assert.rejects(chat.sendChatText('Sin bacon en la Crispy'), /No pudimos/);
   const history = deferred();
   let posts = 0;
   globalThis.fetch = async (url) => { if (url.endsWith('/conversacion')) return history.promise; posts += 1; return response({}); };
@@ -377,10 +425,27 @@ test('borrador vencido muestra vencimiento real y un pedido creado conserva su e
   await openInfo(container);
   assert.match(container.textContent, /Borrador vencido/);
   assert.doesNotMatch(container.textContent, /pendiente de completar o confirmar/);
-  assert.match(container.textContent, /Pedido #5 · CONFIRMADO/);
+  assert.match(container.textContent, /Pedido #5 · Confirmado/);
   const expiration = elements(container, (node) => node.localName === 'time' && reactProps(node).dateTime === expired)[0];
   assert.ok(expiration);
   assert.equal(expiration.textContent, new Date(expired).toLocaleString('es-AR'));
+});
+
+test('fallos persistidos del bot y estados inesperados se traducen sin exponer diagnósticos', async (t) => {
+  const failures = ['aplicar el cambio', 'proponer el cambio', 'preparar los cambios', 'registrar el pedido'];
+  const normal = '*Tu pedido*\nPodés elegir retiro o delivery.';
+  globalThis.fetch = async (url) => response(url.endsWith('/conversacion') ? {
+    ...conversation(),
+    mensajes: [...failures.map((action, index) => ({ ...conversation().mensajes[0], id: `failure-${index}`, texto: `💬 No pude ${action}: SQL /app/private clave_operacion. Tu pedido sigue sin cambios.` })), { ...conversation().mensajes[0], id: 'normal', texto: normal }],
+    borradores: [{ pedido_id: 12, numero: 5, estado_pedido: 'SQL_internal_failure' }, { estado: 'psycopg_PRIVATE', expira_en: '2099-01-02T15:00:00Z' }],
+  } : {});
+  const container = await mount(t, ChatDrawer, { isOpen: true, onClose() {} });
+  assert.match(container.textContent, /Consultá el resumen de tu pedido antes de repetirlo/);
+  assert.match(container.textContent, /Consultá su estado antes de repetirlo para evitar duplicaciones/);
+  assert.match(container.textContent, /Podés elegir retiro o delivery/);
+  await openInfo(container);
+  assert.match(container.textContent, /Estado por actualizar/);
+  assert.doesNotMatch(container.textContent, /SQL|private|clave_operacion|psycopg|Tu pedido sigue sin cambios/);
 });
 
 test('chat compacto revela información y comprobantes sólo al pedirlos y formatea el bot sin interpretar HTML', async (t) => {

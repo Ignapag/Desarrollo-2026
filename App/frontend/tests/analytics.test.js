@@ -68,6 +68,21 @@ test('consulta contratos reales, separa unidades de pedidos y no pide ni muestra
   assert.ok(elements(container, (node) => node.localName === 'table').length >= 2);
 });
 
+for (const screen of ['panel', 'reportes']) test(`${screen} acepta el DTO público sin campos financieros para reportes.ver`, async (t) => {
+  const publicDashboard = {
+    fecha_desde: '2026-10-01', fecha_hasta: '2026-10-22',
+    pedidos_dia: 1, pedidos_semana: 2, pedidos_mes: 3,
+    ranking_productos: [{ producto_id: 1, producto: 'Producto del DTO público', cantidad_vendida: 3, ranking: 1 }],
+    ingredientes_criticos: [], alertas_stock: [], actualizado_en: '2026-10-22T12:00:00Z',
+  };
+  const calls = []; serve(calls, { dashboard: publicDashboard });
+  const { container } = await mount(t, user(1, ['reportes.ver']), screen === 'panel' ? ControlPanel : Analytics);
+  assert.match(container.textContent, /Producto del DTO público/);
+  assert.doesNotMatch(container.textContent, /No pudimos|Cobros netos|Rentabilidad estimada|Ingreso neto confirmado/);
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every(({ path }) => !path.includes('/rentabilidad')));
+});
+
 test('el año cero no pertenece al contrato date del backend', () => {
   assert.notEqual(validarFechas({ desde: '0000-01-01', hasta: '0000-01-02' }), '');
 });
@@ -131,8 +146,9 @@ for (const status of [400, 401, 403, 409, 422, 429, 500]) {
   test(`reportes informa HTTP ${status} sin inventar resultados y permite reintentar`, async (t) => {
     globalThis.fetch = async () => response({ detail: `Error HTTP ${status}` }, status);
     const { container } = await mount(t);
-    assert.match(container.textContent, new RegExp(`Error HTTP ${status}`));
-    assert.doesNotMatch(container.textContent, /Monu real|No hay ventas confirmadas/);
+    const expected = { 401: /La sesión venció/, 403: /No tenés acceso/, 409: /La información cambió/, 422: /Revisá los datos/, 429: /Esperá unos minutos/ };
+    assert.match(container.textContent, expected[status] || /No pudimos cargar los reportes/);
+    assert.doesNotMatch(container.textContent, /HTTP|Monu real|No hay ventas confirmadas/);
     serve([]);
     await act(async () => reactProps(find(container, 'button', 'Reintentar')).onClick());
     assert.match(container.textContent, /Monu real/);
@@ -142,11 +158,11 @@ for (const status of [400, 401, 403, 409, 422, 429, 500]) {
 test('reportes informa desconexión y respuesta no JSON sin presentar datos vacíos', async (t) => {
   globalThis.fetch = async () => { throw new TypeError('Failed to fetch'); };
   const { container } = await mount(t);
-  assert.match(container.textContent, /No se pudo conectar/);
+  assert.match(container.textContent, /Revisá tu conexión/);
   globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError('HTML'); } });
   await act(async () => reactProps(find(container, 'button', 'Reintentar')).onClick());
-  assert.match(container.textContent, /no devolvió una respuesta válida/);
-  assert.doesNotMatch(container.textContent, /No hay ventas confirmadas|Monu real/);
+  assert.match(container.textContent, /No pudimos cargar los reportes/);
+  assert.doesNotMatch(container.textContent, /HTML|SyntaxError|No hay ventas confirmadas|Monu real/);
 });
 test('fechas inválidas no consultan y editar oculta inmediatamente los resultados anteriores', async (t) => {
   const calls = []; serve(calls);
@@ -171,12 +187,21 @@ test('error del período oculta datos, permite reintentar y un período vacío n
   const { container } = await mount(t);
   globalThis.fetch = async () => response({ detail: 'Servicio no disponible' }, 503);
   await submit(container);
-  assert.match(container.textContent, /Servicio no disponible/);
+  assert.match(container.textContent, /No pudimos cargar los reportes/);
+  assert.doesNotMatch(container.textContent, /Servicio no disponible/);
   assert.doesNotMatch(container.textContent, /Monu real/);
   serve(calls, { dashboard: { ...dashboard(), ranking_productos: [] }, ventas: [] });
   await act(async () => reactProps(find(container, 'button', 'Reintentar')).onClick());
   assert.match(container.textContent, /No hay ventas confirmadas/);
   assert.doesNotMatch(container.textContent, /Monu real|Servicio no disponible/);
+});
+
+test('reportes con JSON inesperado conservan filtros y ofrecen volver a consultar', async (t) => {
+  const calls = []; serve(calls, { dashboard: {} });
+  const { container } = await mount(t);
+  assert.match(container.textContent, /No pudimos cargar los reportes/);
+  assert.doesNotMatch(container.textContent, /TypeError|undefined|ranking_productos|incompleta/);
+  assert.ok(find(container, 'button', 'Reintentar'));
 });
 test('respuestas atrasadas no pisan un filtro nuevo aunque fetch ignore abort', async (t) => {
   const waits = [deferred(), deferred()]; let index = 0;

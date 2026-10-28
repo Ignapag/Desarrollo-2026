@@ -90,7 +90,8 @@ test('el estado visual vuelve inmediatamente si falla cocina, aunque la lectura 
   assert.doesNotMatch(container.textContent, /segundo plano/i);
   await act(async () => { writing.reject(new Error('Stock insuficiente')); });
   assert.equal(data.state.orders[0].estado, 'PENDIENTE');
-  assert.match(container.textContent, /Stock insuficiente/);
+  assert.match(container.textContent, /No pudimos actualizar el pedido/);
+  assert.doesNotMatch(container.textContent, /Stock insuficiente/);
   await act(async () => refreshing.resolve(response([order])));
 });
 
@@ -157,7 +158,8 @@ test('un fallo después de cerrar conserva el pedido y un error recuperable', as
   assert.equal(data.orderOperationPending(17), false);
   assert.equal(data.state.orders[0].estado, 'PENDIENTE');
   assert.equal(data.orderOperations[0].status, 'error');
-  assert.match(data.orderOperations[0].message, /Stock insuficiente/);
+  assert.match(data.orderOperations[0].message, /No pudimos actualizar el pedido/);
+  assert.doesNotMatch(data.orderOperations[0].message, /Stock insuficiente/);
 });
 
 test('las operaciones de otra sesión no publican resultados ni mensajes sobre la nueva', async (t) => {
@@ -188,7 +190,8 @@ test('un error se puede revisar sin reenviar automáticamente la operación', as
   function Screen() { const current = useData(); useLayoutEffect(() => { data = current; }); return createElement(Feedback); }
   const container = await mount(t, createElement(Screen));
   await act(async () => data.startOrderOperation({ id: 17, number: 88, operation: async () => { attempts += 1; throw new Error('No disponible'); } }));
-  assert.match(container.textContent, /No disponible/);
+  assert.match(container.textContent, /No pudimos actualizar el pedido/);
+  assert.doesNotMatch(container.textContent, /No disponible/);
   await act(async () => reactProps(button(container, 'Revisar pedido')).onClick());
   for (let i = 0; i < 25 && !button(container, 'Enviar a cocina'); i += 1) await act(async () => { await new Promise((resolve) => setImmediate(resolve)); });
   assert.ok(button(container, 'Enviar a cocina'));
@@ -305,7 +308,8 @@ test('un fallo de transferencia deja el detalle abierto y conserva el intento pa
   const submit = async () => { await act(async () => { void reactProps(elements(container, (node) => node.localName === 'form')[0]).onSubmit({ preventDefault() {} }); }); };
   await submit();
   assert.equal(closed, 0);
-  assert.match(container.textContent, /Respuesta perdida/);
+  assert.match(container.textContent, /Comprobá su estado/);
+  assert.doesNotMatch(container.textContent, /Respuesta perdida/);
   assert.equal(reactProps(button(container, 'Reintentar operación guardada')).disabled, true);
   await act(async () => { await reactProps(button(container, 'Actualizar detalle')).onClick(); });
   assert.equal(reactProps(button(container, 'Reintentar operación guardada')).disabled, false);

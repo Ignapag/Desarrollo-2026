@@ -1,3 +1,4 @@
+import { userErrorMessage } from '../shared/api/userErrors.js';
 import { useEffect, useState } from 'react';
 import { hasAssignment, isPrivileged, dateTime } from './orderModel';
 import { buttonClass, inputClass, Field, Reason, DataError } from './operationUi';
@@ -23,14 +24,14 @@ export default function OrderDelivery({ order, role, commands, run, busy, can = 
       setRiders(data);
       setRider((selected) => data.some((item) => String(item.id) === selected) ? selected : '');
       setError('');
-    } }).catch((failure) => { if (!controller.signal.aborted) setError(failure.message); });
+    } }).catch((failure) => { if (!controller.signal.aborted) setError(userErrorMessage(failure, 'No pudimos consultar los repartidores. Intentá nuevamente.')); });
     return () => controller.abort();
   // La versión remonta el formulario; los comandos no mantienen estado.
   }, [order.id, order.version, beforeDeparture, canAssign, availabilityRevision]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!shipment?.viaje_id || !canReadTrip) return undefined;
     const controller = new AbortController();
-    commands.trip(shipment.viaje_id, controller.signal).then((trip) => { if (!controller.signal.aborted) setRiderName(trip.repartidor_nombre); }).catch((failure) => { if (!controller.signal.aborted) setError(`No se pudo consultar el repartidor. ${failure.message}`); });
+    commands.trip(shipment.viaje_id, controller.signal).then((trip) => { if (!controller.signal.aborted) setRiderName(trip.repartidor_nombre); }).catch((failure) => { if (!controller.signal.aborted) setError(userErrorMessage(failure, 'No pudimos consultar el repartidor. Intentá nuevamente.')); });
     return () => controller.abort();
   }, [shipment?.viaje_id, availabilityRevision, canReadTrip]); // eslint-disable-line react-hooks/exhaustive-deps
   if (order.tipo_entrega !== 'DELIVERY') return null;

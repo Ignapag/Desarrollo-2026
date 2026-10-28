@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Info, LoaderCircle, MessageCircle, Paperclip, Send, X } from 'lucide-react';
-import { chatMessageStatus, getChatConversation, getPendingChatSend, openChatSession, reconcileChatSend, sendChatDraft, sendChatReceipt, sendChatText } from './chatDemo';
+import { chatBotText, chatDraftStatus, chatMessageStatus, getChatConversation, getPendingChatSend, openChatSession, reconcileChatSend, sendChatDraft, sendChatReceipt, sendChatText } from './chatDemo';
 import { useData } from '../shared/store/DataContext';
 import { buildWhatsAppDraftPayload } from './whatsapp';
+import { userErrorMessage } from '../shared/api/userErrors';
 
 const buttonClass = 'min-h-11 min-w-11 inline-flex items-center justify-center gap-2 rounded-xl px-3 font-bold active:opacity-75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-monu-green focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
 
@@ -102,7 +103,7 @@ export default function ChatDrawer({ isOpen, onClose }) {
         }
       } catch (failure) {
         failed = true;
-        if (epoch.current === current) setFetchError((failure.message || 'No pudimos actualizar la conversación.') + ' El historial visible puede estar desactualizado.');
+        if (epoch.current === current) setFetchError(userErrorMessage(failure, 'No pudimos actualizar la conversación. Intentá nuevamente más tarde.') + ' El historial visible puede estar desactualizado.');
       } finally {
         polling = false;
         if (epoch.current === current) {
@@ -153,7 +154,7 @@ export default function ChatDrawer({ isOpen, onClose }) {
       setLocalMessage(null);
       if (!operation.file && !operation.draft && !operation.preserveText) setText((value) => value || operation.text);
       const unresolved = getPendingChatSend();
-      setSendError((failure.message || 'No pudimos enviar.') + (unresolved ? ' No confirmamos el resultado; recuperá el mismo envío antes de continuar.' : ''));
+      setSendError(userErrorMessage(failure, operation.file ? 'No pudimos enviar tu comprobante.' : 'No pudimos enviar tu mensaje.') + (unresolved ? ' No confirmamos el resultado; recuperá el mismo envío antes de continuar.' : ''));
       setRetry(unresolved ? { ...unresolved, preserveText: operation.preserveText || (unresolved.text && unresolved.text !== text) } : null);
     } finally {
       busyRef.current = false;
@@ -191,9 +192,9 @@ export default function ChatDrawer({ isOpen, onClose }) {
           {(conversation?.borradores || []).map((draft, index) => {
             const expired = !draft.pedido_id && Date.parse(draft.expira_en) <= checkedAt;
             return <p key={draft.pedido_id || index} className="mt-2 text-xs">{draft.pedido_id
-              ? `Pedido #${draft.numero || draft.pedido_id} · ${draft.estado_pedido || draft.estado}${draft.total != null ? ` · $${Number(draft.total).toLocaleString('es-AR')}` : ''}`
+              ? `Pedido #${draft.numero || draft.pedido_id} · ${chatDraftStatus(draft)}${draft.total != null ? ` · $${Number(draft.total).toLocaleString('es-AR')}` : ''}`
               : expired ? <>Borrador vencido · venció el <time dateTime={draft.expira_en}>{new Date(draft.expira_en).toLocaleString('es-AR')}</time></>
-                : `Borrador ${draft.estado} · pendiente de completar`}</p>;
+                : `Borrador ${chatDraftStatus(draft)} · pendiente de completar`}</p>;
           })}
           <p id="chat-send-help" className="mt-2 text-xs text-monu-text/80">Enter envía; Mayús + Enter agrega una línea.</p>
           {conversation && <div className="mt-2 flex flex-wrap gap-2" aria-label="Acciones de la conversación">
@@ -202,7 +203,7 @@ export default function ChatDrawer({ isOpen, onClose }) {
             <button type="button" disabled={unavailable} onClick={() => { inputRef.current?.focus(); setShowInfo(false); void send({ text: 'empleado', preserveText: true }); }} className={buttonClass + ' text-sm text-monu-green hover:bg-monu-green/10'}>Pedir atención humana</button>
           </div>}
         </section>}
-        {error && <div role="alert" className="max-h-[30%] shrink-0 overflow-y-auto border-b border-red-200 bg-red-50 p-3 text-sm text-red-800">
+        {error && <div id="chat-error" role="alert" className="max-h-[30%] shrink-0 overflow-y-auto border-b border-red-200 bg-red-50 p-3 text-sm text-red-800">
           <p>{error}</p>
           {fetchError && sendError && <p className="mt-1">{fetchError}</p>}
           {retry?.fileName && !retry.file && <p className="mt-1 break-words">Volvé a elegir el mismo comprobante: {retry.fileName}. El archivo no se guarda en el navegador.</p>}
@@ -214,7 +215,7 @@ export default function ChatDrawer({ isOpen, onClose }) {
           <ol role="log" aria-live="polite" aria-relevant="additions" aria-label="Mensajes de la conversación" className="space-y-3">
             {messages.map((message) => <li key={message.id || 'enviando-local'} aria-label={message.direccion === 'cliente' ? 'Vos' : 'Monu Burger'} className={'flex ' + (message.direccion === 'cliente' ? 'justify-end' : 'justify-start')}>
               <div className={'max-w-[90%] rounded-2xl px-3 py-2 sm:max-w-[85%] ' + (message.direccion === 'cliente' ? 'bg-monu-green/10' : 'border border-monu-green/10 bg-white')}>
-                <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{message.direccion === 'cliente' ? message.texto : messageText(message.texto)}</p>
+                <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{message.direccion === 'cliente' ? message.texto : messageText(chatBotText(message.texto))}</p>
                 {message.tiene_archivo && <p className="mt-1 flex items-center gap-1 text-xs"><Paperclip aria-hidden="true" className="size-3" />Comprobante · pendiente de revisión</p>}
                 <p className="mt-1 flex flex-wrap justify-end gap-x-2 gap-y-1 text-xs text-monu-text/80"><time dateTime={message.creado_en}>{new Date(message.creado_en).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</time>{message.estado === 'ENVIANDO_LOCAL' ? <span>Enviando…</span> : ['FALLIDO', 'INCIERTO'].includes(message.estado) ? <span>{chatMessageStatus(message)}</span> : null}</p>
               </div>
@@ -230,7 +231,7 @@ export default function ChatDrawer({ isOpen, onClose }) {
           <div className="flex items-end gap-2">
             <button type="button" aria-label="Adjuntar comprobante" aria-expanded={showAttachment} aria-controls="chat-attachment" disabled={unavailable} onClick={() => { setShowAttachment((value) => !value); setShowInfo(false); }} className={buttonClass + ' shrink-0 text-monu-green hover:bg-monu-green/10'}><Paperclip aria-hidden="true" className="size-5" /></button>
             <label htmlFor="chat-text" className="sr-only">Tu mensaje</label>
-            <textarea ref={inputRef} id="chat-text" placeholder="Escribí un mensaje…" value={text} onChange={(event) => setText(event.target.value)} maxLength={2000} rows={Math.min(2, text.split('\n').length)} disabled={!conversation || !!retry || !!fetchError} aria-describedby={showInfo ? 'chat-send-help' : undefined}
+            <textarea ref={inputRef} id="chat-text" placeholder="Escribí un mensaje…" value={text} onChange={(event) => setText(event.target.value)} maxLength={2000} rows={Math.min(2, text.split('\n').length)} disabled={!conversation || !!retry || !!fetchError} aria-invalid={Boolean(sendError)} aria-describedby={[showInfo && 'chat-send-help', error && 'chat-error'].filter(Boolean).join(' ') || undefined}
               onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (!unavailable && text.trim()) void send({ text }); } }}
               className="max-h-28 min-h-11 min-w-0 flex-1 resize-y rounded-xl border border-monu-green/25 bg-monu-bone px-3 py-2 text-base leading-6 focus:outline-none focus:ring-2 focus:ring-monu-green disabled:opacity-50" />
             <input ref={fileRef} type="file" accept="application/pdf,image/png,image/jpeg" aria-label="Elegir comprobante ficticio" className="sr-only" tabIndex={-1} disabled={sending || (!retry?.fileName && unavailable)} onChange={(event) => { const file = event.target.files?.[0]; if (file) void send({ file }); event.target.value = ''; }} />

@@ -4,6 +4,7 @@ import { Trash2, X, MessageCircle, ShoppingCart, ArrowRight, Check, LoaderCircle
 import { buildWhatsAppDraftPayload, createWhatsAppDraft } from './whatsapp';
 import { openChatSession, sendChatDraft } from './chatDemo';
 import { validateCheckout } from './checkoutValidation';
+import { userErrorMessage } from '../shared/api/userErrors';
 
 const inputClass = 'w-full min-h-11 bg-white border border-monu-green/20 rounded-xl px-3 py-2.5 text-base font-medium text-monu-dark placeholder:text-monu-text/50 focus:outline-none focus:ring-2 focus:ring-monu-green disabled:opacity-60';
 const actionClass = 'min-h-11 rounded-xl font-extrabold px-4 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-monu-green disabled:opacity-50 disabled:cursor-not-allowed';
@@ -99,7 +100,7 @@ export default function CartDrawer({ isOpen, onClose, chatConfig = { status: 're
       draftRef.current = prepared;
       setDraft(prepared);
     } catch (failure) {
-      setError(failure.message || 'No se pudo preparar el mensaje. Intentá nuevamente.');
+      setError(userErrorMessage(failure, 'No pudimos preparar tu pedido para WhatsApp. Intentá nuevamente más tarde.'));
     } finally {
       preparingRef.current = false;
       setIsPreparing(false);
@@ -140,7 +141,7 @@ export default function CartDrawer({ isOpen, onClose, chatConfig = { status: 're
       if (currentCart.current === cart) { dispatch({ type: 'CLEAR_CART' }); onOpenChat?.(); }
       else setError('El pedido se envió al chat. El carrito cambió mientras esperabas y se conservó completo: revisá qué productos ya se enviaron antes de continuar.');
     } catch (failure) {
-      setError(failure.message || 'No se pudo continuar. Reintentá para recuperar el mismo envío.');
+      setError(userErrorMessage(failure, 'No pudimos enviar el carrito al chat. Comprobá la conversación antes de repetirlo; podés recuperar el mismo envío.'));
     } finally {
       preparingRef.current = false;
       setIsPreparing(false);
@@ -169,7 +170,7 @@ export default function CartDrawer({ isOpen, onClose, chatConfig = { status: 're
             <button type="button" onClick={onClose} className={actionClass + ' mt-2 bg-monu-green text-white hover:bg-monu-dark'}>Volver al menú</button>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="flex min-h-0 flex-col">
+          <form noValidate onSubmit={handleSubmit} className="flex min-h-0 flex-col">
             <div className="min-h-0 overflow-y-auto overscroll-contain">
               <div className="grid md:grid-cols-2">
                 <section aria-labelledby="cart-products" className="bg-monu-cream/25 p-5 sm:p-7">

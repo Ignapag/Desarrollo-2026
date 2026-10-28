@@ -4,9 +4,10 @@ import { toast } from 'sonner';
 import { useAuth } from './AuthContext';
 import { Link } from 'react-router-dom';
 import { portal } from '../shared/portal';
+import { userErrorMessage } from '../shared/api/userErrors';
 
 export default function Login() {
-  const { login, logout, sessionError } = useAuth();
+  const { login, logout, sessionError, logoutFailed } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -39,7 +40,7 @@ export default function Login() {
       else if (result?.success) toast.success('¡Bienvenido!');
       else setSubmitError('No se pudo confirmar el inicio de sesión. Volvé a intentar.');
     } catch (error) {
-      setSubmitError(error.message || 'No se pudo iniciar sesión. Volvé a intentar.');
+      setSubmitError(userErrorMessage(error, 'No pudimos iniciar sesión. Intentá nuevamente más tarde.'));
     } finally {
       pending.current = false;
       setSubmitting(false);
@@ -59,8 +60,8 @@ export default function Login() {
             Ingresá con la cuenta asignada por Monu Burger{portal.modo === 'personal' ? ' al personal' : ''}.
           </p>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {sessionError && <div role="alert" className="text-sm text-red-700"><p>{sessionError}</p><button type="button" onClick={logout} className="min-h-11 underline">Reintentar cierre de sesión</button></div>}
+          <form noValidate onSubmit={handleSubmit} className="space-y-4">
+            {sessionError && <div role="alert" className="text-sm text-red-700"><p>{sessionError}</p>{logoutFailed && <button type="button" onClick={logout} className="min-h-11 underline">Reintentar cierre de sesión</button>}</div>}
             {submitError && <p role="alert" className="text-sm text-red-700">{submitError}</p>}
             <div>
               <label htmlFor="username" className="block text-xs font-bold text-monu-dark mb-1">Usuario</label>

@@ -5,6 +5,43 @@ La API conserva autoridad sobre permisos, importes, stock, estados e idempotenci
 Las secciones de auditoría conservan su evidencia original. La incorporación de
 Caja se describe aparte y no hereda las pruebas aprobadas de otros flujos.
 
+## Mensajes para usuarios finales (28/10/2026)
+
+El cliente HTTP traduce rechazos por estado y una lista cerrada de mensajes de
+negocio en `src/shared/api/userErrors.js`. No expone `mensaje`, `detail`, listas
+de validación, códigos HTTP ni excepciones de transporte. Las pantallas usan
+`userErrorMessage(error, mensajeDeLaAccion)`; solo `UserFacingError` permite
+conservar instrucciones locales o traducciones controladas. Nunca construir
+esa clase con texto recibido de la API, excepciones ni datos sensibles. Un error
+desconocido conserva un mensaje seguro. El estado HTTP sigue disponible para
+retirar datos sin acceso, revalidar sesiones y gestionar conflictos.
+El chat también traduce los prefijos conocidos de fallos persistidos del bot,
+descartando sus diagnósticos, y usa etiquetas cerradas para estados desconocidos.
+Los formularios conservan avisos anunciados, errores asociados a campos y foco
+en el resumen; los resúmenes de altas incluyen enlaces a los campos indicados.
+
+Las consultas describen qué información no pudo cargarse. Las escrituras con
+respuesta perdida, espera agotada o respuesta inesperada indican comprobar el
+estado antes de repetir la acción. Pedidos, pagos, chat y Caja conservan sus
+mecanismos de reconciliación y los identificadores de reintento existentes;
+los mensajes no sustituyen esas garantías ni convierten una consulta posterior
+en confirmación de autoría. No se registran cuerpos, credenciales ni excepciones
+originales desde la capa de mensajes del navegador.
+
+Ejemplos: «Origen de la solicitud no permitido» pasa a «No pudimos completar la
+acción. Intentá nuevamente más tarde»; errores desconocidos de conversación
+pasan a «No pudimos enviar tu mensaje»; las validaciones locales de teléfono,
+campos requeridos y formatos PDF/PNG/JPEG siguen indicando cómo corregirlos.
+
+Regresiones en `http-validaciones`, `user-errors`, `store-validaciones`,
+`login-validaciones`, `acceso-sesion`, `chat-demo`, `validaciones-gestion-ui`,
+`caja` y las suites operativas verifican filtrado, conservación de datos,
+respuestas inesperadas y ausencia de éxito falso. `npm run test:validaciones`
+incluye la política compartida. Las pruebas usan respuestas simuladas y DOM de
+prueba; no equivalen a una integración con proveedores ni a una revisión visual.
+En esta sesión no hubo un navegador conectado disponible para comprobar teclado,
+responsive o lector de pantalla; esa verificación interactiva queda pendiente.
+
 ## Plan y criterios
 
 1. Conservar los cuatro cambios locales de catálogo/recetas y arquitectura; trabajar

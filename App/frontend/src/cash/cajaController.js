@@ -1,3 +1,4 @@
+import { userErrorMessage } from '../shared/api/userErrors.js';
 import { can } from '../auth/permissions.js';
 import { checked, cierreValido, consolidadoValido, sameTarget, validateSelection, validateFilters, fingerprint } from './cajaContract.js';
 
@@ -24,7 +25,7 @@ export function createCajaController({ user, request, refreshSession }) {
   function denied(error) {
     if (![401, 403].includes(error?.status)) return false;
     invalidate();
-    emit({ denied: true, consolidado: empty(), history: empty(), detail: empty(), dialog: null, notes: {}, uncertain: null, busy: '', notice: { tone: 'error', text: 'El servidor rechazó el acceso. Retiramos los datos de Caja y estamos revalidando la sesión.' } });
+    emit({ denied: true, consolidado: empty(), history: empty(), detail: empty(), dialog: null, notes: {}, uncertain: null, busy: '', notice: { tone: 'error', text: userErrorMessage(error, 'No tenés acceso a Caja. Volvé a ingresar.') } });
     void Promise.resolve(refreshSession?.()).catch(() => {});
     return true;
   }
@@ -50,26 +51,26 @@ export function createCajaController({ user, request, refreshSession }) {
     if (!allowed() || state.busy) return;
     const selection = { ...state.selection };
     try { validateSelection(selection); }
-    catch (error) { emit({ consolidado: { ...empty(), status: 'error', error: error.message } }); return; }
+    catch (error) { emit({ consolidado: { ...empty(), status: 'error', error: userErrorMessage(error, 'No pudimos cargar los datos de Caja. Intentá nuevamente.') } }); return; }
     emit({ consolidado: { ...empty(), status: 'loading' } });
     try {
       const path = selection.mode === 'actual' ? '/api/caja/turnos/actual/consolidado' : `/api/caja/turnos/consolidado?${query({ fecha: selection.fecha, turno: selection.turno })}`;
       const data = await read('consolidado', path, consolidadoValido, (value) => selection.mode === 'actual' || sameTarget(value, selection));
       if (data) emit({ consolidado: { status: 'ready', data, error: '' } });
-    } catch (error) { emit({ consolidado: { ...empty(), status: 'error', error: error.message } }); }
+    } catch (error) { emit({ consolidado: { ...empty(), status: 'error', error: userErrorMessage(error, 'No pudimos cargar los datos de Caja. Intentá nuevamente.') } }); }
   }
   async function loadHistory() {
     if (!allowed() || state.busy) return;
     const filters = { ...state.filters };
     try { validateFilters(filters); }
-    catch (error) { emit({ history: { ...empty(), status: 'error', error: error.message } }); return; }
+    catch (error) { emit({ history: { ...empty(), status: 'error', error: userErrorMessage(error, 'No pudimos cargar los datos de Caja. Intentá nuevamente.') } }); return; }
     emit({ history: { ...empty(), status: 'loading' } });
     try {
       const suffix = query(filters);
       const data = await read('history', `/api/caja/cierres${suffix ? `?${suffix}` : ''}`, validList,
         (values) => values.every((value) => (!filters.desde || value.fecha >= filters.desde) && (!filters.hasta || value.fecha <= filters.hasta) && (!filters.estado || value.estado === filters.estado)));
       if (data) emit({ history: { status: 'ready', data, error: '' } });
-    } catch (error) { emit({ history: { ...empty(), status: 'error', error: error.message } }); }
+    } catch (error) { emit({ history: { ...empty(), status: 'error', error: userErrorMessage(error, 'No pudimos cargar los datos de Caja. Intentá nuevamente.') } }); }
   }
   async function loadDetail(id) {
     if (!allowed() || state.busy || !Number.isSafeInteger(id) || id <= 0) return;
@@ -77,7 +78,7 @@ export function createCajaController({ user, request, refreshSession }) {
     try {
       const data = await read('detail', `/api/caja/cierres/${id}`, cierreValido, (value) => value.id === id);
       if (data) emit({ detail: { status: 'ready', data, error: '' } });
-    } catch (error) { emit({ detail: { ...empty(), status: 'error', error: error.message } }); }
+    } catch (error) { emit({ detail: { ...empty(), status: 'error', error: userErrorMessage(error, 'No pudimos cargar los datos de Caja. Intentá nuevamente.') } }); }
   }
   async function prepareGenerate() {
     if (!allowed('caja.generar') || state.busy || state.uncertain || state.consolidado.status !== 'ready') return;
@@ -94,7 +95,7 @@ export function createCajaController({ user, request, refreshSession }) {
       if (existing?.estado === 'APROBADO') {
         emit({ detail: { status: 'ready', data: existing, error: '' } }); notify('El cierre ya está aprobado y es inalterable.', 'info');
       } else emit({ dialog: { kind: 'generate', target, existing } });
-    } catch (error) { if (alive && token === epoch) notify(error.message); }
+    } catch (error) { if (alive && token === epoch) notify(userErrorMessage(error, 'No pudimos preparar el cierre. Actualizá sus datos e intentá nuevamente.')); }
     finally { if (alive && token === epoch) emit({ busy: '' }); }
   }
   async function prepareApprove(id) {
@@ -106,7 +107,7 @@ export function createCajaController({ user, request, refreshSession }) {
       emit({ detail: { status: 'ready', data, error: '' } });
       if (data.estado === 'APROBADO') notify('El cierre ya está aprobado y es inalterable.', 'info');
       else emit({ dialog: { kind: 'approve', cierre: data } });
-    } catch (error) { if (alive && token === epoch) notify(error.message); }
+    } catch (error) { if (alive && token === epoch) notify(userErrorMessage(error, 'No pudimos preparar el cierre. Actualizá sus datos e intentá nuevamente.')); }
     finally { if (alive && token === epoch) emit({ busy: '' }); }
   }
   async function confirm() {
@@ -159,12 +160,12 @@ export function createCajaController({ user, request, refreshSession }) {
         const expected = key === 'observaciones' && observaciones !== null ? observaciones : dialog.cierre[key];
         return String(data[key]) !== String(expected);
       });
-      notify(changed ? 'El servidor confirmó el cierre aprobado, pero sus datos cambiaron durante la aprobación. Revisá el resultado real; la API no ofrece control de versión.' : dialog.kind === 'generate' ? 'Generación confirmada. El detalle muestra el cierre real, que puede incluir arrastre.' : 'Aprobación confirmada. El cierre es inalterable.', changed ? 'info' : 'success');
+      notify(changed ? 'El cierre figura aprobado, pero sus datos cambiaron durante la aprobación. Revisá el detalle actualizado antes de continuar.' : dialog.kind === 'generate' ? 'Generación confirmada. El detalle muestra el cierre real, que puede incluir arrastre.' : 'Aprobación confirmada. El cierre es inalterable.', changed ? 'info' : 'success');
     } catch (error) {
       if (!alive || token !== epoch || denied(error)) return;
       const uncertain = sent && (!error.status || error.status >= 500 || error.status === 408);
       emit({ uncertain: uncertain ? { kind: dialog.kind, target: dialog.target, id: dialog.cierre?.id } : null });
-      notify(uncertain ? `${error.message} Resultado incierto: comprobá el estado antes de volver a enviar.` : `${error.message}${error.status === 409 ? ' Otra persona puede haber cambiado el cierre. Consultá nuevamente su estado.' : ''}`);
+      notify(uncertain ? 'No pudimos confirmar el cierre. Comprobá su estado antes de volver a enviar.' : `${userErrorMessage(error, 'No pudimos guardar el cierre. Intentá nuevamente más tarde.')}${error.status === 409 ? ' Otra persona puede haber cambiado el cierre. Consultá nuevamente su estado.' : ''}`);
     } finally { if (alive && token === epoch) emit({ busy: '' }); }
   }
   async function reconcile() {
@@ -178,10 +179,10 @@ export function createCajaController({ user, request, refreshSession }) {
       const matches = pending.kind === 'approve' ? [data] : data.filter((item) => sameTarget(item, pending.target));
       if (matches.length > 1) throw new Error('No se pudo identificar un único cierre del turno.');
       emit({ uncertain: null, dialog: null, detail: matches[0] ? { status: 'ready', data: matches[0], error: '' } : empty(), history: empty() });
-      notify(pending.kind === 'approve' && matches[0].estado === 'APROBADO' ? 'El cierre figura aprobado en el servidor y es inalterable.' : matches[0]
+      notify(pending.kind === 'approve' && matches[0].estado === 'APROBADO' ? 'El cierre figura aprobado y es inalterable.' : matches[0]
         ? 'Encontramos el cierre. No podemos confirmar ni atribuir el resultado de tu envío; revisá su detalle y observaciones antes de decidir un nuevo intento.'
         : 'La consulta no encontró un cierre para ese turno. El envío anterior sigue sin confirmarse; podés revisar y confirmar un nuevo intento.', 'info');
-    } catch (error) { if (alive && token === epoch) notify(`${error.message} Todavía no pudimos comprobar el resultado. No vuelvas a enviar.`); }
+    } catch (error) { if (alive && token === epoch) notify(`${userErrorMessage(error, 'No pudimos consultar el cierre.')} Todavía no pudimos comprobar el resultado. No vuelvas a enviar.`); }
     finally { if (alive && token === epoch) emit({ busy: '' }); }
   }
   return {

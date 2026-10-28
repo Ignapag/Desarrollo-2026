@@ -1,8 +1,9 @@
+import { UserFacingError } from '../shared/api/userErrors.js';
 import { useEffect, useRef, useState } from 'react';
 import { apiFetch } from '../shared/api/http';
 import { createPaymentAttempt, executePayment } from './orderCommands';
 import { paymentAmount } from './paymentValidation';
-import { money } from './orderModel';
+import { knownLabel, money, paymentMethodLabel } from './orderModel';
 import { buttonClass, inputClass, Field, Reason } from './operationUi';
 
 function readAttempt(key) {
@@ -63,7 +64,7 @@ export default function OrderPayments({ order, userId, commands, run, busy, can 
     }
     await run(async (isCurrentSession = () => true) => {
       const currentSessionFetch = (path, options) => {
-        if (!isCurrentSession()) throw new Error('La sesión cambió; revisá el cobro con la cuenta que lo inició.');
+        if (!isCurrentSession()) throw new UserFacingError('La sesión cambió; revisá el cobro con la cuenta que lo inició.');
         return apiFetch(path, options);
       };
       const result = await executePayment(currentSessionFetch, attempt.current, { operativa: true });
@@ -91,7 +92,7 @@ export default function OrderPayments({ order, userId, commands, run, busy, can 
   return <section className="space-y-3">
     <div className="flex flex-wrap justify-between gap-2"><h3 className="font-extrabold text-monu-dark">Pago</h3><p className="text-sm font-bold">{order.estado === 'CANCELADO' ? `Cobrado: ${money(order.neto_cobrado)}` : Number(order.saldo_pendiente) > 0 ? `Pendiente: ${money(order.saldo_pendiente)}` : 'Pagado'}</p></div>
     {!pending && kind === 'transferencia' && Number(order.saldo_pendiente) > 0 && <p className="text-sm">Confirmá sólo cuando veas el dinero ingresado en la cuenta.</p>}
-    {!pending && can('pagos.conciliar') && pendingPayments.length > 0 && <div className="space-y-2"><p className="text-sm">Cobros por verificar: confirmá sólo el dinero que ya recibiste.</p>{pendingPayments.map((payment) => <div key={payment.id} className="space-y-1"><p className="text-sm font-bold">{({ EFECTIVO: 'Efectivo', TRANSFERENCIA: 'Transferencia' })[payment.metodo_pago] || payment.metodo_pago}</p><Reconcile payment={payment} commands={commands} run={run} busy={busy} /></div>)}</div>}
+    {!pending && can('pagos.conciliar') && pendingPayments.length > 0 && <div className="space-y-2"><p className="text-sm">Cobros por verificar: confirmá sólo el dinero que ya recibiste.</p>{pendingPayments.map((payment) => <div key={payment.id} className="space-y-1"><p className="text-sm font-bold">{paymentMethodLabel(payment.metodo_pago)}</p><Reconcile payment={payment} commands={commands} run={run} busy={busy} /></div>)}</div>}
     {pending && <div className="rounded-xl bg-orange-50 p-3 text-sm text-orange-950 space-y-2"><p>Hay un {pending.kind === 'devolucion' ? 'reintegro' : 'cobro'} de {money(pending.body.monto ?? pending.body.monto_a_pagar)} por verificar. Reintentá para conocer el resultado sin duplicarlo.</p><details><summary className="cursor-pointer min-h-11 flex items-center font-bold">Ya lo resolví por otra vía</summary>{confirmDiscard ? <div className="space-y-2"><p>¿Revisaste el historial y comprobaste cómo se resolvió? Liberar este intento permite registrar otra operación.</p><button type="button" disabled={busy} onClick={discard} className={buttonClass}>Sí, ya revisé el movimiento</button><button type="button" disabled={busy} onClick={() => setConfirmDiscard(false)} className={buttonClass}>Volver</button></div> : <button type="button" disabled={busy} onClick={() => setConfirmDiscard(true)} className={buttonClass}>Revisar y liberar intento</button>}</details></div>}
     {(can('pagos.registrar') || can('pagos.corregir')) && <form onSubmit={submit} className="space-y-3">
       {!pending && <details><summary className="cursor-pointer min-h-11 flex items-center text-sm font-bold text-monu-green">Otros importes, medios de pago o devolución</summary><div className="space-y-3 pt-2">
@@ -103,7 +104,7 @@ export default function OrderPayments({ order, userId, commands, run, busy, can 
       {confirmRefund && !pending ? <div className="rounded-xl bg-orange-50 p-3 text-sm text-orange-950 space-y-3"><p>¿Ya devolviste {money(canonicalAmount)} al cliente?</p><div className="flex flex-wrap gap-2"><button type="button" disabled={busy || !canSubmit} onClick={() => { void perform(); }} className={`${buttonClass} bg-monu-green text-white`}>Sí, registrar devolución</button><button type="button" disabled={busy} onClick={() => setConfirmRefund(false)} className={buttonClass}>Volver</button></div></div>
         : (pending || (!existingCollection && maximum > 0)) && <button disabled={busy || !canSubmit} className={`${buttonClass} w-full bg-monu-green text-white`}>{paymentLabel}</button>}
     </form>}
-    {order.pagos.length > 0 && <details className="text-sm"><summary className="cursor-pointer min-h-11 flex items-center font-bold text-monu-green">Ver movimientos · Recibido: {money(order.neto_cobrado)}</summary><ul className="space-y-2">{order.pagos.map((payment) => <li key={payment.id} className="p-3 border border-monu-green/20 rounded-lg">{payment.tipo === 'DEVOLUCION' ? 'Devolución' : 'Cobro'} · {({ EFECTIVO: 'Efectivo', TRANSFERENCIA: 'Transferencia' })[payment.metodo_pago] || payment.metodo_pago} · {money(payment.monto)} · {({ PENDIENTE: 'Por verificar', CONCILIADO: 'Registrado', ANULADO: 'Anulado' })[payment.estado] || payment.estado}</li>)}</ul></details>}
+    {order.pagos.length > 0 && <details className="text-sm"><summary className="cursor-pointer min-h-11 flex items-center font-bold text-monu-green">Ver movimientos · Recibido: {money(order.neto_cobrado)}</summary><ul className="space-y-2">{order.pagos.map((payment) => <li key={payment.id} className="p-3 border border-monu-green/20 rounded-lg">{knownLabel({ DEVOLUCION: 'Devolución', COBRO: 'Cobro' }, payment.tipo)} · {paymentMethodLabel(payment.metodo_pago)} · {money(payment.monto)} · {knownLabel({ PENDIENTE: 'Por verificar', CONCILIADO: 'Registrado', ANULADO: 'Anulado' }, payment.estado)}</li>)}</ul></details>}
   </section>;
 }
 

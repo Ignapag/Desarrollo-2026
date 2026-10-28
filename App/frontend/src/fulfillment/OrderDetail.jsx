@@ -1,10 +1,11 @@
+import { UserFacingError, userErrorMessage } from '../shared/api/userErrors.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { can } from '../auth/permissions';
 import { useAuth } from '../auth/AuthContext';
 import { useData } from '../shared/store/DataContext';
 import { apiFetch } from '../shared/api/http';
 import { createOrderCommands } from './orderCommands';
-import { addressLabel, confirmedOrder, dateTime, money, stateLabel } from './orderModel';
+import { addressLabel, confirmedOrder, dateTime, knownLabel, money, paymentMethodLabel, stateLabel } from './orderModel';
 import { buttonClass, DataError } from './operationUi';
 import { EditOperation, StateOperation } from './OrderOperationForms';
 import OrderDelivery from './OrderDelivery';
@@ -34,7 +35,7 @@ export default function OrderDetail({ id, onClose, requireFresh = false }) {
     const ticket = ++request.current;
     try {
       const result = await commands.detail(id, controller.signal);
-      if (!confirmedOrder(result, id)) throw new Error('No se pudo verificar el detalle recibido. Actualizá antes de operar.');
+      if (!confirmedOrder(result, id)) throw new UserFacingError('No se pudo verificar el detalle recibido. Actualizá antes de operar.');
       if (!controller.signal.aborted && mounted.current && ticket === request.current) { setOrder(result); setStale(false); }
     } catch (failure) {
       if (!controller.signal.aborted && mounted.current && ticket === request.current && [401, 403].includes(failure.status)) {
@@ -52,7 +53,7 @@ export default function OrderDetail({ id, onClose, requireFresh = false }) {
     mounted.current = true;
     dialog.current.showModal();
     Promise.resolve().then(() => { if (active) return load(); return undefined; })
-      .catch((failure) => { if (active && mounted.current) { setStale(true); setError(failure.message); } })
+      .catch((failure) => { if (active && mounted.current) { setStale(true); setError(userErrorMessage(failure, 'No pudimos cargar el pedido. Intentá nuevamente.')); } })
       .finally(() => { if (active && mounted.current) setLoading(false); });
     return () => { active = false; mounted.current = false; lock.current = false; request.current += 1; readController.current?.abort(); };
   }, [load]);
@@ -68,7 +69,7 @@ export default function OrderDetail({ id, onClose, requireFresh = false }) {
     lock.current = true;
     setLoading(true);
     setError('');
-    try { await load(); } catch (failure) { if (mounted.current) setError(`No se pudo actualizar el detalle. ${failure.message}`); }
+    try { await load(); } catch (failure) { if (mounted.current) setError(userErrorMessage(failure, 'No pudimos actualizar el pedido. Intentá nuevamente.')); }
     finally { lock.current = false; if (mounted.current) setLoading(false); }
   };
   const run = (operation, success, { keepOpen = false, optimisticOrder, resetEdit = false } = {}) => {
@@ -108,7 +109,7 @@ export default function OrderDetail({ id, onClose, requireFresh = false }) {
           <dt className="font-bold">Estado</dt><dd>{stateLabel(order.estado)}</dd>
           <dt className="font-bold">Entrega</dt><dd>{order.tipo_entrega === 'RETIRO' ? 'Retiro en local' : addressLabel(order.direccion)}{order.direccion?.referencia && ` · ${order.direccion.referencia}`}</dd>
           <dt className="font-bold">Contacto</dt><dd>{order.telefono ? <a href={`tel:${order.telefono.replace(/[^+\d]/g, '')}`} className="underline inline-flex items-center min-h-11">{order.telefono}</a> : 'Teléfono no disponible'}</dd>
-          <dt className="font-bold">Pago</dt><dd>{order.metodo_pago_acordado === 'TRANSFERENCIA' ? 'Transferencia' : 'Efectivo'}</dd>
+          <dt className="font-bold">Pago</dt><dd>{paymentMethodLabel(order.metodo_pago_acordado)}</dd>
           <dt className="font-bold">Total</dt><dd className="text-xl font-extrabold text-monu-dark">{money(order.total)}</dd>
           {order.observaciones && <><dt className="font-bold">Nota</dt><dd className="whitespace-pre-wrap break-words">{order.observaciones}</dd></>}
         </dl>
@@ -121,7 +122,7 @@ export default function OrderDetail({ id, onClose, requireFresh = false }) {
         {can(user, 'pedidos.editar') && <EditOperation can={(key) => can(user, key)} key={`edit:${order.id}:${editRevision}`} order={order} role={user.backendRole} commands={commands} run={run} busy={busy || stale} />}
         <details className="space-y-3 border-t border-monu-green/20 pt-3"><summary className="cursor-pointer min-h-11 flex items-center font-bold text-monu-green">Historial y detalles</summary>
           <dl className="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-[max-content_1fr]">{[['creado_en', 'Creado'], ['confirmado_en', 'Confirmado'], ['preparacion_en', 'Preparación'], ['listo_en', 'Listo'], ['entregado_en', 'Entregado'], ['cancelado_en', 'Cancelado']].filter(([key]) => order[key]).map(([key, label]) => <div className="contents" key={key}><dt className="font-bold">{label}</dt><dd>{dateTime(order[key])}</dd></div>)}</dl>
-          <ol className="space-y-3">{order.historial.map((event) => <li key={event.id} className="border-l-2 border-monu-green/30 pl-3 text-sm space-y-1"><p className="font-bold">{stateLabel(event.estado_anterior)} → {stateLabel(event.estado_nuevo)}</p><p>{dateTime(event.creado_en)} · {event.actor || 'Sistema'}</p><p className="break-words">{event.observacion || 'Cambio de estado'}</p>{event.tratamiento_stock && <p>Stock: {({ CONSERVAR: 'consumo conservado', RECONSUMIR: 'nuevo consumo', MERMA: 'merma declarada', RESERVA_DEVUELTA: 'reserva devuelta' })[event.tratamiento_stock] || event.tratamiento_stock}</p>}</li>)}</ol>
+          <ol className="space-y-3">{order.historial.map((event) => <li key={event.id} className="border-l-2 border-monu-green/30 pl-3 text-sm space-y-1"><p className="font-bold">{stateLabel(event.estado_anterior)} → {stateLabel(event.estado_nuevo)}</p><p>{dateTime(event.creado_en)} · {event.actor || 'Sistema'}</p><p className="break-words">{event.observacion || 'Cambio de estado'}</p>{event.tratamiento_stock && <p>Stock: {knownLabel({ CONSERVAR: 'consumo conservado', RECONSUMIR: 'nuevo consumo', MERMA: 'merma declarada', RESERVA_DEVUELTA: 'reserva devuelta' }, event.tratamiento_stock)}</p>}</li>)}</ol>
         </details>
       </>}
     </div>

@@ -1,4 +1,5 @@
-﻿import { can } from '../auth/permissions';
+import { userErrorMessage } from '../shared/api/userErrors.js';
+import { can } from '../auth/permissions';
 import { useAuth } from '../auth/AuthContext';
 import { useData } from '../shared/store/DataContext';
 import { useSearchParams } from 'react-router-dom';
@@ -76,8 +77,9 @@ export default function Inventory() {
       setIsModalOpen(false);
     } catch (error) {
       if (!mounted.current) return;
-      setFormError(error.message);
-      toast.error('No se pudo agregar el insumo', { description: error.message });
+      const message = userErrorMessage(error, 'No pudimos agregar el insumo. Comprobá el inventario antes de repetir el alta.');
+      setFormError(message);
+      toast.error('No pudimos agregar el insumo', { description: message });
     } finally {
       saving.current = false;
       if (mounted.current) setIsSaving(false);
@@ -92,7 +94,7 @@ export default function Inventory() {
       await replenishIngredient(id, 1);
       if (mounted.current) toast.success('Stock repuesto');
     } catch (error) {
-      if (mounted.current) toast.error('No se pudo reponer stock', { description: error.message });
+      if (mounted.current) toast.error('No pudimos reponer stock', { description: userErrorMessage(error, 'No pudimos reponer el stock. Comprobá el inventario antes de repetir la reposición.') });
     } finally {
       replenishing.current.delete(id);
       if (mounted.current) setPendingStock([...replenishing.current]);
@@ -186,8 +188,10 @@ export default function Inventory() {
               <X className="w-5 h-5" />
             </button>
             <h2 id="new-ingredient-title" className="text-xl font-extrabold text-monu-dark mb-4 pr-8">Añadir Nuevo Insumo</h2>
-            <form onSubmit={handleAddItem} className="space-y-4" aria-busy={isSaving}>
-              <div ref={errorSummary} tabIndex={-1}><DataError message={formError} /></div>
+            <form noValidate onSubmit={handleAddItem} className="space-y-4" aria-busy={isSaving}>
+              <div ref={errorSummary} tabIndex={-1}><DataError message={formError} />
+                {formError && Object.keys(fieldErrors).length > 0 && <ul className="mt-2 space-y-1 text-sm text-red-800">{Object.entries(fieldErrors).map(([field, message]) => <li key={field}><a href={`#new-ingredient-${field}`} className="underline">{message}</a></li>)}</ul>}
+              </div>
               <fieldset disabled={isSaving} className="space-y-4">
               <div>
                 <label htmlFor="new-ingredient-name" className="block text-sm font-bold text-monu-dark mb-1">Nombre</label>

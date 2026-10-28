@@ -1,3 +1,4 @@
+import { userErrorMessage } from '../shared/api/userErrors.js';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
@@ -42,7 +43,7 @@ export default function Orders() {
         .then((orders) => { if (!controller.signal.aborted) { loadedPath.current = queryPath; setResults({ path: queryPath, orders: orders.map(mapOrder) }); } })
         .catch((failure) => { if (!controller.signal.aborted) {
           if ([401, 403].includes(failure.status)) { setResults(null); setSelected(null); loadedPath.current = ''; void refreshSession?.(); }
-          setError(`No se pudo consultar el historial. ${failure.message}`);
+          setError(userErrorMessage(failure, 'No pudimos cargar el historial de pedidos. Intentá nuevamente.'));
         } })
         .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     }, 250);

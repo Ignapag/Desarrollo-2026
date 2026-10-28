@@ -1,9 +1,10 @@
-﻿import { createContext, useContext, useReducer, useEffect } from 'react';
+import { createContext, useContext, useReducer, useEffect } from 'react';
 
 import { useState, useCallback, useRef, useLayoutEffect, useMemo } from 'react';
 import { can } from '../../auth/permissions';
 import { useAuth } from '../../auth/AuthContext';
 import { apiFetch } from '../api/http';
+import { UserFacingError, userErrorMessage } from '../api/userErrors.js';
 import { portal } from '../portal';
 import { mapOrder, createFreshnessFence, ordersPath, confirmedOrder } from '../../fulfillment/orderModel';
 import { createOrderCommands } from '../../fulfillment/orderCommands';
@@ -215,7 +216,7 @@ export function DataProvider({ children }) {
         if (userRef.current === user && !signal?.aborted && freshnessRef.current.accepts(token)) {
           const unauthorized = [401, 403].includes(error.status);
           if (unauthorized) void refreshSession?.();
-          dispatch({ type: 'ORDERS_ERROR', unauthorized, payload: `No se pudieron actualizar los pedidos.${unauthorized ? '' : ' Se conserva la última información.'} ${error.message}` });
+          dispatch({ type: 'ORDERS_ERROR', unauthorized, payload: userErrorMessage(error, `No pudimos actualizar los pedidos.${unauthorized ? '' : ' Se conserva la última información.'}`) });
         }
         throw error;
       })
@@ -263,7 +264,7 @@ export function DataProvider({ children }) {
     }).catch((error) => {
       if (!signal?.aborted && userRef.current === user && inventoryRequest.current === entry && inventoryFence.current.accepts(token)) {
         inventoryLoadedAt.current = 0;
-        dispatch({ type: 'INVENTORY_ERROR', payload: error.message, owner: user, unauthorized: [401, 403].includes(error.status) });
+        dispatch({ type: 'INVENTORY_ERROR', payload: userErrorMessage(error, 'No pudimos cargar el inventario.'), owner: user, unauthorized: [401, 403].includes(error.status) });
         if ([401, 403].includes(error.status)) void refreshSession?.();
       }
       throw error;
@@ -279,7 +280,7 @@ export function DataProvider({ children }) {
   }, [user]);
 
   const getCustomers = useCallback((path, signal, force = false) => {
-    if (!can(user, 'clientes.ver') || userRef.current !== user) return Promise.reject(new Error('No tenés acceso a clientes.'));
+    if (!can(user, 'clientes.ver') || userRef.current !== user) return Promise.reject(new UserFacingError('No tenés acceso a clientes.'));
     const previous = customerCache.current.get(path);
     if (!force && previous?.owner === user) {
       if (previous.promise && !previous.signal?.aborted) return previous.promise;
@@ -287,6 +288,10 @@ export function DataProvider({ children }) {
     }
     const entry = { owner: user, signal, time: 0 };
     entry.promise = apiFetch(path, { signal }).then((value) => {
+      if (!Array.isArray(value?.clientes) || !Number.isSafeInteger(value.total) || value.total < 0
+        || !value.clientes.every((customer) => customer && Number.isSafeInteger(customer.id) && typeof customer.nombre === 'string' && (customer.telefono == null || typeof customer.telefono === 'string'))) {
+        throw new UserFacingError('No pudimos cargar los clientes. Intentá nuevamente más tarde.');
+      }
       if (!signal?.aborted && userRef.current === user && customerCache.current.get(path) === entry) {
         entry.value = value;
         entry.time = Date.now();
@@ -311,7 +316,7 @@ export function DataProvider({ children }) {
   }, [refreshOrders]);
 
   const runOrderMutation = async (operation) => {
-    if (!user || userRef.current !== user) throw new Error('La sesión cambió. Volvé a ingresar antes de continuar.');
+    if (!user || userRef.current !== user) throw new UserFacingError('La sesión cambió. Volvé a ingresar antes de continuar.');
     const owner = user;
     const fence = freshnessRef.current;
     let confirmed = null;
@@ -359,10 +364,14 @@ export function DataProvider({ children }) {
     void runOrderMutation(async () => {
       const result = await operation(() => userRef.current === user);
       if (userRef.current !== user) return result;
-      if (!result || typeof result !== 'object' || !Object.keys(result).length) throw new Error('No se pudo confirmar la acción: respuesta incompleta.');
-      // Reparto y adaptadores anteriores pueden devolver sólo el movimiento.
-      const confirmed = confirmedOrder(result, id) || confirmedOrder(await apiFetch(`/api/pedidos/${id}`), id);
-      if (!confirmed) throw new Error('No se pudo confirmar el pedido: respuesta incompleta.');
+      // Una consulta posterior nunca convierte un acuse desconocido en éxito.
+      // Reparto devuelve el movimiento confirmado; pedidos y pagos operativos,
+      // el pedido completo. Sólo el movimiento con su forma conocida admite GET.
+      let confirmed = confirmedOrder(result, id);
+      const shipmentConfirmed = result?.pedido_id === id && Number.isSafeInteger(result.envio_id) && result.envio_id > 0
+        && Object.hasOwn(result, 'viaje_id') && (result.viaje_id === null || Number.isSafeInteger(result.viaje_id) && result.viaje_id > 0);
+      if (!confirmed && shipmentConfirmed) confirmed = confirmedOrder(await apiFetch(`/api/pedidos/${id}`), id);
+      if (!confirmed) throw new UserFacingError('No pudimos confirmar el pedido.');
       return confirmed;
     }).then((result) => {
       if (userRef.current !== user || operationsRef.current.get(id) !== entry) return;
@@ -376,7 +385,7 @@ export function DataProvider({ children }) {
     }).catch((error) => {
       if (userRef.current !== user || operationsRef.current.get(id) !== entry) return;
       entry.status = 'error';
-      entry.message = `${error.message} No pudimos confirmar el estado final. Revisá el pedido antes de reintentar.`;
+      entry.message = `${userErrorMessage(error, 'No pudimos actualizar el pedido.')} Revisá el pedido antes de reintentar.`;
       publishOperations();
       onError?.(entry.message);
     });
@@ -447,7 +456,7 @@ export function DataProvider({ children }) {
   }, [user?.id, user?.backendRole, refreshOrders]);
 
   const runResourceMutation = async (kind, operation, permission) => {
-    if (!user || userRef.current !== user || !can(user, permission)) throw new Error('La sesión cambió o no tenés acceso a esta operación.');
+    if (!user || userRef.current !== user || !can(user, permission)) throw new UserFacingError('La sesión cambió o no tenés acceso a esta operación.');
     const fence = kind === 'catalog' ? catalogFence.current : inventoryFence.current;
     const request = kind === 'catalog' ? catalogRequest : inventoryRequest;
     const refresh = kind === 'catalog' ? refreshCatalog : refreshInventory;
@@ -478,7 +487,7 @@ export function DataProvider({ children }) {
         variantes: payload.variantes,
       }),
     });
-    if (!Number.isInteger(created?.id) || typeof created.nombre !== 'string' || created.precio_base == null || !Number.isFinite(Number(created.precio_base))) throw new Error('No pudimos confirmar el producto: respuesta incompleta. Actualizá el catálogo antes de reintentar.');
+    if (!Number.isInteger(created?.id) || typeof created.nombre !== 'string' || created.precio_base == null || !Number.isFinite(Number(created.precio_base))) throw new UserFacingError('No pudimos confirmar el producto. Actualizá el catálogo antes de reintentar.');
     const product = mapProduct(created);
     if (userRef.current === user) dispatch({ type: 'ADD_CATALOG_ITEM', payload: product });
     return product;
@@ -486,7 +495,7 @@ export function DataProvider({ children }) {
 
   const updateRecipe = async (id, body) => runResourceMutation('catalog', async () => {
     const result = await apiFetch(`/api/productos/${id}/receta`, { method: 'PUT', body: JSON.stringify(body) });
-    if (result?.producto_id !== id || !Array.isArray(result.ingredientes) || !Array.isArray(result.variantes) || typeof result.actualizado_en !== 'string') throw new Error('No pudimos confirmar la receta: respuesta incompleta. Consultá su estado antes de reintentar.');
+    if (result?.producto_id !== id || !Array.isArray(result.ingredientes) || !Array.isArray(result.variantes) || typeof result.actualizado_en !== 'string') throw new UserFacingError('No pudimos confirmar la receta. Consultá su estado antes de reintentar.');
     return result;
   }, 'productos.gestionar');
 
@@ -495,19 +504,19 @@ export function DataProvider({ children }) {
       method: 'PATCH',
       body: JSON.stringify({ activo: false }),
     });
-    if (result?.id !== id || result.activo !== false) throw new Error('No pudimos confirmar la desactivación: respuesta incompleta. Actualizá el catálogo antes de reintentar.');
+    if (result?.id !== id || result.activo !== false) throw new UserFacingError('No pudimos confirmar la desactivación. Actualizá el catálogo antes de reintentar.');
     if (userRef.current === user) dispatch({ type: 'DELETE_CATALOG_ITEM', payload: id });
   }, 'productos.gestionar');
 
   const changeOrderStatus = async (id, status, options = {}) => {
-    if (!can(user, 'pedidos.cambiar_estado')) throw new Error('No tenés acceso a cambiar el estado.');
+    if (!can(user, 'pedidos.cambiar_estado')) throw new UserFacingError('No tenés acceso a cambiar el estado.');
     const order = state.orders.find((candidate) => candidate.id === id);
-    if (!order) throw new Error('Actualizá el pedido antes de cambiar su estado.');
+    if (!order) throw new UserFacingError('Actualizá el pedido antes de cambiar su estado.');
     return runOrderMutation(() => commands.state(order, { estado: status.toUpperCase(), ...options }, options.motivo));
   };
 
   const placeOrder = async ({ address, zone, items }) => {
-    if (!user || userRef.current !== user) throw new Error('La sesión cambió. Volvé a ingresar antes de continuar.');
+    if (!user || userRef.current !== user) throw new UserFacingError('La sesión cambió. Volvé a ingresar antes de continuar.');
     const created = await apiFetch('/api/pedidos', {
       method: 'POST',
       body: JSON.stringify({
@@ -525,6 +534,7 @@ export function DataProvider({ children }) {
         })),
       }),
     });
+    if (!confirmedOrder(created)) throw new UserFacingError('No pudimos confirmar el pedido. Comprobá su estado antes de repetirlo para evitar duplicaciones.');
     const order = mapOrder(created);
     if (userRef.current === user) dispatch({ type: 'PLACE_ORDER', payload: order, owner: user });
     return created;
@@ -540,7 +550,7 @@ export function DataProvider({ children }) {
         umbral_minimo: Number(payload.min),
       }),
     });
-    if (!Number.isInteger(created?.id) || typeof created.nombre !== 'string' || created.cantidad_actual == null || created.umbral_minimo == null || !Number.isFinite(Number(created.cantidad_actual)) || !Number.isFinite(Number(created.umbral_minimo))) throw new Error('No pudimos confirmar el insumo: respuesta incompleta. Actualizá el inventario antes de reintentar.');
+    if (!Number.isInteger(created?.id) || typeof created.nombre !== 'string' || created.cantidad_actual == null || created.umbral_minimo == null || !Number.isFinite(Number(created.cantidad_actual)) || !Number.isFinite(Number(created.umbral_minimo))) throw new UserFacingError('No pudimos confirmar el insumo. Actualizá el inventario antes de reintentar.');
     const item = mapInventory(created);
     if (userRef.current === user) dispatch({ type: 'ADD_INVENTORY_ITEM', payload: item, owner: user });
     return item;
@@ -555,7 +565,7 @@ export function DataProvider({ children }) {
         method: 'POST',
         body: JSON.stringify({ cantidad: quantity, origen: 'PANEL_WEB' }),
       });
-      if (result?.ingrediente_id !== id || !Number.isInteger(result.movimiento_id) || result.saldo_resultante == null || !Number.isFinite(Number(result.saldo_resultante))) throw new Error('No pudimos confirmar la reposición: respuesta incompleta. Consultá el inventario antes de reintentar.');
+      if (result?.ingrediente_id !== id || !Number.isInteger(result.movimiento_id) || result.saldo_resultante == null || !Number.isFinite(Number(result.saldo_resultante))) throw new UserFacingError('No pudimos confirmar la reposición. Consultá el inventario antes de reintentar.');
       if (userRef.current === user) dispatch({ type: 'CONFIRM_INVENTORY_STOCK', id, stock: Number(result.saldo_resultante) });
     } catch (error) {
       if (userRef.current === user) dispatch({ type: 'UPDATE_INVENTORY_STOCK', payload: { id, delta: -quantity } });

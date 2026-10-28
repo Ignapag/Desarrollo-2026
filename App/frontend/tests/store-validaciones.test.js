@@ -64,7 +64,27 @@ test('una carga inicial de inventario fallida conserva un error reintentable', a
   const screen = await mount(t);
   await act(async () => { await assert.rejects(screen.getData().refreshInventory()); });
   assert.equal(screen.getData().state.inventoryStatus, 'error');
-  assert.match(screen.getData().state.inventoryError, /conectar/);
+  assert.match(screen.getData().state.inventoryError, /inventario/);
+});
+
+test('el tablero nunca publica excepciones internas de una operación fallida', async (t) => {
+  globalThis.fetch = async () => response([]);
+  const screen = await mount(t);
+  await act(async () => { screen.getData().startOrderOperation({ id: 1, operation: async () => { throw new Error('SQL /private password=secreto'); } }); });
+  const failure = screen.getData().orderOperations[0];
+  assert.equal(failure.status, 'error');
+  assert.doesNotMatch(failure.message, /SQL|private|password/);
+  assert.match(failure.message, /Revisá el pedido antes de reintentar/);
+});
+
+test('una respuesta inesperada de clientes se rechaza antes de almacenarla', async (t) => {
+  globalThis.fetch = async () => response({ clientes: 'SQL /private' });
+  const screen = await mount(t);
+  // Esta cuenta obtiene el permiso sólo para probar la lectura real del store.
+  setUser({ ...user, permisos: [...user.permisos, 'clientes.ver'] });
+  await act(async () => screen.render());
+  await act(async () => assert.rejects(screen.getData().getCustomers('/api/reportes/clientes'), /clientes/));
+  assert.equal(screen.getData().cachedCustomers('/api/reportes/clientes'), null);
 });
 test('403 de inventario retira el snapshot que dejó de estar autorizado', async (t) => {
   let denied = false;
@@ -84,13 +104,25 @@ test('una operación con acuse y reconciliación incompletos no anuncia éxito',
   assert.equal(screen.getData().orderOperations[0].status, 'error');
   assert.doesNotMatch(screen.getData().orderOperations[0].message, /La acción se registró/);
 });
-test('un acuse vacío no se confirma con un pedido anterior válido', async (t) => {
+for (const result of [{}, { unexpected: true }, { mensaje: 'Operación fallida' }, { pedido_id: 1, envio_id: 2 }]) {
+test(`un acuse inesperado ${JSON.stringify(result)} no se confirma con un pedido anterior válido`, async (t) => {
   globalThis.fetch = async (path) => response(path.endsWith('/1') ? { id: 1, numero: 1, version: 1, estado: 'PENDIENTE', items: [], historial: [] } : []);
   const screen = await mount(t);
   let success = 0;
-  await act(async () => { screen.getData().startOrderOperation({ id: 1, operation: async () => ({}), onSuccess: () => success++ }); });
+  await act(async () => { screen.getData().startOrderOperation({ id: 1, operation: async () => result, onSuccess: () => success++ }); });
   assert.equal(success, 0);
   assert.equal(screen.getData().orderOperations[0].status, 'error');
+});
+}
+
+test('un movimiento de reparto confirmado permite consultar el pedido actualizado', async (t) => {
+  const order = { id: 1, numero: 1, version: 2, estado: 'LISTO', items: [], historial: [] };
+  globalThis.fetch = async (path) => response(path.endsWith('/1') ? order : []);
+  const screen = await mount(t);
+  let success = 0;
+  await act(async () => { screen.getData().startOrderOperation({ id: 1, operation: async () => ({ pedido_id: 1, envio_id: 2, viaje_id: 3 }), onSuccess: () => success++ }); });
+  assert.equal(success, 1);
+  assert.equal(screen.getData().orderOperations[0].status, 'success');
 });
 for (const [operation, payload] of [['createProduct', { name: 'Burger' }], ['createIngredient', { name: 'Pan', stock: 0, min: 1 }]]) {
   test(`${operation} no confirma un objeto JSON vacío`, async (t) => {

@@ -1,3 +1,4 @@
+import { userErrorMessage } from '../shared/api/userErrors.js';
 import { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { apiFetch } from '../shared/api/http';
@@ -14,6 +15,7 @@ export default function RecipeModal({ product, onClose }) {
   const canEdit = can(user, 'productos.gestionar');
   const canRead = can(user, 'productos.ver_receta');
   const dialog = useRef(null);
+  const errorSummary = useRef(null);
   const busy = useRef(false);
   const mounted = useRef(true);
   const [data, setData] = useState(null);
@@ -23,6 +25,7 @@ export default function RecipeModal({ product, onClose }) {
   const [loading, setLoading] = useState(true);
   const [reload, setReload] = useState(0);
   const [showErrors, setShowErrors] = useState(false);
+  useEffect(() => { if (error) errorSummary.current?.focus(); }, [error]);
   useEffect(() => {
     mounted.current = true;
     dialog.current?.showModal();
@@ -33,10 +36,11 @@ export default function RecipeModal({ product, onClose }) {
     const controller = new AbortController();
     apiFetch(`/api/productos/${product.id}/receta`, { signal: controller.signal }).then((result) => {
       if (controller.signal.aborted) return;
+      const nextRecipe = recipeFromApi(result);
       setData(result);
-      setRecipe(recipeFromApi(result));
+      setRecipe(nextRecipe);
       setError('');
-    }).catch((failure) => { if (!controller.signal.aborted) setError(failure.message); })
+    }).catch((failure) => { if (!controller.signal.aborted) setError(userErrorMessage(failure, 'No pudimos cargar la receta. Intentá nuevamente más tarde.')); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [product.id, reload, canRead]);
@@ -45,7 +49,7 @@ export default function RecipeModal({ product, onClose }) {
     setShowErrors(true);
     let payload;
     try { payload = { ...serializeRecipe(recipe), actualizado_en_esperado: data.actualizado_en }; }
-    catch (failure) { setError(failure.message); return; }
+    catch (failure) { setError(userErrorMessage(failure, 'Revisá los ingredientes y las cantidades de la receta.')); return; }
     busy.current = true;
     setSaving(true);
     setError('');
@@ -53,7 +57,7 @@ export default function RecipeModal({ product, onClose }) {
       await updateRecipe(product.id, payload);
       if (mounted.current) onClose();
     } catch (failure) {
-      if (mounted.current) setError(failure.message);
+      if (mounted.current) setError(userErrorMessage(failure, 'No pudimos guardar la receta. Comprobá la receta guardada antes de repetir el cambio.'));
     } finally {
       busy.current = false;
       if (mounted.current) setSaving(false);
@@ -70,7 +74,7 @@ export default function RecipeModal({ product, onClose }) {
       <button type="button" onClick={onClose} disabled={saving} aria-label="Cerrar receta" className={buttonClass}><X className="h-5 w-5" aria-hidden="true" /></button>
     </div>
     <div className="space-y-4 p-5">
-      {error && <><DataError message={error} /><button type="button" disabled={saving || loading} onClick={() => { setLoading(true); setReload((old) => old + 1); }} className={buttonClass}>Volver a cargar receta</button><p className="text-xs">Volver a cargar reemplaza tus cambios por la receta guardada.</p></>}
+      {error && <><div ref={errorSummary} tabIndex={-1}><DataError message={error} /></div><button type="button" disabled={saving || loading} onClick={() => { setLoading(true); setReload((old) => old + 1); }} className={buttonClass}>Volver a cargar receta</button><p className="text-xs">Volver a cargar reemplaza tus cambios por la receta guardada.</p></>}
       {!canRead ? <p role="alert">No tenés permiso para consultar esta receta.</p> : loading && <p role="status">Consultando receta…</p>}
       {canRead && recipe && <RecipeEditor value={recipe} onChange={setRecipe} inventory={inventory} lockVariants disabled={saving || loading || !canEdit} showErrors={showErrors} />}
       {recipe && <p className="text-sm text-monu-text">Los pedidos ya registrados conservan sus cantidades originales.</p>}

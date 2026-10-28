@@ -1,3 +1,4 @@
+import { UserFacingError } from '../shared/api/userErrors';
 import { apiFetch } from '../shared/api/http';
 
 function normalizeWhatsAppPhone(phone) {
@@ -35,7 +36,7 @@ export async function createWhatsAppDraft(payload) {
     body: JSON.stringify(payload),
   });
   if (typeof result?.referencia !== 'string' || !result.referencia.trim() || typeof result.mensaje !== 'string' || !result.mensaje.trim() || !Number.isFinite(Date.parse(result.expira_en))) {
-    throw new Error('No se pudo confirmar el mensaje preparado. Volvé a preparar el pedido.');
+    throw new UserFacingError('No se pudo confirmar el mensaje preparado. Volvé a preparar el pedido.');
   }
   return result;
 }

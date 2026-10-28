@@ -152,7 +152,7 @@ async function exerciseCaja(page, state, { cajaCalls, posts, passed, name }) {
 
   state.readFailure = 503;
   await consult.click();
-  await visible(page.getByRole('alert').filter({ hasText: 'Consulta fixture rechazada 503' }));
+  await visible(page.getByRole('alert').filter({ hasText: 'No pudimos cargar los datos de Caja.' }));
   await consult.click();
   await waitFor(async () => !(await consult.isDisabled()), 'reintento consulta');
   passed('Lectura fallida y reintento', '503 permanece visible y una consulta explícita recupera el consolidado.');
@@ -201,7 +201,7 @@ async function exerciseCaja(page, state, { cajaCalls, posts, passed, name }) {
   await dialog.getByRole('checkbox', { name: 'Confirmo reemplazar las observaciones registradas por el texto nuevo.' }).check();
   state.approveFailure = 409;
   await dialog.getByRole('button', { name: 'Confirmar aprobación', exact: true }).click();
-  await visible(page.getByRole('alert').filter({ hasText: 'Aprobación fixture rechazada 409' }));
+  await visible(page.getByRole('alert').filter({ hasText: 'La información cambió o la acción ya no está disponible.' }));
   assert.equal(await page.getByRole('dialog').getByLabel('Observaciones opcionales', { exact: true }).inputValue(), 'Nota de aprobación conservada');
   state.writeWait = deferred();
   await dialog.getByRole('button', { name: 'Confirmar aprobación', exact: true }).evaluate((button) => { button.click(); button.click(); });

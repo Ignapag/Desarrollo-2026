@@ -175,7 +175,8 @@ test('un conflicto de receta conserva la edición y las unidades hasta recarga e
   assert.match(container.textContent, /0,25 g por producto/);
   await act(async () => reactProps(button(container, 'Guardar receta')).onClick());
   assert.equal(reactProps(quantity()).value, '1/4');
-  assert.match(container.textContent, /La receta fue modificada/);
+  assert.match(container.textContent, /La información cambió/);
+  assert.doesNotMatch(container.textContent, /La receta fue modificada/);
   assert.ok(button(container, 'Guardar receta'));
   await act(async () => reactProps(button(container, 'Volver a cargar receta')).onClick());
   assert.equal(reactProps(quantity()).value, '25');

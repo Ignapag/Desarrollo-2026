@@ -1,3 +1,4 @@
+import { UserFacingError } from '../shared/api/userErrors';
 import { apiFetch } from '../shared/api/http';
 
 const attempts = new Map();
@@ -17,11 +18,11 @@ async function request(path, options = {}) {
       apiFetch(`${prefix}/${path}`, { ...options, signal: controller.signal }),
       new Promise((_, reject) => { timer = globalThis.setTimeout(() => {
         controller.abort();
-        reject(new Error('El chat no respondió a tiempo. Volvé a intentar para comprobar el resultado.'));
+        reject(new UserFacingError('El chat no respondió a tiempo. Actualizá la conversación antes de repetir el envío; podés recuperar el mismo contenido.'));
       }, requestTimeout); }),
     ]);
   } catch (failure) {
-    if (failure instanceof TypeError) throw new Error('No pudimos conectar con el chat. Revisá la conexión y reintentá.');
+    if (failure instanceof TypeError) throw new UserFacingError('No pudimos conectar con el chat. Revisá la conexión y reintentá.');
     throw failure;
   } finally {
     globalThis.clearTimeout(timer);
@@ -49,7 +50,7 @@ function savePendingSend(value) {
 
 function rememberSend(attempt, content) {
   const previous = getPendingChatSend();
-  if (previous && previous.key !== attempt.key) throw new Error('Primero recuperá el envío anterior con el mismo contenido.');
+  if (previous && previous.key !== attempt.key) throw new UserFacingError('Primero recuperá el envío anterior con el mismo contenido.');
   savePendingSend({ ...attempt, ...content });
 }
 
@@ -61,7 +62,7 @@ export function reconcileChatSend(conversation) {
 }
 
 function confirmAttempt(attempt, result) {
-  if (!result?.id || !['PENDIENTE', 'PROCESADO'].includes(result.estado)) throw new Error('No pudimos confirmar que el envío quedó guardado. Reintentá el mismo envío.');
+  if (typeof result?.id !== 'string' || !result.id || !['PENDIENTE', 'PROCESADO'].includes(result.estado)) throw new UserFacingError('No pudimos confirmar que el envío quedó guardado. Comprobá la conversación antes de repetirlo; podés recuperar el mismo envío.');
   finishAttempt(attempt.key);
   return result;
 }
@@ -71,7 +72,7 @@ async function sendAttempt(attempt, path, options) {
     return confirmAttempt(attempt, await request(path, options));
   } catch (failure) {
     // Un rechazo HTTP explícito permite corregir el contenido; una respuesta perdida exige replay.
-    if (failure.status >= 400 && failure.status < 500 && getPendingChatSend()?.key === attempt.key) savePendingSend(null);
+    if (failure.status >= 400 && failure.status < 500 && !failure.uncertain && getPendingChatSend()?.key === attempt.key) savePendingSend(null);
     throw failure;
   }
 }
@@ -98,7 +99,7 @@ function finishAttempt(key) {
 async function sendJson(kind, path, content) {
   const attempt = await attemptId(kind, JSON.stringify(content));
   const pending = getPendingChatSend();
-  if (pending && pending.key !== attempt.key) throw new Error('Primero recuperá el envío anterior con el mismo contenido.');
+  if (pending && pending.key !== attempt.key) throw new UserFacingError('Primero recuperá el envío anterior con el mismo contenido.');
   if (kind === 'texto') rememberSend(attempt, { text: content.texto });
   if (kind === 'borrador') rememberSend(attempt, { draft: content.borrador });
   return sendAttempt(attempt, path, {
@@ -107,10 +108,16 @@ async function sendJson(kind, path, content) {
   });
 }
 
-export const getChatConfig = () => request('config');
+export async function getChatConfig() {
+  const result = await request('config');
+  if (typeof result?.habilitado !== 'boolean') throw new UserFacingError('No pudimos comprobar la disponibilidad del chat. Intentá nuevamente más tarde.');
+  return result;
+}
 export async function getChatConversation() {
   const result = await request('conversacion');
-  if (!Array.isArray(result?.mensajes) || !Array.isArray(result?.borradores)) throw new Error('No pudimos recuperar la conversación. Volvé a actualizarla.');
+  if (!Array.isArray(result?.mensajes) || !Array.isArray(result?.borradores)
+    || result.mensajes.some((message) => !message || typeof message.id !== 'string' || typeof message.texto !== 'string' || typeof message.direccion !== 'string' || typeof message.estado !== 'string')
+    || result.borradores.some((draft) => !draft || typeof draft !== 'object')) throw new UserFacingError('No pudimos recuperar la conversación. Volvé a actualizarla.');
   return result;
 }
 export async function openChatSession() {
@@ -123,13 +130,13 @@ export async function openChatSession() {
 export const sendChatDraft = (borrador) => sendJson('borrador', 'borradores', { borrador });
 export async function sendChatText(value) {
   const texto = value.trim();
-  if (!texto || texto.length > 2000) throw new Error('Escribí de 1 a 2000 caracteres.');
+  if (!texto || texto.length > 2000) throw new UserFacingError('Escribí de 1 a 2000 caracteres.');
   return sendJson('texto', 'mensajes', { texto });
 }
 
 export async function sendChatReceipt(file) {
-  if (!['application/pdf', 'image/png', 'image/jpeg'].includes(file.type)) throw new Error('Elegí un archivo PDF, PNG o JPEG.');
-  if (!file.size || file.size > 2 * 1024 * 1024) throw new Error('El comprobante debe pesar hasta 2 MiB y no estar vacío.');
+  if (!['application/pdf', 'image/png', 'image/jpeg'].includes(file.type)) throw new UserFacingError('Elegí un archivo PDF, PNG o JPEG.');
+  if (!file.size || file.size > 2 * 1024 * 1024) throw new UserFacingError('El comprobante debe pesar hasta 2 MiB y no estar vacío.');
   const attempt = await attemptId(`comprobante-${file.type}`, file);
   rememberSend(attempt, { fileName: file.name || 'comprobante', mime: file.type });
   return sendAttempt(attempt, 'comprobantes', {
@@ -139,6 +146,30 @@ export async function sendChatReceipt(file) {
 }
 
 export function chatMessageStatus(message) {
-  if (message.direccion === 'cliente') return ({ PROCESADO: 'Procesado', PENDIENTE: 'Guardado · pendiente de respuesta', FALLIDO: 'No se pudo procesar · requiere revisión' })[message.estado] || message.estado;
-  return ({ PENDIENTE: 'Pendiente de envío simulado', ENVIANDO: 'Procesando envío simulado', SIMULADO: 'Disponible en la demo', FALLIDO: 'Falló el envío simulado', INCIERTO: 'Envío simulado por revisar' })[message.estado] || message.estado;
+  const states = message.direccion === 'cliente'
+    ? { PROCESADO: 'Procesado', PENDIENTE: 'Guardado · pendiente de respuesta', FALLIDO: 'No se pudo procesar · requiere revisión' }
+    : { PENDIENTE: 'Pendiente de envío simulado', ENVIANDO: 'Procesando envío simulado', SIMULADO: 'Disponible en la demo', FALLIDO: 'Falló el envío simulado', INCIERTO: 'Envío simulado por revisar' };
+  return Object.hasOwn(states, message.estado) ? states[message.estado] : 'Estado por actualizar';
+}
+
+const botFailureMessages = new Map([
+  ['💬 No pude aplicar el cambio:', 'No pudimos confirmar el cambio. Consultá el resumen de tu pedido antes de repetirlo. Si necesitás ayuda, pedí atención del personal.'],
+  ['💬 No pude proponer el cambio:', 'No pudimos preparar el cambio. Revisá tu pedido y pedí atención del personal para continuar.'],
+  ['💬 No pude preparar los cambios:', 'No pudimos preparar los cambios. Revisá tu pedido y pedí atención del personal para continuar.'],
+  ['💬 No pude registrar el pedido:', 'No pudimos confirmar tu pedido. Consultá su estado antes de repetirlo para evitar duplicaciones. Si necesitás ayuda, pedí atención del personal.'],
+]);
+
+// Los fallos del bot persistidos mezclan el aviso con un diagnóstico del backend.
+// Traducir sólo sus prefijos conocidos y descartar siempre el resto de ese aviso.
+export function chatBotText(text) {
+  for (const [prefix, message] of botFailureMessages) if (text.trimStart().startsWith(prefix)) return message;
+  return text;
+}
+
+export function chatDraftStatus(draft) {
+  const states = draft.pedido_id ? {
+    PENDIENTE: 'Pendiente', CONFIRMADO: 'Confirmado', EN_PREPARACION: 'En preparación', LISTO: 'Listo', EN_CAMINO: 'En camino', ENTREGADO: 'Entregado', CANCELADO: 'Cancelado',
+  } : { PENDIENTE: 'Pendiente', CREADO: 'Registrado', VENCIDO: 'Vencido', EXPIRADO: 'Vencido', CANCELADO: 'Cancelado' };
+  const state = draft.pedido_id ? draft.estado_pedido || draft.estado : draft.estado;
+  return Object.hasOwn(states, state) ? states[state] : 'Estado por actualizar';
 }
