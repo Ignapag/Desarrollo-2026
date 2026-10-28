@@ -52,6 +52,8 @@ function mapInventory(item) {
     id: item.id,
     name: item.nombre,
     category: item.unidad_medida,
+    level: item.nivel,
+    active: item.activo,
     stock: Number(item.cantidad_actual),
     min: Number(item.umbral_minimo),
     // Costo actual por unidad de medida; 0 es el valor por defecto de un costo sin cargar.

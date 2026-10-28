@@ -3,6 +3,8 @@ import { canVisit } from '../auth/permissions';
 import { useAuth } from '../auth/AuthContext';
 import { preloadPage } from '../shared/pageLoaders';
 import WhatsAppAttentionNotice from '../fulfillment/WhatsAppAttentionNotice';
+import NotificationBell from '../notifications/NotificationBell';
+import { NotificationProvider } from '../notifications/NotificationContext';
 import { 
   LayoutDashboard, 
   ListOrdered, 
@@ -13,7 +15,6 @@ import {
   Banknote,
   ShieldCheck,
   LogOut,
-  Bell,
   Search,
   Menu as MenuIcon,
   Store
@@ -21,6 +22,10 @@ import {
 import { Suspense, useState } from 'react';
 
 export default function DashboardLayout() {
+  return <NotificationProvider><DashboardContent /></NotificationProvider>;
+}
+
+function DashboardContent() {
   const { logout, user } = useAuth();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -116,10 +121,7 @@ export default function DashboardLayout() {
           </div>
 
           <div className="flex items-center gap-4">
-            <button className="relative p-2 text-monu-text hover:bg-monu-cream rounded-full transition-colors">
-              <Bell className="w-5 h-5" />
-              <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-            </button>
+            <NotificationBell />
             <div className="flex items-center gap-3 pl-4 border-l border-monu-green/10">
               <div className="w-8 h-8 bg-monu-green text-white rounded-full flex items-center justify-center font-bold text-sm">
                 A

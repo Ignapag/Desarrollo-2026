@@ -10,12 +10,16 @@ let server;
 let dom;
 let createRoot;
 let Notice;
+let NotificationProvider;
 let Inbox;
 let Orders;
 let setTestUser;
 let tick;
 const previousFetch = globalThis.fetch;
-const response = (body) => ({ ok: true, status: 200, json: async () => body });
+const response = (body) => ({ ok: true, status: 200, json: async () => body?.comprobantes_pendientes == null ? body : ({
+  comprobantes: Array.from({ length: body.comprobantes_pendientes }, (_, index) => ({ id: index + 1, pedido_id: index + 1, estado: 'PENDIENTE' })),
+  atenciones: Array.from({ length: body.atenciones_pendientes }, (_, index) => ({ id: index + 1, motivo: 'SOLICITUD', estado: 'PENDIENTE' })), cambios: [], salidas: [],
+}) });
 const staff = () => ({ id: 1, backendRole: 'EMPLEADO', role: 'admin', permisos: ['pedidos.ver','whatsapp.ver','whatsapp.gestionar','whatsapp.ver_notificaciones','whatsapp.gestionar_notificaciones'] });
 
 before(async () => {
@@ -25,9 +29,10 @@ before(async () => {
   ({ createRoot } = await import('react-dom/client'));
   server = await createServer({ configFile: false, cacheDir: `node_modules/.vite-avisos-test-${process.pid}`, plugins: [{ name: 'sesion-avisos', enforce: 'pre', load(id) {
     if (id.replaceAll('\\', '/').endsWith('/src/auth/AuthContext.jsx')) return "let user; export const setTestUser=(value)=>{user=value}; export const useAuth=()=>({user});";
-    if (id.replaceAll('\\', '/').endsWith('/src/shared/store/DataContext.jsx')) return "const state={orders:[],ordersStatus:'ready'}; export const useData=()=>({state,orderOperationPending:()=>false,refreshData: async()=>{}});";
+    if (id.replaceAll('\\', '/').endsWith('/src/shared/store/DataContext.jsx')) return "const state={orders:[],ordersStatus:'ready',inventory:[],inventoryStatus:'ready'}; const refreshData=async()=>{}; const refreshInventory=async()=>{}; export const useData=()=>({state,orderOperationPending:()=>false,refreshData,refreshInventory});";
     return null;
   } }, react()], server: { middlewareMode: true, hmr: false, ws: false }, optimizeDeps: { noDiscovery: true }, appType: 'custom', logLevel: 'silent' });
+  ({ NotificationProvider } = await server.ssrLoadModule('/src/notifications/NotificationContext.jsx'));
   ({ default: Notice } = await server.ssrLoadModule('/src/fulfillment/WhatsAppAttentionNotice.jsx'));
   ({ default: Inbox } = await server.ssrLoadModule('/src/fulfillment/WhatsAppInbox.jsx'));
   ({ default: Orders } = await server.ssrLoadModule('/src/fulfillment/Orders.jsx'));
@@ -40,7 +45,7 @@ async function mount(t, user = staff()) {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
-  const render = () => root.render(createElement(MemoryRouter, null, createElement(Notice)));
+  const render = () => root.render(createElement(MemoryRouter, null, createElement(NotificationProvider, null, createElement(Notice))));
   await act(async () => render());
   container.rerender = async (owner) => { setTestUser(owner); await act(async () => render()); };
   t.after(async () => { await act(async () => root.unmount()); document.body.removeChild(container); document.hidden = false; });
@@ -51,7 +56,7 @@ test('muestra dos tareas distintas y cada enlace abre su sección de bandeja', a
   const calls = [];
   globalThis.fetch = async (path) => { calls.push(path); return response({ comprobantes_pendientes: 2, atenciones_pendientes: 1 }); };
   const container = await mount(t);
-  assert.deepEqual(calls, ['/api/whatsapp/avisos']);
+  assert.deepEqual(calls, ['/api/whatsapp/bandeja']);
   assert.match(container.textContent, /2 comprobantes/);
   assert.match(container.textContent, /Se necesita un empleado/);
   assert.deepEqual(elements(container, (node) => node.localName === 'a').map((link) => link.getAttribute('href')), ['/dashboard/orders?bandeja=comprobantes', '/dashboard/orders?bandeja=atenciones']);

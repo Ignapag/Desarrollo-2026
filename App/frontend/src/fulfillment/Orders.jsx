@@ -93,7 +93,7 @@ export default function Orders() {
   const listProps = { known: countsKnown, emptyMessage, now, pending: orderOperationPending, onOpen: setSelected, registerOpener, onBackToStates: () => selectedState.current?.focus() };
   return <div className="space-y-4">
     <div className="flex flex-wrap gap-3 justify-between items-start"><div><h1 className="text-2xl md:text-3xl font-extrabold font-heading text-monu-dark">Gestión de pedidos</h1><p className="text-monu-text/80">Operación, historial y correcciones sobre el mismo pedido.</p></div>{canVisit(user, '/delivery') && <Link to="/delivery" className={buttonClass}>Gestionar reparto</Link>}</div>
-    {can(user, 'whatsapp.ver') && <WhatsAppInbox section={params.get('bandeja')} requestKey={location.key} />}
+    {can(user, 'whatsapp.ver') && <WhatsAppInbox section={params.get('bandeja')} requestKey={location.key} notificationTarget={params.get('aviso')} />}
     {clientId && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-monu-bone p-3 text-sm"><p>Pedidos de <strong>{params.get('cliente') || `cliente #${clientId}`}</strong></p><Link to="/dashboard/orders" className={buttonClass}>Ver todos los clientes</Link></div>}
     <div className="flex flex-wrap gap-3 items-end">
       <label className="block basis-full sm:basis-auto flex-1 min-w-48 space-y-1 text-sm font-bold">Buscar por número de pedido, cliente o teléfono<input value={query} onChange={(event) => { const next = new URLSearchParams(params); next.delete('bandeja'); if (event.target.value) next.set('q', event.target.value); else next.delete('q'); setParams(next, { replace: true }); }} className={inputClass} /></label>

@@ -5,6 +5,7 @@ import { can } from '../auth/permissions';
 import { apiFetch } from '../shared/api/http';
 import { apiResponseError, UserFacingError, userErrorMessage } from '../shared/api/userErrors.js';
 import { useData } from '../shared/store/DataContext';
+import { useNotificationInboxLoader } from '../notifications/notificationHooks';
 import { knownLabel, paymentMethodLabel, stateLabel } from './orderModel';
 
 const actionClass = 'min-h-11 px-4 py-2 rounded-xl text-sm font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-monu-green focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
@@ -148,7 +149,7 @@ function ReviewCard({ record, kind, onReviewed, onReviewFailed }) {
   };
 
   return (
-    <article className="p-4 bg-white border border-monu-green/20 rounded-xl space-y-3 min-w-0" aria-labelledby={`${cardId}-title`}>
+    <article id={cardId} tabIndex={-1} className="p-4 bg-white border border-monu-green/20 rounded-xl space-y-3 min-w-0" aria-labelledby={`${cardId}-title`}>
       <h4 id={`${cardId}-title`} className="font-extrabold text-monu-dark">Pedido #{record.numero || record.pedido_id} · {isReceipt ? 'Comprobante' : 'Cambio'} #{record.id}</h4>
       <p className="text-sm text-monu-text">Estado: <strong>{knownLabel({ PENDIENTE: 'Pendiente', PENDIENTE_EMPLEADO: 'Pendiente de revisión', APROBADO: 'Aprobado', APLICADO: 'Aplicado', RECHAZADO: 'Rechazado' }, record.estado)}</strong></p>
       {isReceipt ? (
@@ -315,7 +316,7 @@ function AttentionCard({ record, onChanged }) {
   };
 
   return (
-    <article className="p-4 bg-white border border-orange-200 rounded-xl space-y-3 min-w-0" aria-labelledby={`${cardId}-title`}>
+    <article id={cardId} tabIndex={-1} className="p-4 bg-white border border-orange-200 rounded-xl space-y-3 min-w-0" aria-labelledby={`${cardId}-title`}>
       <h4 id={`${cardId}-title`} className="font-extrabold text-monu-dark">{title} · Atención #{record.id}</h4>
       <p className="text-sm text-orange-900">{knownLabel(reasonLabels, record.motivo, 'Requiere atención de personal')}</p>
       <dl className="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-[max-content_1fr]">
@@ -383,7 +384,8 @@ function AttentionCard({ record, onChanged }) {
   );
 }
 
-function InboxContent({ section, requestKey }) {
+function InboxContent({ section, requestKey, notificationTarget }) {
+  const refreshInbox = useNotificationInboxLoader();
   const { refreshData } = useData();
   const [expansion, setExpansion] = useState({ requestKey: null, expanded: false });
   const requestedSection = ['comprobantes', 'atenciones'].includes(section);
@@ -393,27 +395,28 @@ function InboxContent({ section, requestKey }) {
   const [error, setError] = useState('');
   const [feedback, setFeedback] = useState('');
   const loadingRef = useRef(false);
+  const loadRevision = useRef(0);
   const receiptHeading = useRef(null);
   const attentionHeading = useRef(null);
   const focusRequested = useRef(false);
 
-  const load = useCallback(async () => {
-    if (loadingRef.current) return;
+  const load = useCallback(async (afterWrite = false) => {
+    if (loadingRef.current && !afterWrite) return;
+    const revision = ++loadRevision.current;
     loadingRef.current = true;
     setLoading(true);
     setError('');
     try {
-      const data = await apiFetch('/api/whatsapp/bandeja');
+      const data = refreshInbox ? await refreshInbox(true, afterWrite) : await apiFetch('/api/whatsapp/bandeja');
       if (!['comprobantes', 'cambios', 'atenciones', 'salidas'].every((key) => Array.isArray(data?.[key]))) throw new UserFacingError('No pudimos cargar la bandeja. Intentá actualizarla nuevamente.');
-      setInbox(data);
+      if (revision === loadRevision.current) setInbox(data);
     } catch (failure) {
-      setError(userErrorMessage(failure, 'No pudimos actualizar la bandeja. Intentá nuevamente.'));
+      if (revision === loadRevision.current) setError(userErrorMessage(failure, 'No pudimos actualizar la bandeja. Intentá nuevamente.'));
       throw failure;
     } finally {
-      loadingRef.current = false;
-      setLoading(false);
+      if (revision === loadRevision.current) { loadingRef.current = false; setLoading(false); }
     }
-  }, []);
+  }, [refreshInbox]);
 
   useEffect(() => {
     if (!['comprobantes', 'atenciones'].includes(section)) return;
@@ -425,11 +428,12 @@ function InboxContent({ section, requestKey }) {
 
   useEffect(() => {
     if (!focusRequested.current || !expanded || !inbox || loading) return;
-    const heading = section === 'comprobantes' ? receiptHeading.current : attentionHeading.current;
+    const target = /^whatsapp-(comprobantes|atencion)-[1-9][0-9]*$/.test(notificationTarget || '') ? document.getElementById?.(notificationTarget) : null;
+    const heading = target || (section === 'comprobantes' ? receiptHeading.current : attentionHeading.current);
     heading?.focus();
     heading?.scrollIntoView?.({ block: 'nearest' });
     focusRequested.current = false;
-  }, [expanded, inbox, loading, section]);
+  }, [expanded, inbox, loading, section, notificationTarget]);
 
   const toggle = () => {
     setExpansion({ requestKey, expanded: !expanded });
@@ -438,7 +442,7 @@ function InboxContent({ section, requestKey }) {
 
   const onReviewed = async (message) => {
     setFeedback(message);
-    const results = await Promise.allSettled([load(), refreshData()]);
+    const results = await Promise.allSettled([load(true), refreshData()]);
     if (results.some((result) => result.status === 'rejected')) {
       setError('La revisión se registró, pero no se pudieron actualizar todos los datos. Usá Actualizar bandeja y comprobá el pedido antes de otra decisión.');
     }
@@ -447,7 +451,7 @@ function InboxContent({ section, requestKey }) {
   const onAttentionChanged = async (message) => {
     if (message) setFeedback(message);
     try {
-      await load();
+      await load(true);
       return true;
     } catch {
       return false;
@@ -456,7 +460,7 @@ function InboxContent({ section, requestKey }) {
 
   const onReviewFailed = async (message) => {
     try {
-      await load();
+      await load(true);
       setError(message);
     } catch {
       setError(`${message} No se pudo actualizar la bandeja; actualizala antes de volver a revisar.`);

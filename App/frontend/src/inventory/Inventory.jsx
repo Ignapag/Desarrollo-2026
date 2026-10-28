@@ -2,7 +2,7 @@ import { UserFacingError, userErrorMessage } from '../shared/api/userErrors.js';
 import { can } from '../auth/permissions';
 import { useAuth } from '../auth/AuthContext';
 import { useData } from '../shared/store/DataContext';
-import { useSearchParams } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { AlertTriangle, CheckCircle, CircleAlert, Package, Pencil, X, Plus } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -21,8 +21,18 @@ function initialQuantity(value) {
 export default function Inventory() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
+  const location = useLocation();
+  const ingredientId = searchParams.get('ingrediente');
+  const targetIngredient = useRef(null);
+  const focusedRequest = useRef(null);
   const { state, createIngredient, updateIngredientCost, replenishIngredient, refreshInventory } = useData();
   const { inventory } = state;
+  useEffect(() => {
+    if (state.inventoryStatus !== 'ready' || !targetIngredient.current || focusedRequest.current === location.key) return;
+    targetIngredient.current.focus();
+    targetIngredient.current.scrollIntoView?.({ block: 'center' });
+    focusedRequest.current = location.key;
+  }, [state.inventoryStatus, inventory, ingredientId, location.key]);
   useEffect(() => {
     const controller = new AbortController();
     Promise.resolve().then(() => { if (!controller.signal.aborted) return refreshInventory(controller.signal); return undefined; }).catch(() => undefined);
@@ -203,7 +213,7 @@ export default function Inventory() {
                 </tr>
               ) : (
                 filteredInventory.map((item) => (
-                  <tr key={item.id} className="border-b border-monu-green/5 hover:bg-monu-cream/30 transition">
+                  <tr key={item.id} id={`ingrediente-${item.id}`} ref={String(item.id) === ingredientId ? targetIngredient : undefined} tabIndex={String(item.id) === ingredientId ? -1 : undefined} className="border-b border-monu-green/5 hover:bg-monu-cream/30 transition focus:outline-2 focus:outline-monu-green">
                     <td className="p-4 font-bold text-monu-dark">{item.name}</td>
                     <td className="p-4 text-sm text-monu-text/80">{item.category}</td>
                     <td className="p-4">
