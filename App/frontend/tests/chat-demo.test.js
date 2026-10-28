@@ -348,18 +348,21 @@ test('carrito entrega un único borrador al chat y permite completar datos allí
   };
   const container = await mount(t, CartDrawer, { isOpen: true, onClose() {}, chatConfig: { status: 'ready', habilitado: true }, onOpenChat() { opened += 1; } });
   assert.match(container.textContent, /El pedido se registra al procesar el carrito con los datos completos/);
-  assert.ok(elements(container, (node) => node.localName === 'section' && node.getAttribute('aria-label') === 'Entrega y pago del pedido').length);
-  assert.equal(elements(container, (node) => node.getAttribute?.('aria-labelledby') === 'checkout-contact').length, 0);
-  assert.equal(elements(container, (node) => node.getAttribute?.('name') === 'telefono').length, 0);
+  assert.equal(elements(container, (node) => node.getAttribute?.('aria-labelledby') === 'checkout-contact').length, 1);
   for (const id of ['checkout-delivery', 'checkout-payment']) await act(async () => reactProps(elements(container, (node) => node.getAttribute?.('id') === id)[0]).onChange({ target: { value: '' } }));
-  const submit = reactProps(elements(container, (node) => node.localName === 'form')[0]).onSubmit;
-  await act(async () => { submit({ preventDefault() {} }); submit({ preventDefault() {} }); await started.promise; });
+  const submit = () => reactProps(elements(container, (node) => node.localName === 'form')[0]).onSubmit({ preventDefault() {} });
+  await act(async () => submit());
+  assert.equal(calls.filter(({ url }) => url.endsWith('/borradores')).length, 0, 'sin contacto no se envía el carrito');
+  for (const [id, name, value] of [['checkout-first-name', 'nombre', 'Ana'], ['checkout-last-name', 'apellido', 'Pérez'], ['checkout-phone', 'telefono', '221 123 4567']]) {
+    await act(async () => reactProps(elements(container, (node) => node.getAttribute?.('id') === id)[0]).onChange({ target: { name, value } }));
+  }
+  await act(async () => { submit(); submit(); await started.promise; });
   assert.equal(calls.filter(({ url }) => url.endsWith('/borradores')).length, 1);
   assert.equal(opened, 0);
   const draft = JSON.parse(calls.find(({ url }) => url.endsWith('/borradores')).options.body).borrador;
   assert.equal(draft.tipo_entrega, null);
   assert.equal(draft.metodo_pago, null);
-  assert.equal(draft.contacto, null);
+  assert.deepEqual(draft.contacto, { nombre: 'Ana', apellido: 'Pérez', telefono: '5492211234567' });
   assert.equal(draft.items.length, 1);
   await act(async () => pending.resolve(response({ id: 'entrada', estado: 'PENDIENTE' }, 202)));
   assert.equal(opened, 1);

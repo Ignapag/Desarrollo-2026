@@ -187,6 +187,11 @@ y solo muestran estados de envío local o fallos que requieren atención, sin
 repetir autores ni avisos de procesamiento en cada burbuja. No necesita cuenta
 empresarial ni conexión con Meta.
 
+Como en el checkout real, el carrito exige nombre, apellido y teléfono antes de
+**Continuar en el chat**. Viajan como `contacto` del borrador y se guardan en el
+cliente de la sesión (`nombre` y `telefono_contacto`); no autentican ni fijan
+`whatsapp_verificado`. Entrega, dirección y pago pueden completarse conversando.
+
 Al iniciar un envío aparece su mensaje local con **Enviando…**, sin afirmar que
 está guardado. Se reconcilia con el acuse y el historial persistido para evitar
 duplicados. Mientras se espera al bot, la interfaz indica **Esperando respuesta…**

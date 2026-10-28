@@ -39,7 +39,7 @@ export default function CartDrawer({ isOpen, onClose, chatConfig = { status: 're
   const needsAddress = delivery === 'DELIVERY';
   const busy = isPreparing;
   const payload = buildWhatsAppDraftPayload({ cart, delivery, payment, address, number, zone, contact });
-  const demoPayload = { ...payload, tipo_entrega: delivery || null, metodo_pago: payment || null, contacto: null,
+  const demoPayload = { ...payload, tipo_entrega: delivery || null, metodo_pago: payment || null,
     direccion_nueva: needsAddress && address.trim() && number.trim() && zone ? payload.direccion_nueva : null };
   const payloadKey = JSON.stringify(payload);
   const currentDraft = draft?.key === payloadKey && draft.data.referencia !== expiredReference ? draft.data : null;
@@ -203,11 +203,11 @@ export default function CartDrawer({ isOpen, onClose, chatConfig = { status: 're
                     ))}
                   </ul>
                 </section>
-                <section aria-labelledby={demo ? undefined : 'checkout-contact'} aria-label={demo ? 'Entrega y pago del pedido' : undefined} className="space-y-5 p-5 sm:p-7 md:border-l md:border-monu-green/10">
+                <section aria-labelledby="checkout-contact" className="space-y-5 p-5 sm:p-7 md:border-l md:border-monu-green/10">
                   {error && <p ref={errorRef} tabIndex={-1} role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p>}
                   {chatConfig.status === 'error' && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800"><p>{chatConfig.error}</p><button type="button" onClick={onRetryChatConfig} className={actionClass + ' mt-2 underline'}>Reintentar disponibilidad del chat</button></div>}
                   {demo && <p className="rounded-xl border border-monu-green/15 bg-monu-green/5 p-3 text-sm leading-relaxed">Continuá en el chat de demostración. Podés completar entrega, dirección y pago conversando. Los mensajes no se envían por WhatsApp.</p>}
-                  {!demo && <fieldset disabled={busy} className="space-y-4">
+                  <fieldset disabled={busy} className="space-y-4">
                     <legend id="checkout-contact" className="mb-4 font-heading text-lg font-extrabold text-monu-dark">Tus datos</legend>
                     <div className="grid grid-cols-2 gap-3">
                       <label htmlFor="checkout-first-name" className={labelClass}><span>Nombre</span>
@@ -220,8 +220,8 @@ export default function CartDrawer({ isOpen, onClose, chatConfig = { status: 're
                     <label htmlFor="checkout-phone" className={labelClass}><span>Tu WhatsApp</span>
                       <input id="checkout-phone" {...fieldProps('checkout-phone')} name="telefono" type="tel" inputMode="tel" required maxLength={25} pattern="[+0-9\(\) .\-]+" autoComplete="tel-national" aria-describedby={fieldError?.field === 'checkout-phone' ? 'checkout-phone-help checkout-phone-error' : 'checkout-phone-help'} placeholder="11 1234 5678" value={contact.telefono} onChange={updateContact} className={inputClass} />{fieldMessage('checkout-phone')}
                     </label>
-                    <p id="checkout-phone-help" className="!mt-1.5 text-xs text-monu-text/70">Código de área y número, sin 0 ni 15. Usá el WhatsApp desde el que vas a enviar el pedido.</p>
-                  </fieldset>}
+                    <p id="checkout-phone-help" className="!mt-1.5 text-xs text-monu-text/70">Código de área y número, sin 0 ni 15. {demo ? 'Lo usamos como contacto del pedido.' : 'Usá el WhatsApp desde el que vas a enviar el pedido.'}</p>
+                  </fieldset>
                   <fieldset disabled={busy} className="space-y-4 border-t border-monu-green/10 pt-5">
                     <legend className="sr-only">Entrega y pago</legend>
                     <div className="grid grid-cols-1 gap-3 min-[400px]:grid-cols-2 md:grid-cols-1 lg:grid-cols-2">

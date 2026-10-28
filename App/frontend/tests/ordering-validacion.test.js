@@ -150,6 +150,9 @@ test('el envío que termina tarde conserva el carrito editado mientras esperaba'
   };
   const props = { isOpen: true, onClose() {}, chatConfig: { status: 'ready', habilitado: true } };
   const container = await mount(t, CartDrawer, props);
+  for (const [id, name, value] of [['checkout-first-name', 'nombre', 'Ana'], ['checkout-last-name', 'apellido', 'Pérez'], ['checkout-phone', 'telefono', '2211234567']]) {
+    await act(async () => reactProps(elements(container, (node) => node.getAttribute?.('id') === id)[0]).onChange({ target: { name, value } }));
+  }
   await act(async () => { reactProps(elements(container, (node) => node.localName === 'form')[0]).onSubmit({ preventDefault() {} }); await started.promise; });
   store.state.cart = [{ id: 2, name: 'Burger nueva', price: 200, quantity: 1 }];
   await container.rerender({ ...props, isOpen: false });
