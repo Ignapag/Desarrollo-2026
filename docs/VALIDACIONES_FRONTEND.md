@@ -5,6 +5,33 @@ La API conserva autoridad sobre permisos, importes, stock, estados e idempotenci
 Las secciones de auditoría conservan su evidencia original. La incorporación de
 Caja se describe aparte y no hereda las pruebas aprobadas de otros flujos.
 
+## Salsas completas sin personalización (28/10/2026)
+
+El menú excluye los ingredientes quitables de todos los productos de Dips Extra
+al presentar opciones y preparar sus notas. No muestra Personalizar, casillas,
+Quitar ingredientes ni el texto asociado de WhatsApp, aunque la API entregue
+ingredientes quitables. Una selección anterior tampoco bloquea agregar una salsa.
+Las hamburguesas conservan sus opciones; no cambian fotos, precios, recetas,
+disponibilidad ni datos de la base. Se reprodujo primero la regresión con los
+seis dips y opciones no vacías: falló antes de la corrección.
+
+Verificaciones ejecutadas desde App/frontend:
+
+- npm.cmd run test:portales: 24 aprobadas, sin fallos ni omisiones; incluye los seis dips y personalización de Cheese.
+- npm.cmd run lint: aprobado, con dos advertencias previas de Fast Refresh.
+- npm.cmd run build: aprobado.
+- node tests/salsas-browser.mjs: ocho escenarios aprobados en clientes y personal, a 1440, 390 y 320 px, más 390 px con doble densidad.
+
+Los fixtures entregan ingredientes quitables para las seis salsas. Antes y
+después de recargar se comprueba ausencia de controles de personalización.
+En los cuatro escenarios de clientes se agregan las seis salsas al carrito
+y se verifican sus nombres y ausencia de notas; Tab y Enter agregan Alioli.
+Se conservan las comprobaciones de imágenes, encuadre y catálogo: 80 respuestas
+de fotos 200, sin errores de página ni solicitudes API desconocidas. Se
+inspeccionaron capturas de escritorio y móvil. Toda la API se intercepta con
+fixtures locales; no se enviaron pedidos ni se escribió en la base compartida.
+Cambios locales, sin commit, push ni despliegue.
+
 ## Encuadre de las salsas en el menú (28/10/2026)
 
 Las fotos de 138 × 135 px aparecían a tamaño nativo en un cuadro 4:3 mucho

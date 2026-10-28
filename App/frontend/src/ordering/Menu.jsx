@@ -11,16 +11,17 @@ function ProductCard({ product, addToCart }) {
   const [selectedVariantName, setSelectedVariantName] = useState(() => product.variants?.find((variant) => variant.available !== false)?.name || '');
   const [removedIngredients, setRemovedIngredients] = useState([]);
   const optionsRef = useRef(null);
-  const removableIngredients = product.removableIngredients || [];
+  const isDip = product.category === 'Dips Extra';
+  const removableIngredients = isDip ? [] : product.removableIngredients || [];
   const notes = removedIngredients.filter((name) => removableIngredients.includes(name))
     .map((name) => `Sin ${name}`).join(', ');
 
   // La captura de los dips no tiene resolución para un cuadro grande.
-  const compact = product.category === 'Dips Extra';
+  const compact = isDip;
   const hasVariants = product.variants && product.variants.length > 0;
   const productAvailable = product.active === true && product.available === true;
   const selectedVariant = product.variants?.find((variant) => variant.name === selectedVariantName);
-  const changedOptions = removedIngredients.some((name) => !removableIngredients.includes(name));
+  const changedOptions = !isDip && removedIngredients.some((name) => !removableIngredients.includes(name));
   const canOrder = productAvailable && !changedOptions && (!hasVariants || (selectedVariant && selectedVariant.available !== false));
   const currentPrice = hasVariants ? selectedVariant?.price : product.price;
 

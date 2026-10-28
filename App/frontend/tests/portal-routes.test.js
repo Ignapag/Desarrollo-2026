@@ -163,6 +163,17 @@ test('personalizar Cheese solo ofrece los retiros de su receta', async (t) => {
   assert.doesNotMatch(html, /Sin Cebolla|Sin Pepinillos|Otras notas|extras\.\.\./);
 });
 
+test('Dips Extra no ofrece personalización aunque la API entregue ingredientes quitables', async (t) => {
+  const names = ['Salsa Monu', 'Alioli', 'Barbacoa', 'Mayonesa', 'Ketchup', 'Mostaza'];
+  const html = await menuConEstado(t, {
+    catalogStatus: 'ready', catalog: names.map((name, i) => ({
+      id: 100 + i, name, category: 'Dips Extra', active: true, available: true,
+      price: 1000, variants: [], removableIngredients: [name],
+    })),
+  });
+  assert.doesNotMatch(html, /Personalizar|Quitar ingredientes|type="checkbox"|Otros cambios se consultan por WhatsApp/);
+  for (const name of names) assert.ok(html.includes('aria-label="Agregar ' + name + ' al carrito"'));
+});
 test('los productos sin ingredientes quitables no ofrecen personalizacion', async (t) => {
   const html = await menuConEstado(t, {
     catalogStatus: 'ready', catalog: [{
