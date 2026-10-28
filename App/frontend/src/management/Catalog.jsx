@@ -215,7 +215,7 @@ export default function Catalog() {
                   <div className="flex items-center gap-3">
                     <div className="w-12 h-12 rounded-lg bg-gray-100 flex items-center justify-center p-1 shrink-0 overflow-hidden">
                       {product.image ? (
-                        <img src={product.image} className="w-full h-full object-cover rounded-md" alt={product.name} />
+                        <img src={product.image} className={`w-full h-full ${product.imageFit === 'contain' ? 'object-contain' : 'object-cover'} rounded-md`} alt={product.name} />
                       ) : (
                         <img src="/favicon.png" className="w-8 h-8 object-contain opacity-50" alt="Logo" />
                       )}

@@ -52,11 +52,11 @@ conciliado vigente; una marca histórica del borrador de WhatsApp no acredita di
 ni bloquea un ingreso confirmado desde el panel. Un error deja visible la acción
 y permite actualizar; no se presenta como una operación que continúa guardándose.
 
-## Nuevos y PAGADOS en gestión
+## Nuevos y Pagados en gestión
 
 El tablero agrupa los pedidos todavía en PENDIENTE o CONFIRMADO por su situación
 financiera. **Nuevos** reúne los no pagados, pagos parciales y cobros pendientes
-de conciliación; **PAGADOS** reúne los que tienen el total vigente cubierto por
+de conciliación; **Pagados** reúne los que tienen el total vigente cubierto por
 el neto conciliado y saldo cero. Confirmar el pedido, seleccionar efectivo o
 adjuntar un comprobante no demuestran un pago. Los importes ausentes o inválidos
 no se interpretan como saldo cancelado.

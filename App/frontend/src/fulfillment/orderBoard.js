@@ -6,7 +6,7 @@ export const CLOSED_STATES = ['ENTREGADO', 'CANCELADO'];
 export const LONG_WAIT_MINUTES = 30;
 
 // Grupos de gestión: no son estados que se envíen a la API ni cambian cocina.
-export const ORDER_GROUPS = [['PENDIENTE', 'Nuevos'], ['PAGADOS', 'PAGADOS'],
+export const ORDER_GROUPS = [['PENDIENTE', 'Nuevos'], ['PAGADOS', 'Pagados'],
   ...ORDER_STATES.filter(([id]) => !['PENDIENTE', 'CONFIRMADO'].includes(id))];
 export const orderGroup = (order) => ['PENDIENTE', 'CONFIRMADO'].includes(order.estado)
   ? isOrderPaid(order) ? 'PAGADOS' : 'PENDIENTE' : order.estado;

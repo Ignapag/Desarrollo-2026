@@ -50,7 +50,7 @@ function ProductCard({ product, addToCart }) {
            <img 
              src={product.image} 
              alt={product.name}
-             className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
+             className={product.imageFit === 'contain' ? 'max-w-full max-h-full w-auto h-auto object-contain' : 'w-full h-full object-cover group-hover:scale-105 transition duration-500'}
            />
         ) : (
            <img src="/favicon.png" className="w-full h-full object-contain" alt="Logo" />

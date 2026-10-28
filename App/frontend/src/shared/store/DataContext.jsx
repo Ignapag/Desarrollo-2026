@@ -8,6 +8,7 @@ import { UserFacingError, userErrorMessage } from '../api/userErrors.js';
 import { portal } from '../portal';
 import { mapOrder, createFreshnessFence, ordersPath, confirmedOrder } from '../../fulfillment/orderModel';
 import { createOrderCommands } from '../../fulfillment/orderCommands';
+import { productPhoto } from './productImages';
 
 // ==========================================
 // Los datos operativos se consultan en la API; no hay personas ni stock ficticios.
@@ -28,6 +29,7 @@ const initialState = {
 };
 
 function mapProduct(product) {
+  const photo = productPhoto(product);
   return {
     id: product.id,
     categoryId: product.categoria_id,
@@ -35,7 +37,8 @@ function mapProduct(product) {
     description: product.descripcion || '',
     category: product.categoria,
     price: Number(product.precio_base),
-    image: product.imagen_url,
+    image: photo.src,
+    imageFit: photo.fit,
     variants: (product.variantes || []).map((variant) => ({
       name: variant.nombre,
       price: Number(variant.precio),

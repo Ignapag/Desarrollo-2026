@@ -72,7 +72,7 @@ test('50 pedidos: conteos por estado, columnas y tarjetas compactas', async (t) 
   assert.equal(statusButton(container, 'Nuevos').getAttribute('aria-label'), 'Nuevos: 10 pedidos, 4 con 30 minutos o más de espera');
   assert.equal(reactProps(statusButton(container, 'Todos'))['aria-pressed'], true);
   const columns = sections(container);
-  assert.deepEqual(columns.map((section) => section.textContent.match(/^[^,]+/)[0]), ['Nuevos', 'PAGADOS', 'En preparación', 'Listos', 'En camino']);
+  assert.deepEqual(columns.map((section) => section.textContent.match(/^[^,]+/)[0]), ['Nuevos', 'Pagados', 'En preparación', 'Listos', 'En camino']);
   for (const section of columns) assert.equal(cardNumbers(section).length, 10);
   assert.deepEqual(cardNumbers(columns[0]).slice(0, 3), ['Abrir pedido #46', 'Abrir pedido #41', 'Abrir pedido #36']);
   const card = elements(container, (node) => node.localName === 'article' && node.getAttribute('aria-labelledby') === 'order-card-46')[0];
@@ -214,18 +214,18 @@ test('pagar o devolver reagrupa sin recargar ni duplicar tarjetas y conserva la 
   useOrders([raw(41, 'PENDIENTE')]);
   const container = await mount(t);
   assert.match(statusButton(container, 'Nuevos').getAttribute('aria-label'), /1 pedido/);
-  assert.match(statusButton(container, 'PAGADOS').getAttribute('aria-label'), /0 pedidos/);
+  assert.match(statusButton(container, 'Pagados').getAttribute('aria-label'), /0 pedidos/);
   useOrders([raw(41, 'PENDIENTE', { version: 2, neto_cobrado: '1000', saldo_pendiente: '0' })]);
   await container.rerender();
   assert.match(statusButton(container, 'Nuevos').getAttribute('aria-label'), /0 pedidos/);
-  assert.match(statusButton(container, 'PAGADOS').getAttribute('aria-label'), /1 pedido/);
+  assert.match(statusButton(container, 'Pagados').getAttribute('aria-label'), /1 pedido/);
   assert.equal(buttons(container).filter((node) => node.textContent === 'Abrir pedido #41').length, 1);
   useOrders([raw(41, 'PENDIENTE', { version: 3, neto_cobrado: '500', saldo_pendiente: '500' })]);
   await container.rerender();
   assert.match(statusButton(container, 'Nuevos').getAttribute('aria-label'), /1 pedido/);
   useOrders([raw(41, 'EN_PREPARACION', { version: 4, neto_cobrado: '1000', saldo_pendiente: '0' })]);
   await container.rerender();
-  assert.match(statusButton(container, 'PAGADOS').getAttribute('aria-label'), /0 pedidos/);
+  assert.match(statusButton(container, 'Pagados').getAttribute('aria-label'), /0 pedidos/);
   assert.match(statusButton(container, 'En preparación').getAttribute('aria-label'), /1 pedido/);
 });
 
