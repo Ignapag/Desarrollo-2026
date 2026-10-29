@@ -158,7 +158,11 @@ class ColaWhatsAppSQL:
                  ORDER BY creado_en,id LIMIT 100)
             )
             SELECT a.id,a.referencia_hash,a.motivo,a.estado,a.creado_en,a.entrada_id,
-            COALESCE(a.telefono,b.telefono) telefono,
+            -- Primero el teléfono declarado en el pedido; el canal demo usa una
+            -- identidad técnica 000… que no es un número al que se pueda llamar.
+            COALESCE(b.contacto->>'telefono',c.telefono_contacto,
+                CASE WHEN COALESCE(a.telefono,b.telefono) !~ '^000'
+                    THEN COALESCE(a.telefono,b.telefono) END) telefono,
             b.estado estado_conversacion,b.tipo_entrega,b.metodo_pago,b.items,
             b.pedido_id,b.contexto_chat,
             (b.pedido_id IS NULL AND b.expira_en<=now()) borrador_vencido,

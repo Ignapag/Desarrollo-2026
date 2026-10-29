@@ -410,6 +410,34 @@ async def test_bandeja_identifica_conversacion_sin_pedido_y_su_solicitud(uow):
     assert all("MB-" not in m["texto"] for m in fila["mensajes"])
 
 
+async def test_bandeja_muestra_telefono_declarado_y_no_la_identidad_demo(uow):
+    s = construir_servicio(uow)
+    b, atencion_id = await derivar_borrador(uow, s)
+    referencia = hash_referencia(b["referencia"][3:])
+    # El chat demo vincula la conversación a una identidad técnica 000….
+    await uow.ejecutar(
+        """UPDATE whatsapp_borrador SET telefono='000123456789012',
+        contacto=jsonb_build_object('telefono','5492215551234') WHERE referencia_hash=%s""",
+        (referencia,),
+    )
+
+    async def telefono():
+        bandeja = await ColaWhatsAppSQL(uow).bandeja()
+        return next(a for a in bandeja["atenciones"] if a["id"] == atencion_id)["telefono"]
+
+    assert await telefono() == "5492215551234"
+    await uow.ejecutar(
+        "UPDATE whatsapp_borrador SET contacto='{}'::jsonb WHERE referencia_hash=%s",
+        (referencia,),
+    )
+    await uow.ejecutar(
+        """UPDATE cliente SET telefono_contacto=NULL WHERE id=(
+        SELECT cliente_id FROM whatsapp_borrador WHERE referencia_hash=%s)""",
+        (referencia,),
+    )
+    assert await telefono() is None
+
+
 async def test_respuesta_del_empleado_usa_la_outbox_y_muestra_su_estado_real(uow):
     s = construir_servicio(uow)
     _, atencion_id = await derivar_borrador(uow, s)
