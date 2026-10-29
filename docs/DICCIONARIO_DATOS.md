@@ -84,6 +84,8 @@ columnas, tipos, obligatoriedad, relaciones y valores permitidos.
 
 **Intentos login** — [`intento_login`](#intento_login)
 
+**Extras pedidos** — sin tablas nuevas
+
 Total: **42 tablas**.
 
 ---
@@ -381,6 +383,7 @@ _pedido_item: los precios se congelan al confirmar (snapshot), para que un cambi
 | `variante` | TEXT | No | — |
 | `receta_snapshot` | JSONB | No | — |
 | `eliminado_en` | TIMESTAMPTZ | No | — |
+| `extras_snapshot` | JSONB | Sí | default `'[]'::jsonb` |
 
 ### pedido_item_opcion
 
@@ -864,3 +867,5 @@ _intento_login: fallos de inicio de sesión de la ventana vigente (CU_USR_01), u
 | `clave` | TEXT | Sí | PK |
 | `fallos` | INTEGER | Sí | — |
 | `vence_en` | TIMESTAMPTZ | Sí | — |
+
+## 033_extras_pedidos — Extras pedidos

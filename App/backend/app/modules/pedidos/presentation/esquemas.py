@@ -10,6 +10,14 @@ from app.modules.pedidos.domain.entidades import EstadoPedido
 from app.modules.usuarios.domain.entidades import ClaimsSesion, Rol
 
 
+class ExtraPedidoEntrada(BaseModel):
+    """Porciones adicionales; el cliente nunca fija su precio ni su tamaño."""
+
+    model_config = ConfigDict(extra="forbid")
+    ingrediente_id: int = Field(gt=0, strict=True)
+    cantidad: int = Field(ge=0, le=100, strict=True)
+
+
 class ItemPedidoEntrada(BaseModel):
     """Línea solicitada al crear un pedido: producto, cantidad, variante y aclaraciones."""
 
@@ -19,6 +27,7 @@ class ItemPedidoEntrada(BaseModel):
     cantidad: int = Field(gt=0, le=50)
     variante: str | None = Field(default=None, min_length=1, max_length=60)
     aclaraciones: str | None = Field(default=None, max_length=500)
+    extras: list[ExtraPedidoEntrada] = Field(default_factory=list, max_length=50)
 
 
 class DireccionPedidoEntrada(BaseModel):
@@ -90,6 +99,7 @@ class ItemPedidoSalida(BaseModel):
     subtotal: Decimal
     aclaraciones: str | None
     variante: str | None = None
+    extras: list[dict] = Field(default_factory=list)
 
 
 class PedidoSalida(BaseModel):

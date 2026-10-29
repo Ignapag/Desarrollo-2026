@@ -7,6 +7,7 @@ import { Trash2, X, MessageCircle, ShoppingCart, ArrowRight, Check, LoaderCircle
 import { buildWhatsAppDraftPayload, createWhatsAppDraft } from './whatsapp';
 import { openChatSession, sendChatDraft } from './chatDemo';
 import { validateCheckout } from './checkoutValidation';
+import { portionLabel } from './ingredientExtras';
 import { userErrorMessage } from '../shared/api/userErrors';
 
 // Clases de campos, botones y etiquetas del carrito.
@@ -215,6 +216,7 @@ export default function CartDrawer({ isOpen, onClose, chatConfig = { status: 're
                             <button type="button" disabled={busy} aria-label={'Quitar ' + item.name} onClick={() => dispatch({ type: 'REMOVE_FROM_CART', payload: index })} className={iconButtonClass + ' -mt-1 text-monu-text/60 hover:bg-red-50 hover:text-red-700'}><Trash2 aria-hidden="true" className="size-4" /></button>
                           </div>
                           {item.notes && <p className="mb-2 text-sm text-monu-text/70 break-words">{item.notes}</p>}
+                          {item.extras?.length > 0 && <ul className="my-2 space-y-1 text-sm text-monu-text">{item.extras.map((extra) => <li key={extra.ingrediente_id}>+{extra.cantidad} × {extra.nombre} ({portionLabel(extra)} cada extra) · +${(Number(extra.precio) * extra.cantidad).toLocaleString('es-AR')} por hamburguesa</li>)}</ul>}
                           <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                             <div className="flex items-center rounded-xl border border-monu-green/15 bg-white">
                               <button type="button" disabled={busy} aria-label={'Reducir cantidad de ' + item.name} onClick={() => dispatch({ type: 'UPDATE_CART_QUANTITY', payload: { index, delta: -1 } })} className={iconButtonClass + ' font-bold text-monu-green hover:bg-monu-green/5'}>−</button>

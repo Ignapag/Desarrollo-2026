@@ -440,10 +440,12 @@ Recorrido manual:
 El menú espera el catálogo real de la API antes de habilitar compras; no usa
 productos de demostración como respaldo. Si falla la carga, ofrece **Reintentar**.
 Los productos sin disponibilidad no se pueden agregar al carrito.
-El catálogo incluye `ingredientes_quitables`: nombres de la receta que comparten
-las reglas del bot y stock. **Personalizar** ofrece únicamente esos retiros y
-no aparece en productos sin opciones. No hay campo de extras o texto libre en
-la web; otros cambios se consultan por WhatsApp.
+El catálogo incluye `ingredientes_quitables` y los extras configurados por el
+local. **Personalizar** permite retiros y porciones adicionales de ingredientes
+de la receta y variante elegidas. Cada extra muestra su porción en la unidad
+real, precio de venta y máximo; Dips Extra conserva su receta sin personalización.
+El precio de venta se configura aparte del costo de inventario. La web no admite
+texto libre para representar agregados.
 
 1. Abrir `/` o `/menu` sin sesión, agregar La Típica Doble al carrito y elegir
    nombre, apellido y **el mismo WhatsApp desde el que enviará el pedido**, con
@@ -798,8 +800,33 @@ Un borrador puede omitir modalidad, método, dirección y variante obligatoria.
 El bot pregunta antes de crear el pedido. Para variantes acepta el nombre de
 una opción del catálogo (por ejemplo `Doble`) para el primer producto pendiente;
 también conserva el comando guiado `producto 1; variante: Doble`. Las notas
-del borrador admiten retiros `Sin ingrediente` pertenecientes a la receta;
-extras y texto libre requieren atención humana.
+del borrador admiten retiros `Sin ingrediente` pertenecientes a la receta.
+Los extras elegidos en el menú viajan como datos estructurados y se conservan
+automáticamente hasta el pedido operativo; pedir agregados nuevos por lenguaje
+natural todavía requiere personal. El chat puede modificar cantidades y
+variantes conservando los extras y revalidando la nueva receta; una combinación
+inválida se rechaza sin modificar el pedido. No se retira y agrega simultáneamente
+el mismo ingrediente.
+
+### Contrato de extras del carrito
+
+Cada ítem de `POST /api/whatsapp/borradores` y del borrador del chat admite
+`extras: [{"ingrediente_id": 8, "cantidad": 2}]` (opcional, por defecto `[]`).
+`cantidad` cuenta porciones adicionales **por hamburguesa**, no gramos ni la
+cantidad total de hamburguesas. El cliente no envía nombres, porciones, precios
+ni snapshots: el servidor los resuelve y valida contra la configuración activa
+del local y la receta de la variante. El borrador JSONB conserva `extras`
+canónicos y `extras_snapshot` valorado por el servidor. El resumen inicial suma
+los recargos al subtotal y detalla porciones, unidades y recargo por hamburguesa.
+
+La conversión a `ItemNuevoPedido` transmite solo los identificadores y cantidades
+solicitados y revalida la composición; nunca confía en el precio congelado del
+borrador. La salida operativa usa `items[].extras` con el snapshot de nombres,
+unidades, porciones, cantidades y precios acordados. Los resúmenes de WhatsApp y
+chat muestran ese snapshot. Las copias para edición individual y múltiple
+conservan los extras en formato de entrada; cambiar variante los revalida y los
+retiros contradictorios se rechazan. Se mantienen las confirmaciones de cambios
+de importe, autorizaciones operativas, versiones y reintentos idempotentes.
 
 ## Inbox, outbox y fallos
 
@@ -1167,6 +1194,19 @@ Fuentes oficiales: [modelo](https://ai.google.dev/gemini-api/docs/models/gemini-
 [diagnóstico y reintentos](https://ai.google.dev/gemini-api/docs/troubleshooting).
 
 ## Verificación local
+
+Para extras, `npm run test:extras` desde `App/frontend` comprueba modelo, menú,
+checkout y configuración de recetas. `npm run test:extras-browser` recorre el
+formulario del local, menú, carrito, chat y cocina en escritorio y móvil con API
+real. Requiere base **descartable local con seed**, API y worker demo simulado
+iniciados con la misma `DATABASE_URL` explícita; incluir el origen de Vite en
+`ORIGENES_PERMITIDOS`. El script escribe productos y pedidos ficticios.
+`MONU_EXTRAS_URL` indica Vite (por defecto `http://127.0.0.1:5179`);
+`MONU_EXTRAS_BD_DESCARTABLE=1` confirma que se verificó el destino de la API.
+Playwright/Chromium deben estar instalados externamente; opcionalmente usar
+`MONU_PLAYWRIGHT_PATH` y `MONU_CHROMIUM_PATH`. Las capturas y `report.json` quedan
+en la carpeta temporal indicada al terminar. No ejecutarlo contra una API que
+use la base compartida, aunque su URL sea local.
 
 Con `DATABASE_URL` configurada hacia la base descartable, desde `App/backend`:
 

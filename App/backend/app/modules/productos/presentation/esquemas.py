@@ -8,6 +8,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validato
 from app.modules.productos.domain.entidades import (
     CambioReceta,
     DatosProducto,
+    ExtraProducto,
     IngredienteProducto,
     VarianteProducto,
     VarianteReceta,
@@ -67,6 +68,16 @@ def _validar_recetas(datos):
     return datos
 
 
+class ExtraProductoEntrada(BaseModel):
+    """Configuración de venta de una porción adicional, separada del costo del insumo."""
+
+    model_config = ConfigDict(extra="forbid")
+    ingrediente_id: int = Field(gt=0, strict=True)
+    cantidad_requerida: Decimal = Field(gt=0, max_digits=12, decimal_places=3)
+    precio: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+    max_por_item: int = Field(gt=0, le=50, strict=True)
+
+
 class ProductoCrear(BaseModel):
     """Datos para dar de alta un producto del catálogo con receta y variantes."""
 
@@ -81,6 +92,7 @@ class ProductoCrear(BaseModel):
     orden: int = Field(default=0, ge=0)
     ingredientes: list[IngredienteProductoEntrada] = Field(min_length=1)
     variantes: list[VarianteProductoEntrada] = Field(default_factory=list, max_length=10)
+    extras: list[ExtraProductoEntrada] = Field(default_factory=list, max_length=50)
 
     @model_validator(mode="after")
     def validar_recetas(self):
@@ -90,7 +102,8 @@ class ProductoCrear(BaseModel):
     def a_dominio(self) -> DatosProducto:
         """Convierte la entrada HTTP en ``DatosProducto`` del dominio."""
         return DatosProducto(
-            **self.model_dump(exclude={"ingredientes", "variantes"}),
+            **self.model_dump(exclude={"ingredientes", "variantes", "extras"}),
+            extras=tuple(ExtraProducto(**e.model_dump()) for e in self.extras),
             ingredientes=_ingredientes_dominio(self.ingredientes),
             variantes=tuple(
                 VarianteProducto(v.nombre, v.precio, _ingredientes_dominio(v.ingredientes))
@@ -107,6 +120,7 @@ class RecetaActualizar(BaseModel):
     actualizado_en_esperado: AwareDatetime
     ingredientes: list[IngredienteProductoEntrada] = Field(min_length=1)
     variantes: list[VarianteRecetaEntrada] = Field(default_factory=list, max_length=10)
+    extras: list[ExtraProductoEntrada] | None = Field(default=None, max_length=50)
 
     @model_validator(mode="after")
     def validar_recetas(self):
@@ -122,6 +136,9 @@ class RecetaActualizar(BaseModel):
                 VarianteReceta(v.nombre, _ingredientes_dominio(v.ingredientes))
                 for v in self.variantes
             ),
+            tuple(ExtraProducto(**e.model_dump()) for e in self.extras)
+            if self.extras is not None
+            else None,
         )
 
 
@@ -151,6 +168,7 @@ class RecetaSalida(BaseModel):
     actualizado_en: datetime
     ingredientes: list[IngredienteRecetaSalida]
     variantes: list[VarianteRecetaSalida]
+    extras: list[ExtraProductoEntrada] = Field(default_factory=list)
 
 
 class VarianteProductoSalida(BaseModel):
@@ -173,6 +191,7 @@ class ProductoSalida(BaseModel):
     imagen_url: str | None
     variantes: list[VarianteProductoSalida] = Field(default_factory=list)
     ingredientes_quitables: list[str] = Field(default_factory=list)
+    extras_disponibles: list[dict] = Field(default_factory=list)
     activo: bool
     disponible: bool
 

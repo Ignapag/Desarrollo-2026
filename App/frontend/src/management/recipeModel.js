@@ -51,6 +51,10 @@ export function recipeFromApi(data) {
       key: `ingredient-${row.ingrediente_id}`, ingredientId: String(row.ingrediente_id),
       quantity: String(row.cantidad_requerida),
       esBase: row.es_base !== false,
+      extraEnabled: (data.extras || []).some((extra) => extra.ingrediente_id === row.ingrediente_id),
+      extraPortion: String((data.extras || []).find((extra) => extra.ingrediente_id === row.ingrediente_id)?.cantidad_requerida ?? ''),
+      extraPrice: String((data.extras || []).find((extra) => extra.ingrediente_id === row.ingrediente_id)?.precio ?? ''),
+      extraMax: String((data.extras || []).find((extra) => extra.ingrediente_id === row.ingrediente_id)?.max_por_item ?? ''),
       variantBase: data.variantes.map((variant) => variant.ingredientes.find((item) => item.ingrediente_id === row.ingrediente_id)?.es_base ?? (row.es_base !== false)),
       quantities: data.variantes.map((variant) => String(variant.ingredientes.find((item) => item.ingrediente_id === row.ingrediente_id)?.cantidad_requerida ?? row.cantidad_requerida)),
     })),
@@ -87,7 +91,16 @@ export function serializeRecipe(recipe, { includePrices = false } = {}) {
     }
     return result;
   });
-  return { ingredientes: variants[0]?.ingredientes || rows(), variantes: variants };
+  const extras = recipe.ingredients.filter((row) => row.extraEnabled).map((row) => {
+    const portion = parseRecipeQuantity(row.extraPortion);
+    const price = String(row.extraPrice ?? '').trim().replace(',', '.');
+    const maximum = String(row.extraMax ?? '').trim();
+    if (!portion.valid || !/^\d{1,10}(?:\.\d{1,2})?$/.test(price) || Number(price) <= 0 || !/^\d+$/.test(maximum) || Number(maximum) < 1 || Number(maximum) > 50) {
+      throw new UserFacingError('Cada extra necesita porción positiva, precio de venta mayor que cero y máximo entero entre 1 y 50.');
+    }
+    return { ingrediente_id: Number(row.ingredientId), cantidad_requerida: portion.amount, precio: price, max_por_item: Number(maximum) };
+  });
+  return { ingredientes: variants[0]?.ingredientes || rows(), variantes: variants, extras };
 }
 
 // Unidad visible de un ingrediente según su unidad de medida.

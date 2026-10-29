@@ -336,6 +336,7 @@ erDiagram
         text variante
         jsonb receta_snapshot
         timestamptz eliminado_en
+        jsonb extras_snapshot
     }
     PEDIDO_ITEM_OPCION {
         bigint id PK

@@ -53,6 +53,7 @@ function mapProduct(product) {
     active: product.activo,
     available: product.disponible,
     removableIngredients: product.ingredientes_quitables || [],
+    extraOptions: product.extras_disponibles || [],
   };
 }
 
@@ -558,6 +559,7 @@ export function DataProvider({ children }) {
         imagen_url: payload.image,
         ingredientes: payload.ingredientes,
         variantes: payload.variantes,
+        extras: payload.extras || [],
       }),
     });
     if (!Number.isInteger(created?.id) || typeof created.nombre !== 'string' || created.precio_base == null || !Number.isFinite(Number(created.precio_base))) throw new UserFacingError('No pudimos confirmar el producto. Actualizá el catálogo antes de reintentar.');
@@ -613,10 +615,11 @@ export function DataProvider({ children }) {
           localidad: zone,
         },
         items: items.map((item) => ({
-          producto_id: Number(String(item.id).split('-')[0]),
+          producto_id: item.productId || Number(String(item.id).split('-')[0]),
           cantidad: item.quantity,
           variante: item.variant || null,
           aclaraciones: item.notes || null,
+          extras: (item.extras || []).map(({ ingrediente_id, cantidad }) => ({ ingrediente_id, cantidad })),
         })),
       }),
     });

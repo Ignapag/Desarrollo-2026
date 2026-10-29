@@ -84,7 +84,7 @@ export default function RecipeModal({ product, onClose }) {
     <div className="space-y-4 p-5">
       {error && <><div ref={errorSummary} tabIndex={-1}><DataError message={error} /></div><button type="button" disabled={saving || loading} onClick={() => { setLoading(true); setReload((old) => old + 1); }} className={buttonClass}>Volver a cargar receta</button><p className="text-xs">Volver a cargar reemplaza tus cambios por la receta guardada.</p></>}
       {!canRead ? <p role="alert">No tenés permiso para consultar esta receta.</p> : loading && <p role="status">Consultando receta…</p>}
-      {canRead && recipe && <RecipeEditor value={recipe} onChange={setRecipe} inventory={inventory} lockVariants disabled={saving || loading || !canEdit} showErrors={showErrors} />}
+      {canRead && recipe && <RecipeEditor value={recipe} onChange={setRecipe} inventory={inventory} lockVariants disabled={saving || loading || !canEdit} showErrors={showErrors} allowExtras={product.category !== 'Dips Extra'} />}
       {recipe && <p className="text-sm text-monu-text">Los pedidos ya registrados conservan sus cantidades originales.</p>}
     </div>
     {/* Acciones del diálogo */}

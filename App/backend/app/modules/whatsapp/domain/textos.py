@@ -15,6 +15,19 @@ def dinero(valor: Decimal | int | str) -> str:
     return resultado if centavos == "00" else f"{resultado},{centavos}"
 
 
+def _lineas_extras(extras: list[dict]) -> list[str]:
+    """Las cantidades y recargos son por hamburguesa, en la unidad del inventario."""
+    lineas = []
+    for extra in extras:
+        recargo = Decimal(str(extra["precio"])) * extra["cantidad"]
+        lineas.append(
+            f"  Extra: {extra['cantidad']} × {extra['nombre']} "
+            f"({extra['cantidad_requerida']} {extra['unidad_medida']} cada porción) "
+            f"— {dinero(recargo)} por hamburguesa"
+        )
+    return lineas
+
+
 def mensaje_web(datos: dict, productos: list[dict], momento: datetime) -> str:
     """Resumen del carrito valorado con el catálogo del servidor, antes de confirmar."""
     if momento.tzinfo is None or momento.utcoffset() is None:
@@ -37,11 +50,14 @@ def mensaje_web(datos: dict, productos: list[dict], momento: datetime) -> str:
             nombre = f"{nombre} ({variante})"
         elif producto.get("variantes"):
             nombre += " (variante a elegir)"
-        importe = Decimal(str(precio)) * item["cantidad"]
+        extras = item.get("extras_snapshot") or []
+        recargo = sum((Decimal(str(e["precio"])) * e["cantidad"] for e in extras), Decimal("0"))
+        importe = (Decimal(str(precio)) + recargo) * item["cantidad"]
         subtotal += importe
         lineas.append(f"• {item['cantidad']} × {nombre} — {dinero(importe)}")
         if item.get("aclaraciones"):
             lineas.append(f"  Nota: {item['aclaraciones']}")
+        lineas.extend(_lineas_extras(extras))
     lineas.extend(["", f"*Subtotal estimado: {dinero(subtotal)}*"])
     if datos.get("tipo_entrega") == "DELIVERY":
         lineas.append("El envío se confirma aparte.")
@@ -78,6 +94,7 @@ def resumen_pedido(pedido: dict) -> str:
         lineas.append(f"• {item['cantidad']} × {item['nombre_producto']}")
         if item.get("aclaraciones"):
             lineas.append(f"  Nota: {item['aclaraciones']}")
+        lineas.extend(_lineas_extras(item.get("extras") or []))
     lineas.extend(["", f"*Total: {dinero(pedido['total'])}*"])
     lineas.append("🛍️ Retiro en el local" if pedido["tipo_entrega"] == "RETIRO" else "🛵 Delivery")
     return "\n".join(lineas)

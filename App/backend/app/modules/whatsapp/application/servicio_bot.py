@@ -215,8 +215,9 @@ class ServicioBot:
             raise DatosInvalidos("El borrador requiere entre 1 y 50 productos")
         productos = await self.pedidos.repo.productos([i["producto_id"] for i in items])
         por_id = {p["id"]: p for p in productos}
+        cotizaciones = []
         for i in items:
-            if set(i) - {"producto_id", "cantidad", "variante", "aclaraciones"}:
+            if set(i) - {"producto_id", "cantidad", "variante", "aclaraciones", "extras"}:
                 raise DatosInvalidos("Solo se aceptan producto, cantidad y opciones permitidas")
             cantidad = i.get("cantidad")
             if (
@@ -238,6 +239,15 @@ class ServicioBot:
             if not variantes and i.get("variante"):
                 raise DatosInvalidos("El producto no tiene variantes")
             await self._validar_notas(i)
+            if i.get("extras"):
+                cotizacion = await self.pedidos.cotizar_extras_item(i)
+                i["extras"] = cotizacion["extras"]
+                i["extras_snapshot"] = cotizacion["extras_snapshot"]
+                cotizaciones.append({**i, "receta_snapshot": cotizacion["receta_snapshot"]})
+            else:
+                cotizaciones.append(i)
+        if any(i.get("extras") for i in items):
+            await self.pedidos.validar_disponibilidad_items(cotizaciones)
         if datos.get("tipo_entrega") not in {None, "RETIRO", "DELIVERY"}:
             raise DatosInvalidos("Modalidad inválida")
         if datos.get("metodo_pago") not in {None, "EFECTIVO", "TRANSFERENCIA"}:
@@ -446,6 +456,11 @@ class ServicioBot:
                     "ingredientes": ingredientes,
                     "ingredientes_retirados": [
                         n for n in ingredientes if "sin " + n.casefold() in notas
+                    ],
+                    "extras": [
+                        {"nombre": e["nombre"], "cantidad": e["cantidad"]}
+                        for e in (item.get("extras_snapshot") or item.get("extras") or [])
+                        if "nombre" in e
                     ],
                 }
             )
@@ -995,7 +1010,9 @@ class ServicioBot:
                 direccion_id=None,
                 direccion_nueva=b["direccion"],
                 observaciones=None,
-                items=[ItemNuevoPedido(**i) for i in b["items"]],
+                items=[ItemNuevoPedido(**{
+                    k: v for k, v in i.items() if k != "extras_snapshot"
+                }) for i in b["items"]],
                 canal="WHATSAPP",
                 metodo_pago_acordado=b["metodo_pago"],
             )
@@ -1103,6 +1120,11 @@ class ServicioBot:
                 return "💬 ¿Cuántas unidades querés? Elegí un número entero entre 1 y 50."
         else:
             ingrediente = str(args.get("ingrediente", "")).casefold()
+            if any(e["nombre"].casefold() == ingrediente for e in item.get("extras", [])):
+                return (
+                    "💬 El producto tiene un extra de ese ingrediente. "
+                    "Revisá primero los extras con el local; el pedido sigue sin cambios."
+                )
             receta = {
                 r["nombre"].casefold() for r in await self._ingredientes_item(item)
             }

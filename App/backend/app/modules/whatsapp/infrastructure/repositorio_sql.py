@@ -313,7 +313,8 @@ class RepositorioBotSQL:
         pedido["asignado"] = pedido["envio_id"] is not None
         pedido["items"] = await self.uow.todos(
             "SELECT id,pedido_id,producto_id,nombre_producto,cantidad,precio_unitario,"
-            "costo_opciones,subtotal,aclaraciones,variante,receta_snapshot "
+            "costo_opciones,subtotal,aclaraciones,variante,receta_snapshot,"
+            "extras_snapshot AS extras "
             "FROM pedido_item WHERE pedido_id=%s AND eliminado_en IS NULL ORDER BY id",
             (pedido_id,),
         )

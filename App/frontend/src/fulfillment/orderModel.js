@@ -1,6 +1,7 @@
 // Modelo de pedidos del frontend: estados y etiquetas, reglas de rol/edición,
 // adaptación de pedidos de la API, cálculo de pagos exactos en centavos, comandos
 // de estado permitidos y la "valla de frescura" que evita mostrar datos viejos.
+import { extrasLabel } from '../ordering/ingredientExtras.js';
 export const ORDER_STATES = [
   ['PENDIENTE', 'Nuevos'], ['CONFIRMADO', 'Confirmados'],
   ['EN_PREPARACION', 'En preparación'], ['LISTO', 'Listos'],
@@ -35,7 +36,7 @@ export function mapOrder(order) {
     address: order.tipo_entrega === 'RETIRO' ? 'Retiro en local' : addressLabel(order.direccion),
     status: order.estado.toLowerCase(),
     total: Number(order.total),
-    items: (order.items || []).map((item) => `${item.cantidad}x ${item.nombre_producto}${item.aclaraciones ? ` · ${item.aclaraciones}` : ''}`),
+    items: (order.items || []).map((item) => `${item.cantidad}x ${item.nombre_producto}${item.aclaraciones ? ` · ${item.aclaraciones}` : ''}${item.extras?.length ? ` · ${extrasLabel(item.extras)}` : ''}`),
     date: order.creado_en,
   };
 }

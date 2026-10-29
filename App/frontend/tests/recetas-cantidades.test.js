@@ -2,6 +2,14 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { parseRecipeQuantity, serializeRecipe, recipeFromApi } from '../src/management/recipeModel.js';
 
+test('configura el precio de venta, porción y máximo del extra en su unidad', () => {
+  const recipe = { ingredients: [{ key: 'a', ingredientId: '1', quantity: '1', quantities: [], extraEnabled: true, extraPortion: '1/4', extraPrice: '1500,50', extraMax: '3' }], variants: [] };
+  assert.deepEqual(serializeRecipe(recipe).extras, [{ ingrediente_id: 1, cantidad_requerida: '0.25', precio: '1500.50', max_por_item: 3 }]);
+  for (const changes of [{ extraPrice: '0' }, { extraPrice: '-1' }, { extraMax: '1.5' }, { extraMax: '0' }, { extraPortion: '0' }]) {
+    assert.throws(() => serializeRecipe({ ...recipe, ingredients: [{ ...recipe.ingredients[0], ...changes }] }));
+  }
+});
+
 test('acepta decimales locales y fracciones generales con equivalencia exacta', () => {
   for (const [input, amount] of [['1/4', '0.25'], ['2/8', '0.25'], ['1/8', '0.125'], ['3/2', '1.5'], ['0,25', '0.25'], ['12.75', '12.75'], ['¼', '0.25']]) {
     const parsed = parseRecipeQuantity(input);

@@ -43,6 +43,37 @@ const byId = (container, id) => elements(container, (node) => node.getAttribute?
 const button = (container, label) => elements(container, (node) => node.localName === 'button' && (node.textContent.includes(label) || node.getAttribute('aria-label')?.includes(label)))[0];
 const change = (node, value) => act(async () => reactProps(node).onChange({ target: { value } }));
 
+const extraQueso = { ingrediente_id: 3, nombre: 'Queso', unidad_medida: 'GR', cantidad_requerida: '30', precio: '750', max_por_item: 2, variantes: ['Simple'] };
+test('borrador transmite solo identificador y cantidad de extras sin precio del navegador', () => {
+  const result = whatsapp.buildWhatsAppDraftPayload({ cart: [{ id: '1-config', productId: 1, quantity: 2, extras: [{ ...extraQueso, cantidad: 2 }] }] });
+  assert.deepEqual(result.items[0].extras, [{ ingrediente_id: 3, cantidad: 2 }]);
+});
+test('extras permiten sumar, volver a cero y viajar estructurados al carrito', async (t) => {
+  store.state.catalog = [{ ...product, extraOptions: [extraQueso] }];
+  const container = await mount(t, Menu, {}, true);
+  await act(async () => reactProps(button(container, 'Sumar extra Queso')).onClick());
+  assert.match(container.textContent, /850/);
+  await act(async () => reactProps(button(container, 'Reducir extra Queso')).onClick());
+  await act(async () => reactProps(button(container, 'Sumar extra Queso')).onClick());
+  await act(async () => reactProps(button(container, 'Agregar Burger')).onClick());
+  assert.equal(store.actions.at(-1).payload.price, 850);
+  assert.equal(store.actions.at(-1).payload.extras[0].cantidad, 1);
+});
+test('quitar ingrediente y extra son excluyentes y cambiar variante revalida', async (t) => {
+  store.state.catalog = [{ ...product, extraOptions: [extraQueso] }];
+  const container = await mount(t, Menu, {}, true);
+  const checkbox = elements(container, (node) => node.localName === 'input' && reactProps(node).type === 'checkbox')[0];
+  await act(async () => reactProps(checkbox).onChange({ target: { checked: true } }));
+  await act(async () => reactProps(button(container, 'Sumar extra Queso')).onClick());
+  assert.equal(reactProps(checkbox).checked, false);
+  const select = elements(container, (node) => node.localName === 'select')[0];
+  await change(select, 'Doble');
+  assert.equal(button(container, 'Sumar extra Queso'), undefined);
+  await act(async () => reactProps(button(container, 'Agregar Burger')).onClick());
+  assert.deepEqual(store.actions.at(-1).payload.extras, []);
+  assert.equal(store.actions.at(-1).payload.variant, 'Doble');
+});
+
 test('menú solicita su catálogo aunque la sesión inicial ya sea de personal', async (t) => {
   store.state.catalogStatus = 'loading';
   await mount(t, Menu, {}, true);

@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Settings2 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
+import { buildCustomizedItem, extrasForVariant, portionLabel } from './ingredientExtras';
 
 // Categorías del menú en el orden en que se muestran las pestañas.
 const CATEGORIES = ['Todas', 'Nuestras Burgers', 'Monufusión', 'Opciones Individuales', 'Combos', 'Acompañamientos', 'Bebidas', 'Dips Extra'];
@@ -18,6 +19,7 @@ function ProductCard({ product, addToCart }) {
   // Variante elegida (la primera disponible) e ingredientes quitados por el cliente.
   const [selectedVariantName, setSelectedVariantName] = useState(() => product.variants?.find((variant) => variant.available !== false)?.name || '');
   const [removedIngredients, setRemovedIngredients] = useState([]);
+  const [extraQuantities, setExtraQuantities] = useState({});
   const optionsRef = useRef(null);
   const isDip = product.category === 'Dips Extra';
   const removableIngredients = isDip ? [] : product.removableIngredients || [];
@@ -29,29 +31,27 @@ function ProductCard({ product, addToCart }) {
   const hasVariants = product.variants && product.variants.length > 0;
   const productAvailable = product.active === true && product.available === true;
   const selectedVariant = product.variants?.find((variant) => variant.name === selectedVariantName);
-  const changedOptions = !isDip && removedIngredients.some((name) => !removableIngredients.includes(name));
+  const extraOptions = extrasForVariant(product, selectedVariantName);
+  const changedExtras = Object.entries(extraQuantities).some(([id, quantity]) => quantity > 0 && !extraOptions.some((extra) => String(extra.ingrediente_id) === id && quantity <= extra.max_por_item));
+  const changedOptions = !isDip && (removedIngredients.some((name) => !removableIngredients.includes(name)) || changedExtras);
   const canOrder = productAvailable && !changedOptions && (!hasVariants || (selectedVariant && selectedVariant.available !== false));
-  const currentPrice = hasVariants ? selectedVariant?.price : product.price;
+  const basePrice = hasVariants ? selectedVariant?.price : product.price;
+  const extraCents = extraOptions.reduce((sum, extra) => sum + Math.round(Number(extra.precio) * 100) * (extraQuantities[extra.ingrediente_id] || 0), 0);
+  const currentPrice = (Math.round(Number(basePrice || 0) * 100) + extraCents) / 100;
+  const changeExtra = (extra, delta) => {
+    setExtraQuantities((previous) => ({ ...previous, [extra.ingrediente_id]: Math.max(0, Math.min(extra.max_por_item, (previous[extra.ingrediente_id] || 0) + delta)) }));
+    if (delta > 0) setRemovedIngredients((previous) => previous.filter((name) => name !== extra.nombre));
+  };
 
   // Agrega el producto (con su variante y aclaraciones) al carrito y reinicia la personalización.
   const handleAdd = () => {
     if (!canOrder) return;
-    const itemToAdd = hasVariants ? {
-      ...product,
-      id: `${product.id}-${selectedVariant.name}`,
-      name: `${product.name} (${selectedVariant.name})`,
-      price: selectedVariant.price,
-      variant: selectedVariant.name,
-    } : { ...product };
-
-    if (notes.trim()) {
-      itemToAdd.notes = notes.trim();
-      itemToAdd.id = `${itemToAdd.id}-${Date.now()}`; // Unique ID so it stacks separately in cart
-    }
+    const itemToAdd = buildCustomizedItem(product, selectedVariantName, removedIngredients, extraQuantities);
     
     if (addToCart(itemToAdd) === false) return;
     toast.success('Agregado al carrito', { description: itemToAdd.name });
     setRemovedIngredients([]);
+    setExtraQuantities({});
     if (optionsRef.current) optionsRef.current.open = false;
   };
 
@@ -111,8 +111,13 @@ function ProductCard({ product, addToCart }) {
                 disabled={!productAvailable}
                 value={selectedVariant?.name || ''}
                 aria-label={`Variante de ${product.name}`}
-                onChange={(e) => setSelectedVariantName(e.target.value)}
-                className="flex-1 bg-monu-cream/50 border border-monu-green/10 rounded-xl px-3 py-2 text-sm font-bold text-monu-dark focus:outline-none focus:border-monu-green"
+                onChange={(e) => {
+                  const name = e.target.value;
+                  const valid = extrasForVariant(product, name);
+                  setSelectedVariantName(name);
+                  setExtraQuantities((previous) => Object.fromEntries(Object.entries(previous).filter(([id, quantity]) => valid.some((extra) => String(extra.ingrediente_id) === id && quantity <= extra.max_por_item))));
+                }}
+                className="min-h-11 min-w-0 flex-1 bg-monu-cream/50 border border-monu-green/10 rounded-xl px-3 py-2 text-sm font-bold text-monu-dark focus:outline-none focus:border-monu-green"
               >
                 {!selectedVariant && <option value="" disabled>Elegí una variante vigente</option>}
                 {product.variants.map((v) => (
@@ -123,9 +128,9 @@ function ProductCard({ product, addToCart }) {
           </div>
           
           {/* Aviso si cambiaron los ingredientes removibles desde que se personalizó */}
-          {changedOptions && <div role="alert" className="mt-3 text-sm text-red-800"><p>Las opciones cambiaron. Revisá la personalización antes de agregar.</p><button type="button" onClick={() => setRemovedIngredients((previous) => previous.filter((name) => removableIngredients.includes(name)))} className="min-h-11 underline focus-visible:ring-2 focus-visible:ring-monu-green">Revisar opciones vigentes</button></div>}
+          {changedOptions && <div role="alert" className="mt-3 text-sm text-red-800"><p>Las opciones cambiaron. Revisá la personalización antes de agregar.</p><button type="button" onClick={() => { setRemovedIngredients((previous) => previous.filter((name) => removableIngredients.includes(name))); setExtraQuantities({}); }} className="min-h-11 underline focus-visible:ring-2 focus-visible:ring-monu-green">Revisar opciones vigentes</button></div>}
           {/* Personalización: quitar ingredientes (otros cambios se piden por WhatsApp) */}
-          {productAvailable && removableIngredients.length > 0 && (
+          {productAvailable && (removableIngredients.length > 0 || extraOptions.length > 0) && (
             <details ref={optionsRef} className="mt-3 rounded-xl border border-monu-green/10 bg-monu-cream/25">
               <summary aria-label={`Personalizar ${product.name}`} className="min-h-11 cursor-pointer rounded-xl px-3 py-3 text-sm font-bold text-monu-green focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-monu-green">
                 <Settings2 aria-hidden="true" className="mr-2 inline size-4" />Personalizar
@@ -139,6 +144,7 @@ function ProductCard({ product, addToCart }) {
                         checked={removedIngredients.includes(ingredient)}
                         onChange={(event) => {
                           const checked = event.target.checked;
+                          if (checked) setExtraQuantities((previous) => Object.fromEntries(Object.entries(previous).filter(([id]) => !extraOptions.some((extra) => String(extra.ingrediente_id) === id && extra.nombre === ingredient))));
                           setRemovedIngredients((previous) => checked
                             ? [...previous, ingredient]
                             : previous.filter((name) => name !== ingredient));
@@ -147,10 +153,29 @@ function ProductCard({ product, addToCart }) {
                     </label>
                   ))}
                 </div>
-                <p className="mt-3 text-xs text-monu-text/70">Otros cambios se consultan por WhatsApp.</p>
               </fieldset>
+              {extraOptions.length > 0 && <fieldset className="space-y-3 px-3 pb-3">
+                <legend className="mb-2 text-sm font-bold text-monu-dark">Agregar ingredientes</legend>
+                {extraOptions.map((extra) => <div key={extra.ingrediente_id} className="rounded-lg bg-white p-2">
+                  <p className="text-sm font-bold text-monu-dark">{extra.nombre}</p>
+                  <p className="text-sm text-monu-text">{portionLabel(extra)} por extra · +${Number(extra.precio).toLocaleString('es-AR')} · Máx. {extra.max_por_item}</p>
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <button type="button" aria-label={`Reducir extra ${extra.nombre}`} disabled={!extraQuantities[extra.ingrediente_id]} onClick={() => changeExtra(extra, -1)} className="size-11 rounded-lg border border-monu-green/20 text-lg font-bold focus-visible:ring-2 focus-visible:ring-monu-green disabled:opacity-40">−</button>
+                      <output aria-label={`Cantidad extra de ${extra.nombre}`} className="min-w-6 text-center font-bold">{extraQuantities[extra.ingrediente_id] || 0}</output>
+                      <button type="button" aria-label={`Sumar extra ${extra.nombre}`} disabled={(extraQuantities[extra.ingrediente_id] || 0) >= extra.max_por_item} onClick={() => changeExtra(extra, 1)} className="size-11 rounded-lg border border-monu-green/20 text-lg font-bold focus-visible:ring-2 focus-visible:ring-monu-green disabled:opacity-40">+</button>
+                    </div>
+                    <span className="text-sm font-bold">+${(Number(extra.precio) * (extraQuantities[extra.ingrediente_id] || 0)).toLocaleString('es-AR')}</span>
+                  </div>
+                </div>)}
+              </fieldset>}
             </details>
           )}
+          {(notes || extraCents > 0) && <div className="mt-3 space-y-1 text-sm text-monu-dark" aria-live="polite">
+            {notes && <p>{notes}</p>}
+            {extraOptions.filter((extra) => extraQuantities[extra.ingrediente_id] > 0).map((extra) => <p key={extra.ingrediente_id}>+{extraQuantities[extra.ingrediente_id]} × {extra.nombre} ({portionLabel(extra)} cada extra)</p>)}
+            <p className="font-bold">Total por hamburguesa: ${currentPrice.toLocaleString('es-AR')}</p>
+          </div>}
         </div>
       </div>
     </div>

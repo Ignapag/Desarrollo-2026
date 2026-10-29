@@ -27,6 +27,24 @@ def _con_personalizaciones(fila: dict) -> dict:
     return producto
 
 
+def _validar_extras(datos) -> None:
+    if datos.extras is None:
+        return
+    ids = [e.ingrediente_id for e in datos.extras]
+    if len(ids) != len(set(ids)) or not set(ids) <= {i.ingrediente_id for i in datos.ingredientes}:
+        raise DatosInvalidos("Los extras deben ser ingredientes unicos de la receta")
+    for extra in datos.extras:
+        if (
+            not extra.precio.is_finite()
+            or extra.precio <= 0
+            or not extra.cantidad_requerida.is_finite()
+            or extra.cantidad_requerida <= 0
+            or isinstance(extra.max_por_item, bool)
+            or not 1 <= extra.max_por_item <= 50
+        ):
+            raise DatosInvalidos("El precio, porcion o maximo del extra no son validos")
+
+
 class RepositorioProductos(Protocol):
     """Puerto de persistencia del catálogo que implementa el repositorio SQL."""
 
@@ -64,6 +82,7 @@ class ServicioProductos:
             raise DatosInvalidos(str(exc)) from exc
         if not await self.repo.categoria_existe(datos.categoria_id):
             raise DatosInvalidos("La categoria no existe o esta inactiva")
+        _validar_extras(datos)
         if await self.repo.nombre_existe(datos.categoria_id, datos.nombre):
             raise ReglaDeNegocio("Ya existe un producto con ese nombre en la categoria")
         if not await self.repo.ingredientes_validos(
@@ -106,4 +125,5 @@ class ServicioProductos:
             raise DatosInvalidos("Deben conservarse las variantes actuales y su orden")
         if not await self.repo.ingredientes_validos([i.ingrediente_id for i in datos.ingredientes]):
             raise DatosInvalidos("La receta contiene ingredientes inexistentes o inactivos")
+        _validar_extras(datos)
         return await self.repo.guardar_receta(producto_id, datos)
