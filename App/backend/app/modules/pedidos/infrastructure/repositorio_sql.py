@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 from decimal import Decimal
 
 from app.core.db import UnidadDeTrabajo
@@ -9,6 +10,30 @@ from app.errores import ReglaDeNegocio
 from app.modules.pedidos.domain.entidades import EstadoPedido
 from app.modules.stock.application.servicio_stock import StockInsuficiente
 from app.modules.stock.domain.entidades import ingredientes_omitidos_de_aclaraciones
+
+# Letras con tilde y su base; el SQL del buscador aplica la misma equivalencia.
+_CON_TILDE = "áàäâéèëêíìïîóòöôúùüûñçÁÀÄÂÉÈËÊÍÌÏÎÓÒÖÔÚÙÜÛÑÇ"
+_SIN_TILDE = "aaaaeeeeiiiioooouuuuncaaaaeeeeiiiioooouuuunc"
+_QUITAR_TILDES = str.maketrans(_CON_TILDE, _SIN_TILDE)
+# Con menos dígitos, un número de pedido coincidiría con cualquier teléfono que los contenga.
+_MIN_DIGITOS_TELEFONO = 6
+
+
+def terminos_busqueda(q: str | None) -> tuple[str | None, str | None]:
+    """Interpreta el texto del buscador de pedidos tal como lo escribe el personal.
+
+    Quita el prefijo «Pedido #» o «#», ignora mayúsculas y tildes y escapa los comodines
+    de LIKE para que «%» o «_» se busquen literalmente. Devuelve el texto normalizado y,
+    si trae al menos seis dígitos, esos dígitos sin formato para comparar teléfonos
+    («+54 9 221 555-1234» encuentra 5492215551234). ``(None, None)`` desactiva el filtro.
+    """
+    texto = re.sub(r"^(?:pedido\s*)?#\s*", "", (q or "").strip(), flags=re.IGNORECASE)
+    texto = texto.strip().lower().translate(_QUITAR_TILDES)
+    if not texto:
+        return None, None
+    digitos = re.sub(r"\D", "", texto)
+    escapado = texto.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return escapado, digitos if len(digitos) >= _MIN_DIGITOS_TELEFONO else None
 
 
 class RepositorioPedidosSQL:
@@ -510,6 +535,7 @@ class RepositorioPedidosSQL:
             ,(SELECT md5(to_jsonb(d)::text) FROM direccion d
                 WHERE d.id=p.direccion_id) AS revision_direccion
         """ if con_revision else ""
+        texto, digitos = terminos_busqueda(q)
         # Cada filtro es opcional: un parámetro NULL desactiva su condición.
         pedidos = await self.uow.todos(
             f"""
@@ -534,8 +560,11 @@ class RepositorioPedidosSQL:
                         )
                     )
                   ELSE p.estado IN ('ENTREGADO','CANCELADO') END)
-              AND (%s::text IS NULL OR concat_ws(' ',p.numero,c.nombre,u.nombre,u.apellido,
-                  c.telefono_whatsapp,p.observaciones) ILIKE '%%' || %s || '%%')
+              AND (%s::text IS NULL OR lower(translate(concat_ws(' ',p.numero,c.nombre,
+                  u.nombre,u.apellido,c.telefono_whatsapp,c.telefono_contacto,p.observaciones),
+                  '{_CON_TILDE}','{_SIN_TILDE}')) LIKE '%%' || %s || '%%' ESCAPE '\\'
+                  OR c.telefono_whatsapp LIKE '%%' || %s::text || '%%'
+                  OR c.telefono_contacto LIKE '%%' || %s::text || '%%')
               AND (NOT %s OR (
                   p.estado IN ('ENTREGADO','CANCELADO') AND
                   (CASE WHEN p.estado='ENTREGADO' THEN p.entregado_en ELSE p.cancelado_en END
@@ -559,8 +588,10 @@ class RepositorioPedidosSQL:
                 estado,
                 activos,
                 activos,
-                q,
-                q,
+                texto,
+                texto,
+                digitos,
+                digitos,
                 finalizados_hoy,
                 repartidor_id,
                 repartidor_id,

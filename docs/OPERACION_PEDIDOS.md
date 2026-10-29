@@ -110,6 +110,16 @@ estado y fecha de cierre; conserva los filtros y permisos de cliente/repartidor.
 No se consulta mientras está plegada. Al abrirla carga los datos, permite
 actualizar y se refresca cada 8 segundos mientras la pestaña está visible.
 
+## Buscador de pedidos
+
+«Buscar por número de pedido, cliente o teléfono» consulta `GET /api/pedidos?q=...`
+y respeta los mismos permisos y alcances por cliente/repartidor. Acepta el número
+tal como se muestra (`1333`, `#1333` o `Pedido #1333`), el nombre del cliente sin
+distinguir mayúsculas ni tildes, las observaciones y el teléfono con o sin formato
+(`+54 9 221 555-1234`). Con seis o más dígitos compara el teléfono de WhatsApp y el
+declarado en el checkout, que es el real en el chat de demostración. `%` y `_` se
+buscan como texto literal.
+
 ## Centro de notificaciones
 
 La campanita del panel abre un diálogo con dos solapas principales:
