@@ -353,6 +353,46 @@ Una nueva preparación requiere `RECONSUMIR`. Una entrega marcada por error pued
 volver a listo con `CONSERVAR`, sujeto a la situación real del reparto. Estos
 tratamientos quedan registrados junto con el actor y el origen del cambio.
 
+## Editar productos existentes
+
+En Catálogo, **Editar producto** abre los datos comerciales junto con la receta y
+los extras. El mismo editor se puede abrir para un producto inactivo. Permite
+cambiar nombre, descripción, categoría, precio base, imagen, estado y orden del
+menú, además de nombres/precios de variantes, ingredientes y extras. Las variantes
+se pueden agregar o retirar conservando las recetas explícitas de cada una.
+
+`GET /api/productos/{id}` exige `productos.ver_receta` y devuelve `producto_id`,
+`actualizado_en`, los datos comerciales, `ingredientes`, `variantes`, `extras` y
+`categorias` (activas, más la categoría actual si está inactiva). No es el listado
+público del menú. `PUT /api/productos/{id}` exige `productos.gestionar` y recibe el
+reemplazo completo con los campos del alta más `actualizado_en_esperado`; devuelve
+el detalle actualizado. `extras: []` retira las opciones del producto.
+
+El guardado es una única transacción sobre el mismo ID: datos, variantes, receta y
+extras se aceptan juntos o se rechazan sin cambios. La versión es compartida con
+el editor de receta y las acciones de activar/desactivar: una pantalla desactualizada
+debe recargar antes de guardar. El nombre debe ser único dentro de la categoría,
+sin distinguir mayúsculas y excluyendo el propio producto.
+
+Una categoría de destino debe estar activa. Un producto puede conservar su
+categoría histórica inactiva y su estado previo al editar sus datos, pero no
+reactivarse en ella desde una baja explícita. Un ingrediente
+inactivo puede conservar la relación y cantidad históricas; no se permiten nuevas
+relaciones ni cambios de cantidad con ese insumo. Sus extras históricos pueden
+conservarse sin ampliar porciones ni máximos. Dips Extra no admite extras.
+
+`imagen_url` admite una URL HTTP(S), una ruta absoluta dentro del sitio o una
+imagen raster embebida PNG, JPEG, WebP, GIF o AVIF. Para datos embebidos se valida
+Base64, firma del formato y tamaño máximo de **5 MiB**. Se rechazan esquemas
+activos, SVG/HTML y URLs con credenciales. Enviar `null` quita la imagen explícita;
+se conservan los respaldos visuales del catálogo cuando correspondan.
+
+Editar el catálogo no crea otro producto, modifica saldos ni genera movimientos
+de stock. Los pedidos registrados conservan nombres, precios, variantes, extras
+y composición congelados; sus consumos, devoluciones y pagos mantienen las reglas
+vigentes. La configuración `hamburguesas_por_unidad` de reparto se conserva.
+Los endpoints anteriores de receta y estado continúan disponibles.
+
 ## Ingredientes extra por hamburguesa
 
 El local configura los agregados en el editor de recetas: ingrediente de la receta,

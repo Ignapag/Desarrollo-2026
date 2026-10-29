@@ -571,6 +571,13 @@ export function DataProvider({ children }) {
     return product;
   }, 'productos.gestionar');
 
+  // Actualiza datos comerciales y receta en una única operación.
+  const updateProduct = async (id, body) => runResourceMutation('catalog', async () => {
+    const result = await apiFetch(`/api/productos/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+    if (result?.producto_id !== id || typeof result.nombre !== 'string' || !Array.isArray(result.ingredientes) || !Array.isArray(result.variantes) || typeof result.actualizado_en !== 'string') throw new UserFacingError('No pudimos confirmar el producto. Consultá su estado antes de reintentar.');
+    return result;
+  }, 'productos.gestionar');
+
   // Reemplaza la receta de un producto.
   const updateRecipe = async (id, body) => runResourceMutation('catalog', async () => {
     const result = await apiFetch(`/api/productos/${id}/receta`, { method: 'PUT', body: JSON.stringify(body) });
@@ -705,6 +712,7 @@ export function DataProvider({ children }) {
       loading,
       refreshData,
       createProduct,
+      updateProduct,
       updateRecipe,
       deactivateProduct,
       reactivateProduct,
