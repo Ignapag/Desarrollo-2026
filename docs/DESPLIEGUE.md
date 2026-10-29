@@ -75,6 +75,38 @@ las variables de Seminario, actualizarla y reiniciar Render. Es necesaria tambi�
 con el proxy: el chat valida la cabecera `Origin` original antes de abrir sesión.
 Conservar `X-Chat-Demo` y no permitir orígenes mediante comodines.
 
+### IP confiable para el límite de login
+
+El límite por username de `/api/auth/login` funciona sin configuración adicional.
+El límite por IP se activa recién cuando Pages y Render comparten un secreto.
+Hasta entonces, el backend no tiene una IP del visitante que no pueda falsificarse.
+El código ya está preparado; cargar el secreto es un paso de despliegue que
+esta guía no ejecuta.
+
+| Cabecera | Quién la fija | ¿Se confía? |
+| --- | --- | --- |
+| `CF-Connecting-IP` (en Pages) | Edge de Cloudflare, a partir de la conexión del visitante | Sí, la lee solo la Function |
+| `X-Monu-IP-Cliente` + `X-Monu-Proxy-Secreto` | Function de Pages; descarta las que envía el visitante | Sí, solo si el secreto coincide |
+| `X-Forwarded-For` | El visitante, ampliado por Pages y Render | No para límites; solo auditoría informativa |
+
+1. Generar un valor aleatorio largo, por ejemplo con
+   `python -c "import secrets; print(secrets.token_urlsafe(32))"`. No reutilizar
+   `JWT_SECRET` ni versionarlo.
+2. En **cada** proyecto de Pages, definir `PROXY_IP_SECRETO` como variable cifrada
+   (secret) de ejecución de Functions, en producción y preview.
+3. En Render, definir la misma variable `PROXY_IP_SECRETO` y reiniciar el servicio.
+4. Volver a desplegar Pages. Comprobar que un login fallido desde el portal
+   genera un evento `SESION_LOGIN_FALLIDA` con la IP real en `GET /api/auditoria`.
+
+Para rotar el secreto, cargar el valor nuevo en Pages y en Render en el mismo
+momento. Si Render ya tiene secreto y Pages envía otro, todos los logins comparten un único cupo de IP
+(50 fallos en 15 minutos con los valores predeterminados). No definir
+`FORWARDED_ALLOW_IPS` en Render para este fin: el límite no usa la IP que reescribe
+Uvicorn. Los umbrales se ajustan con `LOGIN_MAX_FALLOS_USUARIO`, `LOGIN_MAX_FALLOS_IP`
+y `LOGIN_VENTANA_MINUTOS`. Antes de usar el login en la base de Render debe estar
+aplicada la migración `032_intentos_login`: el arranque con `--migrar` la aplica
+como cualquier migración pendiente.
+
 ## Orden y validación de la publicación
 
 La [activación pública del chat académico](WHATSAPP_DESARROLLO.md#publicación-autorizada-en-la-base-compartida)

@@ -81,6 +81,60 @@ test('el proxy conserva login, cookie HttpOnly, metodo, cuerpo y errores JSON', 
   assert.deepEqual(await respuesta.json(), { mensaje: 'Credenciales inválidas' });
 });
 
+const spoofeados = { 'X-Monu-IP-Cliente': '6.6.6.6', 'X-Monu-Proxy-Secreto': 'falso' };
+
+test('sin secreto configurado se descartan los X-Monu-* del visitante', async (t) => {
+  const env = await backend(t, (request, response) => {
+    assert.equal(request.headers['x-monu-ip-cliente'], undefined);
+    assert.equal(request.headers['x-monu-proxy-secreto'], undefined);
+    response.end('{}');
+  });
+  const respuesta = await onRequest({ env, request: new Request(
+    'https://monu-burger-desarrollo.pages.dev/api/auth/login',
+    { headers: { ...spoofeados, 'CF-Connecting-IP': '203.0.113.7' } },
+  ) });
+  assert.equal(respuesta.status, 200);
+});
+
+test('con secreto y CF-Connecting-IP se envian la IP real y el secreto', async (t) => {
+  const env = await backend(t, (request, response) => {
+    assert.equal(request.headers['x-monu-ip-cliente'], '203.0.113.7');
+    assert.equal(request.headers['x-monu-proxy-secreto'], 'secreto-compartido');
+    response.end('{}');
+  });
+  const respuesta = await onRequest({ env: { ...env, PROXY_IP_SECRETO: 'secreto-compartido' }, request: new Request(
+    'https://monu-burger-desarrollo.pages.dev/api/auth/login', { headers: { 'CF-Connecting-IP': '203.0.113.7' } },
+  ) });
+  assert.equal(respuesta.status, 200);
+  for (const [nombre, valor] of respuesta.headers) {
+    assert.ok(!nombre.startsWith('x-monu-'), nombre);
+    assert.ok(!valor.includes('secreto-compartido'), nombre);
+  }
+});
+
+test('X-Monu-IP-Cliente del visitante se reemplaza por CF-Connecting-IP', async (t) => {
+  const env = await backend(t, (request, response) => {
+    assert.equal(request.headers['x-monu-ip-cliente'], '203.0.113.7');
+    assert.equal(request.headers['x-monu-proxy-secreto'], 'secreto-compartido');
+    response.end('{}');
+  });
+  await onRequest({ env: { ...env, PROXY_IP_SECRETO: 'secreto-compartido' }, request: new Request(
+    'https://monu-burger-desarrollo.pages.dev/api/auth/login',
+    { headers: { ...spoofeados, 'CF-Connecting-IP': '203.0.113.7' } },
+  ) });
+});
+
+test('sin CF-Connecting-IP no se envia nada aunque haya secreto', async (t) => {
+  const env = await backend(t, (request, response) => {
+    assert.equal(request.headers['x-monu-ip-cliente'], undefined);
+    assert.equal(request.headers['x-monu-proxy-secreto'], undefined);
+    response.end('{}');
+  });
+  await onRequest({ env: { ...env, PROXY_IP_SECRETO: 'secreto-compartido' }, request: new Request(
+    'https://monu-burger-desarrollo.pages.dev/api/auth/login', { headers: spoofeados },
+  ) });
+});
+
 test('el proxy no sigue redirecciones externas llevando cookies del personal', async (t) => {
   const env = await backend(t, (_, response) => {
     response.writeHead(302, { Location: 'https://example.invalid/no-se-debe-visitar' });

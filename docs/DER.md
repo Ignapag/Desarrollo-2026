@@ -7,7 +7,7 @@ Modelo de datos **tal como está implementado** en la base.
 > quedar desactualizado respecto del esquema real. CI verifica que
 > este al dia.
 
-**41 entidades · 70 relaciones.**
+**42 entidades · 70 relaciones.**
 
 Este diagrama reemplaza al entregado en la Actividad N°2: las diferencias
 están explicadas una por una en [CAMBIOS_DER.md](CAMBIOS_DER.md) (C-01 a C-12).
@@ -663,6 +663,17 @@ erDiagram
         text rol PK
         text permiso PK
         timestamptz eliminado_en
+    }
+```
+
+### Intentos login
+
+```mermaid
+erDiagram
+    INTENTO_LOGIN {
+        text clave PK
+        integer fallos
+        timestamptz vence_en
     }
 ```
 

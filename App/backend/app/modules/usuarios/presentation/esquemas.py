@@ -13,7 +13,8 @@ from app.modules.usuarios.application.servicio_usuarios import DatosNuevoUsuario
 class LoginEntrada(BaseModel):
     """Credenciales de inicio de sesión."""
 
-    username: str = Field(min_length=1)
+    # El tope acota la clave del contador de intentos (intento_login.clave).
+    username: str = Field(min_length=1, max_length=150)
     password: str = Field(min_length=1)
 
 

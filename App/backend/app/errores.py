@@ -53,3 +53,10 @@ class SinPermiso(ErrorDominio):
 
     codigo_http = 403
     codigo = "sin_permiso"
+
+
+class DemasiadosIntentos(ErrorDominio):
+    """Se superó el límite de intentos de una operación protegida: responde 429."""
+
+    codigo_http = 429
+    codigo = "demasiados_intentos"

@@ -8,20 +8,52 @@ from typing import Annotated
 from fastapi import Depends, Request
 
 from app.core.config import settings
-from app.core.dependencias import UoW
+from app.core.db import UnidadDeTrabajo, conexion
+from app.core.dependencias import OrigenLimite, UoW
 from app.core.seguridad import TokenInvalido, decodificar_token
 from app.errores import NoAutenticado, SinPermiso
 from app.modules.usuarios.application.servicio_acceso import ServicioAcceso
 from app.modules.usuarios.application.servicio_auth import ServicioAuth
+from app.modules.usuarios.application.servicio_limite_login import ServicioLimiteLogin
 from app.modules.usuarios.application.servicio_usuarios import ServicioUsuarios
 from app.modules.usuarios.domain.entidades import ROLES_PERSONAL_INTERNO, ClaimsSesion, Rol
+from app.modules.usuarios.domain.limite_login import IntentoReservado, PoliticaIntentosLogin
 from app.modules.usuarios.infrastructure.acceso_sql import RepositorioAccesoSQL
+from app.modules.usuarios.infrastructure.intentos_login_sql import RepositorioIntentosLoginSQL
 from app.modules.usuarios.infrastructure.repositorio_sql import RepositorioUsuariosSQL
+from app.modules.usuarios.presentation.esquemas import LoginEntrada
+
+
+def politica_intentos_login() -> PoliticaIntentosLogin:
+    """Umbrales de intentos de login configurados en el entorno."""
+    return PoliticaIntentosLogin(
+        max_fallos_usuario=settings.login_max_fallos_usuario,
+        max_fallos_origen=settings.login_max_fallos_ip,
+        ventana_segundos=settings.login_ventana_minutos * 60,
+    )
+
+
+async def reservar_intento_login(datos: LoginEntrada, origen: OrigenLimite) -> IntentoReservado:
+    """Guarda del login: consume el cupo en una transacción corta y confirmada.
+
+    Se declara antes del servicio, así un intento bloqueado responde 429 sin
+    pedir la conexión del caso de uso ni ejecutar bcrypt. La conexión se libera
+    antes de que el login tome la suya; si se rechaza, la reserva se revierte.
+    """
+    async with conexion() as conn:
+        registro = RepositorioIntentosLoginSQL(UnidadDeTrabajo(conn))
+        return await ServicioLimiteLogin(registro, politica_intentos_login()).reservar(
+            datos.username, origen
+        )
+
+
+IntentoLogin = Annotated[IntentoReservado, Depends(reservar_intento_login)]
 
 
 def obtener_servicio_auth(uow: UoW) -> ServicioAuth:
-    """Arma el servicio de inicio de sesión con el repositorio de usuarios."""
-    return ServicioAuth(uow, RepositorioUsuariosSQL(uow))
+    """Arma el servicio de inicio de sesión con el repositorio y el límite de intentos."""
+    limite = ServicioLimiteLogin(RepositorioIntentosLoginSQL(uow), politica_intentos_login())
+    return ServicioAuth(uow, RepositorioUsuariosSQL(uow), limite)
 
 
 ServicioAuthDep = Annotated[ServicioAuth, Depends(obtener_servicio_auth)]

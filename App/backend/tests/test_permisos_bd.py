@@ -12,8 +12,16 @@ from app.core.seguridad import crear_token
 from app.errores import DatosInvalidos, ErrorDominio, ReglaDeNegocio, SinPermiso
 from app.modules.stock.presentation.router import router as stock
 from app.modules.usuarios.application.servicio_acceso import ServicioAcceso
+from app.modules.usuarios.application.servicio_limite_login import ServicioLimiteLogin
+from app.modules.usuarios.domain.limite_login import IntentoReservado
 from app.modules.usuarios.domain.permisos import PERMISOS_INICIALES
 from app.modules.usuarios.infrastructure.acceso_sql import RepositorioAccesoSQL
+from app.modules.usuarios.infrastructure.intentos_login_sql import RepositorioIntentosLoginSQL
+from app.modules.usuarios.presentation.dependencias import (
+    politica_intentos_login,
+    reservar_intento_login,
+)
+from app.modules.usuarios.presentation.esquemas import LoginEntrada
 from app.modules.usuarios.presentation.router import router as usuarios
 from app.modules.usuarios.presentation.router_acceso import router as acceso
 
@@ -38,6 +46,15 @@ async def api(uow):
         app.include_router(router)
     app.add_exception_handler(ErrorDominio, manejador_error_dominio)
     app.dependency_overrides[obtener_uow] = lambda: uow
+
+    async def reservar_en_transaccion_de_prueba(datos: LoginEntrada) -> IntentoReservado:
+        # La API reserva en una conexión propia; aquí se usa la transacción revertida.
+        registro = RepositorioIntentosLoginSQL(uow)
+        return await ServicioLimiteLogin(registro, politica_intentos_login()).reservar(
+            datos.username, None
+        )
+
+    app.dependency_overrides[reservar_intento_login] = reservar_en_transaccion_de_prueba
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://prueba"
     ) as cliente:

@@ -82,7 +82,9 @@ columnas, tipos, obligatoriedad, relaciones y valores permitidos.
 
 **Reparto sin limite** — sin tablas nuevas
 
-Total: **41 tablas**.
+**Intentos login** — [`intento_login`](#intento_login)
+
+Total: **42 tablas**.
 
 ---
 
@@ -850,3 +852,15 @@ _Matrices de acceso versionadas. No modifica usuarios ni credenciales._
 **Triggers eliminados:** `envio_capacidad_trg`, `monu_auditar_cambio`
 
 **Índices eliminados:** `viaje_abierto_uk`
+
+## 032_intentos_login — Intentos login
+
+### intento_login
+
+_intento_login: fallos de inicio de sesión de la ventana vigente (CU_USR_01), una fila por username (usuario:<lower>) o por IP confiable (ip:<dirección>). Cada intento se reserva antes de verificar la contraseña con una única sentencia atómica; un login exitoso borra la fila del username. Es estado técnico de corta vida: no se audita fila a fila, se purga al vencer y los intentos quedan en auditoria._
+
+| Columna | Tipo | Obligatoria | Notas |
+|---------|------|-------------|-------|
+| `clave` | TEXT | Sí | PK |
+| `fallos` | INTEGER | Sí | — |
+| `vence_en` | TIMESTAMPTZ | Sí | — |

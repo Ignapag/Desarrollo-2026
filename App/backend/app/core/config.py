@@ -53,6 +53,14 @@ class Settings(BaseSettings):
     jwt_secret: str = "clave-de-desarrollo-cambiar"
     jwt_exp_minutos: int = 480  # 8 horas: una jornada de trabajo
     cookie_sesion: str = "monu_session"
+    # Limitación de fuerza bruta en /api/auth/login: fallos por username y por
+    # IP confiable dentro de una ventana fija que empieza con el primer fallo.
+    login_max_fallos_usuario: int = Field(default=10, ge=1)
+    login_max_fallos_ip: int = Field(default=50, ge=1)
+    login_ventana_minutos: int = Field(default=15, ge=1, le=1440)
+    # Secreto compartido con la Function de Cloudflare Pages: solo con él se
+    # confía en X-Monu-IP-Cliente. Vacío desactiva el límite por IP.
+    proxy_ip_secreto: str = ""
 
     # Configuracion historica inactiva de Mercado Pago; solo compatibilidad legacy.
     mp_access_token: str | None = None

@@ -79,6 +79,9 @@ por nombre sin copiar sus valores. El registro pertenece a la misma transacción
 un rollback revierte tanto los datos como su auditoría. Por eso los intentos
 fallidos que terminan en rollback no se consideran cambios persistidos; el
 mecanismo no es un registro independiente de intentos de autenticación fallidos.
+El login es la excepción explícita: confirma su transacción antes de responder
+`401`, así `SESION_LOGIN_FALLIDA` queda registrado. Los contadores del límite viven
+en `intento_login`, en su propia transacción ([arquitectura](ARQUITECTURA.md#flujos-y-límites-de-confianza)).
 
 Se mantienen los eventos de negocio existentes (por ejemplo, `ROL_ASIGNADO`)
 para expresar la intención del caso de uso. Los eventos `DATOS_*` describen
@@ -91,7 +94,8 @@ historial; promociones; viajes/envíos; pagos/cierres; parámetros; roles/permis
 plantillas/notificaciones; y borradores, cambios, comprobantes y atención de
 WhatsApp. La lista exacta de tablas y campos está en la migración 030.
 No se audita recursivamente la propia tabla `auditoria`, ni la tabla de
-migraciones, ni las colas/sesiones/archivos técnicos de demostración. Las
+migraciones, ni los contadores técnicos de `intento_login`, ni las
+colas/sesiones/archivos técnicos de demostración. Las
 escrituras operativas que esos procesos producen sí quedan registradas.
 
 ## Usuario y origen
@@ -111,8 +115,10 @@ sin usuario llevan actor nulo y canal propio.
 Una escritura SQL sin contexto de aplicación queda con usuario de aplicación
 nulo, origen `SQL:<session_user>` y correlación `sql:<id_transaccion>`. No se
 inventa quién fue la persona que utilizó una credencial SQL compartida.
-La IP puede ser nula en scripts o procesos automáticos; su extracción HTTP
-conserva la política de proxy existente.
+La IP puede ser nula en scripts o procesos automáticos. En HTTP se prefiere la
+IP autenticada por el proxy de Pages; sin ella, el primer valor de
+`X-Forwarded-For` es un dato informativo que el cliente puede falsificar
+([cabeceras confiables](DESPLIEGUE.md#ip-confiable-para-el-límite-de-login)).
 
 La consulta protegida `GET /api/auditoria` expone datos, usuario, fecha, IP,
 origen e identificador de operación. Requiere el permiso `auditoria.ver`.

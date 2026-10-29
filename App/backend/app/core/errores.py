@@ -14,8 +14,13 @@ from fastapi.responses import JSONResponse
 from app.errores import ErrorDominio
 
 
-async def manejador_error_dominio(_: Request, exc: ErrorDominio) -> JSONResponse:
-    """Convierte un ``ErrorDominio`` en JSON con su código HTTP, código y detalles."""
+def respuesta_error_dominio(exc: ErrorDominio) -> JSONResponse:
+    """JSON de un ``ErrorDominio`` con su código HTTP, código y detalles.
+
+    Un endpoint puede devolverla en lugar de lanzar el error cuando lo escrito
+    en su transacción (por ejemplo, la auditoría de un login fallido) debe
+    confirmarse aunque la respuesta sea un error.
+    """
     # Los detalles pueden traer Decimal (cantidades de stock, importes): sin
     # convertirlos, json.dumps falla y un 409 previsto termina como 500.
     return JSONResponse(
@@ -24,6 +29,11 @@ async def manejador_error_dominio(_: Request, exc: ErrorDominio) -> JSONResponse
             {"codigo": exc.codigo, "mensaje": exc.mensaje, "detalles": exc.detalles}
         ),
     )
+
+
+async def manejador_error_dominio(_: Request, exc: ErrorDominio) -> JSONResponse:
+    """Convierte un ``ErrorDominio`` lanzado en su respuesta JSON."""
+    return respuesta_error_dominio(exc)
 
 
 async def manejador_base_no_disponible(_: Request, exc: Exception) -> JSONResponse:

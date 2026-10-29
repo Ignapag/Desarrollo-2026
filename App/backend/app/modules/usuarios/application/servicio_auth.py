@@ -12,7 +12,9 @@ from app.core import auditoria
 from app.core.db import UnidadDeTrabajo
 from app.core.seguridad import crear_token, verificar_password_sin_bloquear
 from app.errores import NoAutenticado
+from app.modules.usuarios.application.servicio_limite_login import ServicioLimiteLogin
 from app.modules.usuarios.domain.entidades import AccionesAuditoria, Rol
+from app.modules.usuarios.domain.limite_login import IntentoReservado
 from app.modules.usuarios.infrastructure.repositorio_sql import RepositorioUsuariosSQL
 
 MENSAJE_CREDENCIALES_INVALIDAS = "Usuario o contrasenia incorrectos"
@@ -34,13 +36,18 @@ class SesionIniciada:
 class ServicioAuth:
     """Caso de uso de inicio de sesión con auditoría de intentos."""
 
-    def __init__(self, uow: UnidadDeTrabajo, repositorio: RepositorioUsuariosSQL) -> None:
-        """Recibe la unidad de trabajo y el repositorio de usuarios."""
+    def __init__(
+        self, uow: UnidadDeTrabajo, repositorio: RepositorioUsuariosSQL,
+        limite: ServicioLimiteLogin | None = None,
+    ) -> None:
+        """Recibe la unidad de trabajo, el repositorio y, opcionalmente, el límite de intentos."""
         self.uow = uow
         self.repo = repositorio
+        self.limite = limite
 
     async def iniciar_sesion(
-        self, *, username: str, password: str, ip: str | None = None
+        self, *, username: str, password: str, ip: str | None = None,
+        intento: IntentoReservado | None = None,
     ) -> SesionIniciada:
         """Valida credenciales y devuelve un token de sesion.
 
@@ -48,6 +55,9 @@ class ServicioAuth:
         contrasenia es incorrecta": decirlo facilitaria enumerar nombres de
         usuario validos por fuerza bruta. Por lo mismo, bcrypt se ejecuta
         tambien cuando el usuario no existe (contra un hash ficticio).
+
+        ``intento`` es el cupo que la presentación ya reservó; un inicio exitoso
+        reinicia el contador del username en esta misma transacción.
         """
         fila = await self.repo.por_username(username)
         password_valida = await verificar_password_sin_bloquear(
@@ -71,6 +81,8 @@ class ServicioAuth:
         # Inicio exitoso: se registra el acceso y se emite el token.
         await self.uow.atribuir_actor(fila["id"])
         await self.repo.actualizar_ultimo_acceso(fila["id"])
+        if self.limite is not None and intento is not None:
+            await self.limite.confirmar_exito(intento)
         await auditoria.registrar(
             self.uow,
             accion=AccionesAuditoria.SESION_INICIADA,

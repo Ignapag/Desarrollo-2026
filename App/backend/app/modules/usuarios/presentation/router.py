@@ -16,14 +16,17 @@ from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response
+from fastapi.responses import JSONResponse
 
 from app.core import auditoria
 from app.core.config import settings
 from app.core.dependencias import IpCliente, UoW
-from app.errores import NoEncontrado
+from app.core.errores import respuesta_error_dominio
+from app.errores import NoAutenticado, NoEncontrado
 from app.modules.usuarios.application.servicio_usuarios import FiltrosUsuario
 from app.modules.usuarios.domain.entidades import ClaimsSesion
 from app.modules.usuarios.presentation.dependencias import (
+    IntentoLogin,
     ServicioAccesoDep,
     ServicioAuthDep,
     ServicioUsuariosDep,
@@ -52,16 +55,28 @@ def _samesite_cookie() -> str:
 
 # ------------------------------ CU_USR_01: autenticacion -------------------
 
-@router.post("/api/auth/login", response_model=SesionSalida)
+@router.post(
+    "/api/auth/login", response_model=SesionSalida,
+    responses={401: {"description": "Credenciales inválidas"},
+               429: {"description": "Demasiados intentos; reintentar más tarde"}},
+)
 async def iniciar_sesion(
-    datos: LoginEntrada, respuesta: Response, ip: IpCliente,
+    datos: LoginEntrada, respuesta: Response, ip: IpCliente, intento: IntentoLogin,
     servicio: ServicioAuthDep, acceso: ServicioAccesoDep,
-) -> SesionSalida:
+) -> SesionSalida | JSONResponse:
     """Valida credenciales y deja el JWT en una cookie HttpOnly.
 
     Devuelve los datos del usuario con sus permisos vigentes; el token nunca viaja en el cuerpo.
+    ``IntentoLogin`` reserva el cupo antes de pedir la conexión del caso de uso
+    y responde 429 sin ejecutar bcrypt cuando se alcanzó el límite.
     """
-    sesion = await servicio.iniciar_sesion(username=datos.username, password=datos.password, ip=ip)
+    try:
+        sesion = await servicio.iniciar_sesion(
+            username=datos.username, password=datos.password, ip=ip, intento=intento
+        )
+    except NoAutenticado as exc:
+        # Se devuelve en lugar de lanzarse para confirmar la auditoría del fallo.
+        return respuesta_error_dominio(exc)
     vigente = await acceso.sesion(ClaimsSesion(sesion.usuario_id, sesion.rol, sesion.username))
     respuesta.set_cookie(
         key=settings.cookie_sesion,

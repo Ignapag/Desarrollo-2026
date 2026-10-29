@@ -179,6 +179,32 @@ Vite reenvía `/api` a `http://127.0.0.1:8000` en desarrollo.
    matriz. [Control de acceso](CONTROL_ACCESO.md) define versiones, auditoría y revocación.
    `/register` y `/recover-password` redirigen a login; no hay vistas ni endpoints
    de autorregistro o recuperación.
+   **Límite de intentos de login:** la guarda `reservar_intento_login` corre antes
+   del servicio, en una transacción corta y propia. Consume un cupo del username y
+   otro del origen con una única sentencia atómica sobre `intento_login`
+   (migración 032). Por eso los intentos simultáneos no superan el umbral, y un
+   intento rechazado responde `429` sin buscar la cuenta ni ejecutar bcrypt.
+   Los valores predeterminados son 10 fallos por username y 50 por IP en una
+   ventana fija de 15 minutos que empieza con el primer fallo (`LOGIN_*`). El
+   mensaje es único y no revela si la cuenta existe ni cuánto falta. Un login
+   exitoso borra el contador del username y devuelve el cupo de la IP. El `401`
+   se devuelve como respuesta, no como excepción, para confirmar la auditoría
+   `SESION_LOGIN_FALLIDA`. Las filas vencidas se purgan por lotes en cada reserva.
+   Un tercero puede bloquear una cuenta durante una ventana con 10 contraseñas
+   erróneas: es el costo aceptado de no permitir más pruebas por cuenta.
+   **IP confiable:** el backend solo confía en `X-Monu-IP-Cliente` cuando llega
+   con `X-Monu-Proxy-Secreto` igual a `PROXY_IP_SECRETO`. La Function de Pages
+   toma esa IP de `CF-Connecting-IP`, que fija el edge de Cloudflare, y descarta
+   las cabeceras `X-Monu-*` del visitante. `X-Forwarded-For` nunca cuenta para el
+   límite: el visitante lo controla, Pages lo copia y Render lo amplía sin limpiarlo.
+   Sin secreto configurado, el límite por IP no se aplica y solo rige el del
+   username. Con secreto, las peticiones sin proxy autenticado (directas a Render
+   o con secreto inválido) comparten un único cupo, e IPv6 cuenta por su red /64.
+   Una reserva confirmada cuenta como fallo aunque el login termine en `503`
+   por falta de conexión. Mientras no haya secreto, cada fallo de un username
+   distinto agrega una fila permanente en `auditoria`. La auditoría usa la IP
+   autenticada cuando existe; si no, conserva `X-Forwarded-For` como dato
+   informativo. Configuración en [despliegue](DESPLIEGUE.md#ip-confiable-para-el-límite-de-login).
 2. **Pedido:** presentación valida formato y rol; `ServicioPedidos` valida cliente,
    dirección, disponibilidad, cantidades y variante. Construye el snapshot de precio
    en servidor. `cliente.id` identifica al comprador comercial; `usuario_id` es un
