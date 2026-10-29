@@ -387,6 +387,7 @@ class RepositorioPedidosSQL:
         q: str | None = None,
         estado: str | None = None,
         activos: bool | None = None,
+        finalizados_hoy: bool = False,
     ) -> list[dict]:
         """Lista pedidos con sus relaciones, aplicando filtros opcionales.
 
@@ -418,13 +419,21 @@ class RepositorioPedidosSQL:
                   ELSE p.estado IN ('ENTREGADO','CANCELADO') END)
               AND (%s::text IS NULL OR concat_ws(' ',p.numero,c.nombre,u.nombre,u.apellido,
                   c.telefono_whatsapp,p.observaciones) ILIKE '%%' || %s || '%%')
+              AND (NOT %s OR (
+                  p.estado IN ('ENTREGADO','CANCELADO') AND
+                  (CASE WHEN p.estado='ENTREGADO' THEN p.entregado_en ELSE p.cancelado_en END
+                      AT TIME ZONE 'America/Argentina/Buenos_Aires')::date =
+                  (now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date
+              ))
               AND (%s::bigint IS NULL OR EXISTS (
                   SELECT 1 FROM envio e JOIN viaje v ON v.id = e.viaje_id
                   WHERE e.pedido_id = p.id AND v.repartidor_id = %s
                     AND v.estado IN ('PLANIFICADO', 'EN_RUTA')
                     AND e.estado IN ('ASIGNADO', 'EN_CAMINO')
               ))
-            ORDER BY p.creado_en DESC, p.id DESC
+            ORDER BY CASE WHEN %s THEN
+                CASE WHEN p.estado='ENTREGADO' THEN p.entregado_en ELSE p.cancelado_en END
+                END DESC NULLS LAST, p.creado_en DESC, p.id DESC
             """,
             (
                 cliente_id,
@@ -435,8 +444,10 @@ class RepositorioPedidosSQL:
                 activos,
                 q,
                 q,
+                finalizados_hoy,
                 repartidor_id,
                 repartidor_id,
+                finalizados_hoy,
             ),
         )
         await self._completar(pedidos)

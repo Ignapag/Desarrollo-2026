@@ -77,6 +77,19 @@ tienen saldo: conservan su estado ENTREGADO, aparecen también en la consulta
 de activos mientras exista deuda y pasan a quedar sólo en el historial cuando
 se saldan. Registrar un cobro no inventa una entrega ni cambia su estado físico.
 
+## Pedidos de hoy
+
+Debajo del tablero de gestión, **Pedidos de hoy** es una sección plegable,
+cerrada al entrar. Reúne los pedidos entregados y cancelados cuya fecha de
+cierre corresponde al día actual en `America/Argentina/Buenos_Aires`, incluso
+si se crearon antes. No agrega otro estado al tablero ni retira pedidos activos.
+Cada fila abre el detalle habitual y distingue entregados pagados o por cobrar.
+
+La consulta `GET /api/pedidos?finalizados_hoy=true` filtra en el servidor por
+estado y fecha de cierre; conserva los filtros y permisos de cliente/repartidor.
+No se consulta mientras está plegada. Al abrirla carga los datos, permite
+actualizar y se refresca cada 8 segundos mientras la pestaña está visible.
+
 ## Centro de notificaciones
 
 La campanita del panel abre un diálogo con dos solapas principales:

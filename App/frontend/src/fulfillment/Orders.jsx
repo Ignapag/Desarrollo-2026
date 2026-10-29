@@ -14,6 +14,7 @@ import { buttonClass, inputClass, DataError } from './operationUi';
 import { OrderList, StatusBar } from './OrderStatusBoard';
 import WhatsAppInbox from './WhatsAppInbox';
 import OrderDetail from './OrderDetail';
+import TodayOrders from './TodayOrders';
 
 /** Tablero de gestión de pedidos del personal. */
 export default function Orders() {
@@ -41,6 +42,7 @@ export default function Orders() {
   const openers = useRef(new Map());
   const selectedState = useRef(null);
   const returnFocus = useRef(null);
+  const todayOpener = useRef(null);
   const board = useMediaQuery(BOARD_MEDIA);
   // "Remoto" = búsqueda, historial o cliente: se consulta a la API en lugar de usar los pedidos en vivo.
   const remote = Boolean(query.trim()) || scope !== 'active' || clientId != null;
@@ -132,7 +134,8 @@ export default function Orders() {
     if (selected != null || returnFocus.current == null) return;
     const opener = openers.current.get(returnFocus.current);
     returnFocus.current = null;
-    (opener || selectedState.current)?.focus();
+    (todayOpener.current || opener || selectedState.current)?.focus();
+    todayOpener.current = null;
   }, [selected]);
   const listProps = { known: countsKnown, emptyMessage, now, pending: orderOperationPending, onOpen: setSelected, registerOpener, onBackToStates: () => selectedState.current?.focus() };
   return <div className="space-y-4">
@@ -162,6 +165,7 @@ export default function Orders() {
         </div>
         : <OrderList id={current} label={states.find(([id]) => id === current)[1]} group={groups[current]} layout="panel" {...listProps} />}
     </div>
+    <TodayOrders clientId={clientId} pending={orderOperationPending} onOpen={(id, button) => { todayOpener.current = button; setSelected(id); }} />
     {/* Detalle del pedido abierto */}
     {selected && <OrderDetail key={selected} id={selected} onClose={closeDetail} />}
   </div>;

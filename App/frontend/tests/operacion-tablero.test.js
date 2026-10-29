@@ -4,7 +4,7 @@ import { act, createElement } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import react from '@vitejs/plugin-react';
 import { createTestServer } from './vite-test-server.js';
-import { installMinimalDom, elements, reactProps } from './minimal-dom.js';
+import { installMinimalDom, elements, reactProps, deferred } from './minimal-dom.js';
 
 let dom, server, createRoot, Orders, board, model, data;
 const originalFetch = globalThis.fetch;
@@ -16,7 +16,7 @@ before(async () => {
   dom = installMinimalDom();
   ({ createRoot } = await import('react-dom/client'));
   server = await createTestServer({ configFile: false, plugins: [{ name: 'tablero-context', enforce: 'pre', load(id) {
-    if (id.replaceAll('\\', '/').endsWith('/src/auth/AuthContext.jsx')) return "const user={id:1,backendRole:'EMPLEADO',permisos:['pedidos.ver']}; export const useAuth=()=>({user,refreshSession:async()=>{}});";
+    if (id.replaceAll('\\', '/').endsWith('/src/auth/AuthContext.jsx')) return "const user={id:1,backendRole:'EMPLEADO',permisos:['pedidos.ver']}; const refreshSession=async()=>{}; export const useAuth=()=>({user,refreshSession});";
     if (id.replaceAll('\\', '/').endsWith('/src/shared/store/DataContext.jsx')) return "export const data={state:{orders:[],ordersStatus:'ready',ordersError:null},pending:new Set(),refreshes:0}; export const useData=()=>({state:data.state,watchOrders(){},refreshOrders:async()=>{data.refreshes+=1;},orderOperationPending:(id)=>data.pending.has(id),projectOrder:(order)=>order,startOrderOperation:()=>false});";
     return null;
   } }, react()], server: { middlewareMode: true, hmr: false, ws: false }, optimizeDeps: { noDiscovery: true }, appType: 'custom', logLevel: 'silent' });
@@ -45,6 +45,51 @@ const opener = (container, number) => buttons(container).find((node) => node.tex
 const sections = (container) => elements(container, (node) => node.localName === 'section' && node.getAttribute('aria-labelledby')?.startsWith('orders-state-'));
 const cardNumbers = (section) => elements(section, (node) => node.localName === 'button').map((node) => node.textContent);
 const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
+
+test('Pedidos de hoy se consulta al desplegar, separado de los estados, y abre el detalle', async (t) => {
+  useOrders([raw(901, 'LISTO')]);
+  const waiting = deferred();
+  t.after(() => waiting.resolve(response([])));
+  const calls = [];
+  globalThis.fetch = async (path) => { calls.push(path); return path.includes('finalizados_hoy=true') ? waiting.promise : response(raw(902, 'ENTREGADO')); };
+  const container = await mount(t);
+  const toggle = buttons(container).find((node) => node.textContent.includes('Pedidos de hoy'));
+  assert.ok(toggle);
+  assert.equal(toggle.getAttribute('aria-expanded'), 'false');
+  assert.equal(statusButton(container, 'Pedidos de hoy'), undefined);
+  assert.deepEqual(calls, []);
+  await act(async () => reactProps(toggle).onClick());
+  assert.equal(toggle.getAttribute('aria-expanded'), 'true');
+  assert.match(container.textContent, /Consultando los pedidos finalizados de hoy/);
+  assert.deepEqual(calls, ['/api/pedidos?finalizados_hoy=true']);
+  await act(async () => waiting.resolve(response([raw(902, 'ENTREGADO', { entregado_en: minutes(2), saldo_pendiente: '0', neto_cobrado: '1000' })])));
+  assert.ok(opener(container, 901));
+  const detail = buttons(container).find((node) => node.getAttribute('aria-label') === 'Ver pedido #902');
+  assert.ok(detail);
+  await act(async () => reactProps(detail).onClick({ currentTarget: detail }));
+  assert.ok(calls.includes('/api/pedidos/902'));
+  const close = buttons(container).find((node) => node.textContent === 'Cerrar detalle');
+  await act(async () => reactProps(close).onClick());
+  assert.equal(document.activeElement, detail);
+  await act(async () => reactProps(toggle).onClick());
+  assert.equal(toggle.getAttribute('aria-expanded'), 'false');
+  assert.doesNotMatch(container.textContent, /Cliente 902/);
+});
+
+test('Pedidos de hoy permite reintentar errores y distingue un día sin finalizados', async (t) => {
+  useOrders([]);
+  globalThis.fetch = async () => response({}, 503);
+  const container = await mount(t);
+  const toggle = buttons(container).find((node) => node.textContent.includes('Pedidos de hoy'));
+  assert.ok(toggle);
+  await act(async () => reactProps(toggle).onClick());
+  assert.match(container.textContent, /No pudimos/);
+  assert.doesNotMatch(container.textContent, /Todavía no hay pedidos finalizados hoy/);
+  globalThis.fetch = async () => response([]);
+  const retry = buttons(container).find((node) => node.textContent === 'Actualizar y revisar');
+  await act(async () => reactProps(retry).onClick());
+  assert.match(container.textContent, /Todavía no hay pedidos finalizados hoy/);
+});
 
 test('el tablero conserva repartos asignados, en camino y entregados históricos por cobrar', async (t) => {
   useOrders([

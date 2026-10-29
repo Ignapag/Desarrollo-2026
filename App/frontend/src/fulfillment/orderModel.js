@@ -107,12 +107,13 @@ export function stateCommands(order, role, can = null) {
 }
 
 // Arma la ruta de listado de pedidos con búsqueda, estado, activos y cliente.
-export function ordersPath({ q = '', estado = '', activos, cliente_id } = {}) {
+export function ordersPath({ q = '', estado = '', activos, cliente_id, finalizados_hoy = false } = {}) {
   const query = new URLSearchParams();
   if (q.trim()) query.set('q', q.trim());
   if (estado) query.set('estado', estado);
   if (activos != null) query.set('activos', String(activos));
   if (cliente_id != null) query.set('cliente_id', String(cliente_id));
+  if (finalizados_hoy) query.set('finalizados_hoy', 'true');
   return `/api/pedidos${query.size ? `?${query}` : ''}`;
 }
 

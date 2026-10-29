@@ -68,6 +68,7 @@ async def listar_pedidos(
     q: str | None = None,
     estado: str | None = None,
     activos: bool | None = None,
+    finalizados_hoy: bool = False,
     cliente_id: int | None = Query(default=None, gt=0),
 ) -> list[PedidoSalida]:
     """Lista pedidos con filtros; clientes y repartidores solo ven los propios."""
@@ -80,7 +81,8 @@ async def listar_pedidos(
         raise SinPermiso("El repartidor sólo puede consultar sus viajes")
     repartidor_id = sesion.usuario_id if sesion.rol == Rol.REPARTIDOR else None
     filas = await servicio.listar(
-        cliente_id=cliente_id, repartidor_id=repartidor_id, q=q, estado=estado, activos=activos
+        cliente_id=cliente_id, repartidor_id=repartidor_id, q=q, estado=estado, activos=activos,
+        **({"finalizados_hoy": True} if finalizados_hoy else {}),
     )
     return [PedidoSalida.para_sesion(fila, sesion) for fila in filas]
 

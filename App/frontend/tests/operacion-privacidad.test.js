@@ -6,7 +6,7 @@ import react from '@vitejs/plugin-react';
 import { createTestServer } from './vite-test-server.js';
 import { installMinimalDom, elements, reactProps } from './minimal-dom.js';
 
-let dom, server, createRoot, Orders, DeliveryPanel, OrderDetail, auth;
+let dom, server, createRoot, Orders, DeliveryPanel, OrderDetail, TodayOrders, auth;
 const originalFetch = globalThis.fetch;
 const order = { id: 481, numero: 48, version: 1, estado: 'PENDIENTE', tipo_entrega: 'DELIVERY', cliente: 'Cliente privado', direccion: { calle: 'Domicilio privado', numero: '10', localidad: 'Ensenada' }, metodo_pago_acordado: 'EFECTIVO', total: '1000', saldo_pendiente: '1000', neto_cobrado: '0', items: [], pagos: [], historial: [] };
 const trip = { id: 1, estado: 'PLANIFICADO', repartidor_nombre: 'Rider', envios: [{ id: 2, pedido_id: 481, numero: 48, estado: 'ASIGNADO', cliente_nombre: 'Cliente privado', calle: 'Domicilio privado', total: '1000', saldo_pendiente: '1000' }] };
@@ -22,6 +22,7 @@ before(async () => {
   ({ default: Orders } = await server.ssrLoadModule('/src/fulfillment/Orders.jsx'));
   ({ default: DeliveryPanel } = await server.ssrLoadModule('/src/fulfillment/DeliveryPanel.jsx'));
   ({ default: OrderDetail } = await server.ssrLoadModule('/src/fulfillment/OrderDetail.jsx'));
+  ({ default: TodayOrders } = await server.ssrLoadModule('/src/fulfillment/TodayOrders.jsx'));
   auth = await server.ssrLoadModule('/src/auth/AuthContext.jsx');
 });
 after(async () => { globalThis.fetch = originalFetch; await server?.close(); dom?.restore(); });
@@ -34,6 +35,26 @@ async function mount(t, Component, props = {}) {
 }
 const button = (container, text) => elements(container, (node) => node.localName === 'button' && node.textContent === text)[0];
 const settleSearch = () => act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
+
+for (const status of [401, 403, 503]) {
+  test(`Pedidos de hoy protege sus filas ante HTTP ${status}`, async (t) => {
+    let failure = false;
+    globalThis.fetch = async () => failure ? response({}, status) : response([{ ...order, estado: 'ENTREGADO' }]);
+    const container = await mount(t, TodayOrders);
+    await act(async () => reactProps(button(container, 'Pedidos de hoy')).onClick());
+    assert.match(container.textContent, /Cliente privado/);
+    const refreshes = auth.refreshes;
+    failure = true;
+    await act(async () => reactProps(button(container, 'Actualizar pedidos de hoy')).onClick());
+    if (status === 503) {
+      assert.match(container.textContent, /Cliente privado/);
+      assert.equal(auth.refreshes, refreshes);
+    } else {
+      assert.doesNotMatch(container.textContent, /Cliente privado/);
+      assert.ok(auth.refreshes > refreshes);
+    }
+  });
+}
 
 for (const status of [401, 403, 503]) {
   for (const [ComponentName, label] of [['Orders', 'Actualizar pedidos'], ['DeliveryPanel', 'Actualizar viajes'], ['OrderDetail', 'Actualizar detalle']]) {

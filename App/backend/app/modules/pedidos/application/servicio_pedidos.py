@@ -48,6 +48,7 @@ class RepositorioPedidos(RepositorioEdicionItems, Protocol):
         q: str | None = None,
         estado: str | None = None,
         activos: bool | None = None,
+        finalizados_hoy: bool = False,
     ) -> list[dict]: ...
     async def obtener(self, pedido_id: int, *, bloquear: bool = False) -> dict | None: ...
     async def detalle(self, pedido_id: int) -> dict | None: ...
@@ -480,15 +481,17 @@ class ServicioPedidos:
         q: str | None = None,
         estado: str | None = None,
         activos: bool | None = None,
+        finalizados_hoy: bool = False,
     ) -> list[dict]:
         """Lista pedidos; solo pasa al repositorio los filtros efectivamente recibidos."""
-        if q is not None or estado is not None or activos is not None:
+        if q is not None or estado is not None or activos is not None or finalizados_hoy:
             return await self.repo.listar(
                 cliente_id=cliente_id,
                 repartidor_id=repartidor_id,
                 q=q,
                 estado=estado,
                 activos=activos,
+                **({"finalizados_hoy": True} if finalizados_hoy else {}),
             )
         if repartidor_id is not None:
             return await self.repo.listar(cliente_id=cliente_id, repartidor_id=repartidor_id)
