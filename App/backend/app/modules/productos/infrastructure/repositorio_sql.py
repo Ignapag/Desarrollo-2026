@@ -1,10 +1,11 @@
 """Repositorio SQL parametrizado del catalogo."""
 
+from psycopg.errors import UniqueViolation
 from psycopg.types.json import Jsonb
 
 from app.core.db import UnidadDeTrabajo
 from app.errores import ReglaDeNegocio
-from app.modules.productos.domain.entidades import CambioReceta, DatosProducto
+from app.modules.productos.domain.entidades import CambioProducto, CambioReceta, DatosProducto
 
 
 class RepositorioProductosSQL:
@@ -69,10 +70,10 @@ class RepositorioProductosSQL:
         return productos
 
     async def categoria_existe(self, categoria_id: int) -> bool:
-        """Indica si la categoría existe y está activa."""
+        """Valida y fija la categoría mientras un alta comprueba su nombre único."""
         return bool(
             await self.uow.valor(
-                "SELECT EXISTS (SELECT 1 FROM categoria WHERE id = %s AND activa)",
+                "SELECT id FROM categoria WHERE id = %s AND activa FOR UPDATE",
                 (categoria_id,),
             )
         )
@@ -97,6 +98,28 @@ class RepositorioProductosSQL:
             "SELECT count(*) FROM ingrediente WHERE id = ANY(%s) AND activo", (ids,)
         )
         return cantidad == len(ids)
+
+    async def categoria_edicion(self, categoria_id: int) -> dict | None:
+        """Serializa ediciones de nombres dentro de una categoría y fija su estado."""
+        return await self.uow.uno(
+            "SELECT id,nombre,activa FROM categoria WHERE id=%s FOR UPDATE", (categoria_id,)
+        )
+
+    async def nombre_en_uso(self, categoria_id: int, nombre: str, excepto_id: int) -> bool:
+        """Excluye el producto editado de la validación de unicidad del nombre."""
+        return bool(
+            await self.uow.valor(
+                "SELECT EXISTS(SELECT 1 FROM producto WHERE categoria_id=%s "
+                "AND lower(nombre)=lower(%s) AND id<>%s)",
+                (categoria_id, nombre, excepto_id),
+            )
+        )
+
+    async def ingredientes_edicion(self, ids: list[int]) -> list[dict]:
+        """Fija el estado de los ingredientes mientras se valida y guarda la receta."""
+        return await self.uow.todos(
+            "SELECT id,activo FROM ingrediente WHERE id=ANY(%s) ORDER BY id FOR SHARE", (ids,)
+        )
 
     async def crear(self, datos: DatosProducto) -> dict:
         """Inserta el producto con su receta base y de variantes, y lo devuelve completo."""
@@ -246,6 +269,23 @@ class RepositorioProductosSQL:
             (producto_id, variante),
         )
 
+    async def obtener_edicion(self, producto_id: int, *, bloquear: bool = False) -> dict | None:
+        """Lee metadata y composición bajo la misma versión bloqueada del producto."""
+        receta = await self.obtener_receta(producto_id, bloquear=bloquear)
+        if receta is None:
+            return None
+        producto = await self.uow.uno(
+            "SELECT p.categoria_id,c.nombre AS categoria,p.nombre,p.descripcion,p.precio_base,"
+            "p.imagen_url,p.activo,p.orden FROM producto p JOIN categoria c ON c.id=p.categoria_id "
+            "WHERE p.id=%s",
+            (producto_id,),
+        )
+        categorias = await self.uow.todos(
+            "SELECT id,nombre,activa FROM categoria WHERE activa OR id=%s ORDER BY orden,nombre",
+            (producto["categoria_id"],),
+        )
+        return receta | producto | {"categorias": categorias}
+
     async def guardar_receta(self, producto_id: int, datos: CambioReceta) -> dict:
         # El servicio mantiene FOR UPDATE sobre producto durante toda la UoW.
         fila = await self.uow.uno(
@@ -255,6 +295,41 @@ class RepositorioProductosSQL:
         )
         if fila is None:
             raise ReglaDeNegocio("La receta fue modificada; recargala antes de guardar")
+        await self._guardar_composicion(producto_id, datos)
+        return await self.obtener_receta(producto_id)
+
+    async def guardar_producto(self, producto_id: int, cambio: CambioProducto) -> dict:
+        """Guarda metadata y composición atómicamente sin tocar ventas ni stock."""
+        datos = cambio.producto
+        try:
+            fila = await self.uow.uno(
+                "UPDATE producto SET categoria_id=%s,nombre=%s,descripcion=%s,precio_base=%s,"
+                "imagen_url=%s,activo=%s,orden=%s,variantes=%s,actualizado_en=clock_timestamp() "
+                "WHERE id=%s AND actualizado_en=%s RETURNING id",
+                (
+                    datos.categoria_id,
+                    datos.nombre,
+                    datos.descripcion,
+                    datos.precio_base,
+                    datos.imagen_url,
+                    datos.activo,
+                    datos.orden,
+                    Jsonb([{"nombre": v.nombre, "precio": str(v.precio)} for v in datos.variantes]),
+                    producto_id,
+                    cambio.actualizado_en_esperado,
+                ),
+            )
+        except UniqueViolation as exc:
+            raise ReglaDeNegocio("Ya existe un producto con ese nombre en la categoria") from exc
+        if fila is None:
+            raise ReglaDeNegocio("El producto fue modificado; recargalo antes de guardar")
+        await self._guardar_composicion(producto_id, datos)
+        return await self.obtener_edicion(producto_id)
+
+    async def _guardar_composicion(
+        self, producto_id: int, datos: CambioReceta | DatosProducto
+    ) -> None:
+        """Actualiza relaciones conservando las claves de recetas ya utilizadas."""
         # Solo retira relaciones ausentes; los upserts conservan las claves históricas.
         variantes = [
             {"variante": variante.nombre, "ingrediente_id": item.ingrediente_id}
@@ -291,13 +366,12 @@ class RepositorioProductosSQL:
             )
         await self._guardar_variantes(producto_id, datos.variantes)
         await self._guardar_extras(producto_id, datos.extras)
-        return await self.obtener_receta(producto_id)
 
     async def cambiar_estado(self, producto_id: int, activo: bool) -> dict | None:
         """Activa o desactiva el producto y lo devuelve completo, o ``None`` si no existe."""
         fila = await self.uow.uno(
             """
-            UPDATE producto SET activo = %s, actualizado_en = now()
+            UPDATE producto SET activo = %s, actualizado_en = clock_timestamp()
             WHERE id = %s RETURNING id
             """,
             (activo, producto_id),

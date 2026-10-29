@@ -184,6 +184,20 @@ git diff --stat
 git status --short --branch
 ```
 
+## Comprobar edición de productos en navegador
+
+`npm run test:producto-browser`, desde `App/frontend`, comprueba el editor completo
+en escritorio/móvil contra API y PostgreSQL reales **locales descartables con seed**.
+Requiere `MONU_EDICION_BD_DESCARTABLE=1` después de verificar el destino de la API.
+El script crea y edita productos ficticios: nunca usarlo contra la base compartida.
+`MONU_EDICION_URL` indica Vite (por defecto `http://127.0.0.1:5181`) y
+`MONU_EDICION_API` la API (por defecto `http://127.0.0.1:8002`). Iniciar Vite con
+`VITE_API_URL` hacia esa API y agregar el origen de Vite a `ORIGENES_PERMITIDOS`.
+Playwright y Chromium deben estar instalados externamente; se pueden indicar con
+`MONU_PLAYWRIGHT_PATH` y `MONU_CHROMIUM_PATH`. El reporte y las capturas se guardan
+en la carpeta temporal informada por el script. Las pruebas de renderizado/modelo
+del editor forman parte de `npm run test:panel` y se ejecutan también en CI.
+
 ## Demostración del bot
 
 El bot usa el backend con WhatsApp Cloud API y Gemini, sin n8n.

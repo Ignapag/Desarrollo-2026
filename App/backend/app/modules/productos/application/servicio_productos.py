@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Protocol
 
 from app.errores import DatosInvalidos, NoEncontrado, ReglaDeNegocio
 from app.modules.productos.domain.entidades import (
+    CambioProducto,
     CambioReceta,
     DatosProducto,
     validar_producto,
     validar_recetas_variantes,
 )
+from app.modules.productos.domain.imagenes import validar_imagen_producto
 from app.modules.stock.application.servicio_stock import INGREDIENTES_QUITABLES
 
 
@@ -56,6 +59,11 @@ class RepositorioProductos(Protocol):
     async def cambiar_estado(self, producto_id: int, activo: bool) -> dict | None: ...
     async def obtener_receta(self, producto_id: int, *, bloquear: bool = False) -> dict | None: ...
     async def guardar_receta(self, producto_id: int, datos: CambioReceta) -> dict: ...
+    async def obtener_edicion(self, producto_id: int, *, bloquear: bool = False) -> dict | None: ...
+    async def categoria_edicion(self, categoria_id: int) -> dict | None: ...
+    async def nombre_en_uso(self, categoria_id: int, nombre: str, excepto_id: int) -> bool: ...
+    async def ingredientes_edicion(self, ids: list[int]) -> list[dict]: ...
+    async def guardar_producto(self, producto_id: int, datos: CambioProducto) -> dict: ...
 
 
 class ServicioProductos:
@@ -104,6 +112,77 @@ class ServicioProductos:
         if fila is None:
             raise NoEncontrado("El producto no existe")
         return fila
+
+    async def obtener_edicion(self, producto_id: int) -> dict:
+        """Consulta un producto completo manteniendo su identidad comercial."""
+        fila = await self.repo.obtener_edicion(producto_id)
+        if fila is None:
+            raise NoEncontrado("El producto no existe")
+        return fila
+
+    async def actualizar(self, producto_id: int, cambio: CambioProducto) -> dict:
+        """Guarda un reemplazo integral sobre la versión bloqueada del producto."""
+        try:
+            datos = validar_producto(cambio.producto)
+            datos = replace(datos, imagen_url=validar_imagen_producto(datos.imagen_url))
+        except ValueError as exc:
+            raise DatosInvalidos(str(exc)) from exc
+        _validar_extras(datos)
+        actual = await self.repo.obtener_edicion(producto_id, bloquear=True)
+        if actual is None:
+            raise NoEncontrado("El producto no existe")
+        if actual["actualizado_en"] != cambio.actualizado_en_esperado:
+            raise ReglaDeNegocio("El producto fue modificado; recargalo antes de guardar")
+        categoria = await self.repo.categoria_edicion(datos.categoria_id)
+        historica_inactiva = datos.categoria_id == actual["categoria_id"] and (
+            not datos.activo or actual["activo"]
+        )
+        if categoria is None or not categoria["activa"] and not historica_inactiva:
+            raise DatosInvalidos("La categoria no existe o esta inactiva")
+        if categoria["nombre"].strip().casefold() == "dips extra" and datos.extras:
+            raise DatosInvalidos("Dips Extra no admite ingredientes extra")
+        if await self.repo.nombre_en_uso(datos.categoria_id, datos.nombre, producto_id):
+            raise ReglaDeNegocio("Ya existe un producto con ese nombre en la categoria")
+        await self._validar_ingredientes_edicion(actual, datos)
+        return await self.repo.guardar_producto(producto_id, replace(cambio, producto=datos))
+
+    async def _validar_ingredientes_edicion(self, actual: dict, datos: DatosProducto) -> None:
+        """Los insumos inactivos sólo pueden conservar sus relaciones históricas."""
+        estados = await self.repo.ingredientes_edicion(
+            [i.ingrediente_id for i in datos.ingredientes]
+        )
+        por_id = {i["id"]: i["activo"] for i in estados}
+        if set(por_id) != {i.ingrediente_id for i in datos.ingredientes}:
+            raise DatosInvalidos("La receta contiene ingredientes inexistentes")
+        previas = {None: actual["ingredientes"]} | {
+            v["nombre"]: v["ingredientes"] for v in actual["variantes"]
+        }
+        nuevas = [(None, datos.ingredientes)] + [
+            (v.nombre, v.ingredientes) for v in datos.variantes
+        ]
+        for variante, ingredientes in nuevas:
+            historicos = {i["ingrediente_id"]: i for i in previas.get(variante, [])}
+            for ingrediente in ingredientes:
+                if por_id[ingrediente.ingrediente_id]:
+                    continue
+                anterior = historicos.get(ingrediente.ingrediente_id)
+                if anterior is None or (
+                    ingrediente.cantidad_requerida != anterior["cantidad_requerida"]
+                    or ingrediente.es_base != anterior["es_base"]
+                ):
+                    raise DatosInvalidos(
+                        "Un ingrediente inactivo solo puede conservar su receta historica"
+                    )
+        extras_previos = {e["ingrediente_id"]: e for e in actual["extras"]}
+        for extra in datos.extras:
+            if por_id[extra.ingrediente_id]:
+                continue
+            anterior = extras_previos.get(extra.ingrediente_id)
+            if anterior is None or (
+                extra.cantidad_requerida != anterior["cantidad_requerida"]
+                or extra.max_por_item != anterior["max_por_item"]
+            ):
+                raise DatosInvalidos("No se puede habilitar nueva demanda de un extra inactivo")
 
     async def actualizar_receta(self, producto_id: int, datos: CambioReceta) -> dict:
         """Reemplaza la receta de un producto con control de concurrencia optimista.

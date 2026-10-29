@@ -7,7 +7,9 @@ from fastapi import APIRouter, Depends, status
 from app.modules.productos.presentation.dependencias import ServicioProductosDep
 from app.modules.productos.presentation.esquemas import (
     EstadoProductoEntrada,
+    ProductoActualizar,
     ProductoCrear,
+    ProductoEdicionSalida,
     ProductoSalida,
     RecetaActualizar,
     RecetaSalida,
@@ -53,6 +55,27 @@ async def obtener_receta(
 ) -> RecetaSalida:
     """Devuelve la receta base y por variante de un producto."""
     return RecetaSalida(**await servicio.obtener_receta(producto_id))
+
+
+@router.get("/{producto_id}", response_model=ProductoEdicionSalida)
+async def obtener_producto_edicion(
+    producto_id: int,
+    _sesion: PermisoProductosVerReceta,
+    servicio: ServicioProductosDep,
+) -> ProductoEdicionSalida:
+    """Consulta los datos completos del editor sin exponerlos al menú público."""
+    return ProductoEdicionSalida(**await servicio.obtener_edicion(producto_id))
+
+
+@router.put("/{producto_id}", response_model=ProductoEdicionSalida)
+async def actualizar_producto(
+    producto_id: int,
+    datos: ProductoActualizar,
+    _sesion: PermisoProductosGestionar,
+    servicio: ServicioProductosDep,
+) -> ProductoEdicionSalida:
+    """Guarda datos comerciales, variantes, receta y extras del producto existente."""
+    return ProductoEdicionSalida(**await servicio.actualizar(producto_id, datos.a_dominio()))
 
 
 @router.put("/{producto_id}/receta", response_model=RecetaSalida)

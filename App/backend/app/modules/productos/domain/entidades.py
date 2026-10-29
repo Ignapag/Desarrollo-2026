@@ -69,6 +69,14 @@ class DatosProducto:
     extras: tuple[ExtraProducto, ...] = ()
 
 
+@dataclass(frozen=True, slots=True)
+class CambioProducto:
+    """Edición integral sobre una versión concreta del producto."""
+
+    actualizado_en_esperado: datetime
+    producto: DatosProducto
+
+
 def validar_receta(ingredientes: tuple[IngredienteProducto, ...]) -> None:
     """Valida una receta: al menos un ingrediente, cantidades válidas y sin repetidos.
 

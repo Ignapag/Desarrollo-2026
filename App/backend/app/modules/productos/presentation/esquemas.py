@@ -6,6 +6,7 @@ from decimal import Decimal
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.modules.productos.domain.entidades import (
+    CambioProducto,
     CambioReceta,
     DatosProducto,
     ExtraProducto,
@@ -14,6 +15,7 @@ from app.modules.productos.domain.entidades import (
     VarianteReceta,
     validar_recetas_variantes,
 )
+from app.modules.productos.domain.imagenes import validar_imagen_producto
 
 
 class IngredienteProductoEntrada(BaseModel):
@@ -112,6 +114,25 @@ class ProductoCrear(BaseModel):
         )
 
 
+class ProductoActualizar(ProductoCrear):
+    """Reemplazo completo de los datos editables con control de concurrencia."""
+
+    actualizado_en_esperado: AwareDatetime
+    descripcion: str | None = Field(default=None, max_length=5000)
+    orden: int = Field(default=0, ge=0, le=2147483647, strict=True)
+
+    @field_validator("imagen_url")
+    @classmethod
+    def validar_imagen(cls, valor: str | None) -> str | None:
+        """Excluye contenido activo y limita el tamaño de raster embebido."""
+        return validar_imagen_producto(valor)
+
+    def a_dominio(self) -> CambioProducto:
+        """Convierte el reemplazo HTTP a datos y versión del dominio."""
+        datos = ProductoCrear(**self.model_dump(exclude={"actualizado_en_esperado"}))
+        return CambioProducto(self.actualizado_en_esperado, datos.a_dominio())
+
+
 class RecetaActualizar(BaseModel):
     """Nueva receta de un producto con la marca de tiempo esperada (concurrencia)."""
 
@@ -169,6 +190,28 @@ class RecetaSalida(BaseModel):
     ingredientes: list[IngredienteRecetaSalida]
     variantes: list[VarianteRecetaSalida]
     extras: list[ExtraProductoEntrada] = Field(default_factory=list)
+
+
+class CategoriaEdicionSalida(BaseModel):
+    """Categoría disponible para el editor; incluye la actual aunque esté inactiva."""
+
+    id: int
+    nombre: str
+    activa: bool
+
+
+class ProductoEdicionSalida(RecetaSalida):
+    """Datos comerciales, receta y opciones que se editan en una sola transacción."""
+
+    categoria_id: int
+    categoria: str
+    nombre: str
+    descripcion: str | None
+    precio_base: Decimal
+    imagen_url: str | None
+    activo: bool
+    orden: int
+    categorias: list[CategoriaEdicionSalida]
 
 
 class VarianteProductoSalida(BaseModel):

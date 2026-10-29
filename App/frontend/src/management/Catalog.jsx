@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { Plus, Trash2, Check, Image as ImageIcon } from 'lucide-react';
 import RecipeEditor from './RecipeEditor';
 import RecipeModal from './RecipeModal';
+import ProductEditorModal from './ProductEditorModal';
 import InactiveProducts from './InactiveProducts';
 import { newRecipe, serializeRecipe } from './recipeModel';
 
@@ -32,6 +33,7 @@ export default function Catalog() {
   const deleteBusy = useRef(false);
   const [deleting, setDeleting] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
+  const [fullEditingProduct, setFullEditingProduct] = useState(null);
   const [recipe, setRecipe] = useState(newRecipe);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
@@ -248,6 +250,7 @@ export default function Catalog() {
                   ${product.price ? product.price.toLocaleString('es-AR') : product.variants?.[0]?.price?.toLocaleString('es-AR')}
                 </td>
                 <td className="p-4 text-right">
+                  {can(user, 'productos.gestionar') && <button type="button" onClick={() => setFullEditingProduct(product)} aria-label={`Editar producto ${product.name}`} className="mr-2 min-h-11 rounded-lg bg-monu-green px-3 py-2 font-bold text-white hover:bg-monu-dark focus-visible:ring-2 focus-visible:ring-monu-green focus-visible:ring-offset-2">Editar</button>}
                   <button disabled={!can(user, 'productos.ver_receta')} onClick={() => setEditingProduct(product)} className="min-h-11 rounded-lg border border-monu-green/20 px-3 py-2 font-bold text-monu-green hover:bg-monu-cream focus-visible:ring-2 focus-visible:ring-monu-green" aria-label={`Editar receta de ${product.name}`}>Receta</button>
                   {deletingId === product.id ? (
                     <div className="flex flex-col gap-1 items-end">
@@ -268,7 +271,8 @@ export default function Catalog() {
           </tbody>
         </table>
       </div>
-      {can(user, 'productos.gestionar') && <InactiveProducts key={user.id} revision={state.catalog} query={query} />}
+      {can(user, 'productos.gestionar') && <InactiveProducts key={user.id} revision={state.catalog} query={query} onEdit={(product) => setFullEditingProduct({ id: product.id, name: product.nombre })} />}
+      {fullEditingProduct && <ProductEditorModal key={`product-editor-${fullEditingProduct.id}`} product={fullEditingProduct} onClose={() => setFullEditingProduct(null)} />}
       {/* Editor de receta del producto elegido */}
       {editingProduct && <RecipeModal key={editingProduct.id} product={editingProduct} onClose={() => setEditingProduct(null)} />}
     </div>

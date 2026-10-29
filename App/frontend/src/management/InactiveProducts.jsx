@@ -4,7 +4,7 @@ import { apiFetch } from '../shared/api/http';
 import { UserFacingError, userErrorMessage } from '../shared/api/userErrors';
 import { useData } from '../shared/store/DataContext';
 
-export default function InactiveProducts({ revision, query = '' }) {
+export default function InactiveProducts({ revision, query = '', onEdit }) {
   const { reactivateProduct } = useData();
   const [expanded, setExpanded] = useState(false);
   const [records, setRecords] = useState(null);
@@ -29,7 +29,8 @@ export default function InactiveProducts({ revision, query = '' }) {
       try {
         const products = await apiFetch('/api/productos?solo_activos=false', { signal: controller.signal });
         if (!Array.isArray(products) || products.some((product) => !Number.isInteger(product?.id) || typeof product.nombre !== 'string' || typeof product.activo !== 'boolean')) throw new UserFacingError('No pudimos confirmar la lista de productos inactivos.');
-        if (!controller.signal.aborted) setRecords(products.filter((product) => !product.activo));
+        const publicIds = new Set(Array.isArray(revision) ? revision.map((product) => product.id) : []);
+        if (!controller.signal.aborted) setRecords(products.filter((product) => !product.activo || (Array.isArray(revision) && !publicIds.has(product.id))));
       } catch (error) {
         if (!controller.signal.aborted) setFeedback({ error: true, text: userErrorMessage(error, 'No pudimos consultar los productos inactivos. Intentá nuevamente.') });
       } finally {
@@ -63,15 +64,15 @@ export default function InactiveProducts({ revision, query = '' }) {
       <h2 id="productos-inactivos-titulo"><button ref={toggle} type="button" aria-expanded={expanded} aria-controls="productos-inactivos-lista" disabled={pending !== null} onClick={() => setExpanded((value) => !value)} className="min-h-11 rounded-lg px-2 text-lg font-bold text-monu-dark underline focus-visible:ring-2 focus-visible:ring-monu-green disabled:opacity-50">Productos inactivos</button></h2>
       {expanded && <button type="button" disabled={loading || pending !== null} onClick={() => { setFeedback(null); setRetry((value) => value + 1); }} className="min-h-11 rounded-lg border border-monu-green/30 px-3 font-bold text-monu-green focus-visible:ring-2 focus-visible:ring-monu-green disabled:opacity-50">Actualizar lista</button>}
     </div>
-    <p className="text-sm text-monu-text">Los productos desactivados conservan sus datos y se pueden volver a habilitar.</p>
+    <p className="text-sm text-monu-text">Los productos desactivados conservan sus datos y se pueden volver a habilitar. También podés editar productos ocultos por su categoría.</p>
     {feedback && <p role={feedback.error ? 'alert' : 'status'} className={feedback.error ? 'text-red-700' : 'text-monu-green'}>{feedback.text}</p>}
     <div id="productos-inactivos-lista" hidden={!expanded} aria-busy={loading || pending !== null}>
       {loading && <p role="status" className="py-2">Consultando productos inactivos…</p>}
       {!loading && records !== null && <>
         {!visible.length && <p className="py-2 text-sm">{records.length ? 'No hay productos inactivos que coincidan con la búsqueda.' : 'No hay productos inactivos.'}</p>}
         <ul className="divide-y divide-monu-green/10">{visible.map((product) => <li key={product.id} className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0"><p className="font-bold break-words text-monu-dark">{product.nombre}</p><p className="text-sm text-monu-text">{product.categoria} · Inactivo</p></div>
-          <button type="button" disabled={pending !== null} aria-busy={pending === product.id} aria-label={`Reactivar ${product.nombre}`} onClick={() => reactivate(product)} className="min-h-11 shrink-0 rounded-lg bg-monu-green px-4 py-2 font-bold text-white hover:bg-monu-dark focus-visible:ring-2 focus-visible:ring-monu-green focus-visible:ring-offset-2 disabled:opacity-50">{pending === product.id ? 'Reactivando…' : 'Reactivar'}</button>
+          <div className="min-w-0"><p className="font-bold break-words text-monu-dark">{product.nombre}</p><p className="text-sm text-monu-text">{product.categoria} · {product.activo ? 'Fuera del menú' : 'Inactivo'}</p></div>
+          <div className="flex flex-wrap gap-2">{onEdit && <button type="button" disabled={pending !== null} aria-label={`Editar producto ${product.nombre}`} onClick={() => onEdit(product)} className="min-h-11 rounded-lg border border-monu-green/20 px-4 py-2 font-bold text-monu-green focus-visible:ring-2 focus-visible:ring-monu-green disabled:opacity-50">Editar</button>}{!product.activo && <button type="button" disabled={pending !== null} aria-busy={pending === product.id} aria-label={`Reactivar ${product.nombre}`} onClick={() => reactivate(product)} className="min-h-11 shrink-0 rounded-lg bg-monu-green px-4 py-2 font-bold text-white hover:bg-monu-dark focus-visible:ring-2 focus-visible:ring-monu-green focus-visible:ring-offset-2 disabled:opacity-50">{pending === product.id ? 'Reactivando…' : 'Reactivar'}</button>}</div>
         </li>)}</ul>
       </>}
     </div>
