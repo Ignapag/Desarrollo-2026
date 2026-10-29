@@ -43,6 +43,7 @@ async def clientes(
     q: str | None = None,
     limite: int = Query(default=50, ge=1, le=100),
     desplazamiento: int = Query(default=0, ge=0),
+    incluir_inactivos: bool = False,
 ) -> DirectorioClientes:
     """Directorio paginado de clientes con búsqueda por nombre o teléfono."""
     datos = await servicio.clientes(
@@ -50,6 +51,7 @@ async def clientes(
         q=q,
         limite=limite,
         desplazamiento=desplazamiento,
+        incluir_inactivos=incluir_inactivos,
         autorizado=sesion.puede("clientes.ver"),
     )
     return DirectorioClientes(**datos)

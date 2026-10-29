@@ -501,7 +501,7 @@ class ServicioStock:
         *,
         nombre: str | None = None,
         responsable_id: int | None = None,
-        activo: bool | None = None,
+        activo: bool | None = True,
         nivel: str | None = None,
     ) -> list[dict]:
         """Lista ingredientes validando los filtros de nivel y responsable."""

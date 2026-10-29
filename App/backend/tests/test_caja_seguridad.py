@@ -18,7 +18,7 @@ from app.modules.pagos.infrastructure.repositorio_caja_sql import RepositorioCaj
 from app.modules.pagos.infrastructure.repositorio_sql import RepositorioPagosSQL
 from app.modules.pagos.presentation.dependencias import obtener_servicio_conciliacion
 from app.modules.pagos.presentation.router_caja import router
-from tests.soporte_bd import conectar_o_omitir
+from tests.soporte_bd import conectar_o_omitir, mantenimiento_pruebas
 from tests.test_pagos_privacidad import aplicacion, sesion
 
 
@@ -47,20 +47,21 @@ async def datos_caja():
         yield pedido, pago, actor, fecha
     finally:
         await conn.rollback()
-        await uow.ejecutar(
-            "DELETE FROM auditoria WHERE (entidad='pago' AND entidad_id IN "
-            "(SELECT id::text FROM pago WHERE pedido_id=%s)) OR "
-            "(entidad='cierre_caja' AND entidad_id IN "
-            "(SELECT id::text FROM cierre_caja WHERE fecha BETWEEN %s AND %s))",
-            (pedido, fecha, fecha + timedelta(days=1)),
-        )
-        await uow.ejecutar("DELETE FROM pago WHERE pedido_id=%s", (pedido,))
-        await uow.ejecutar("DELETE FROM pedido WHERE id=%s", (pedido,))
-        await uow.ejecutar("DELETE FROM cliente WHERE id=%s", (cliente,))
-        await uow.ejecutar(
-            "DELETE FROM cierre_caja WHERE fecha BETWEEN %s AND %s",
-            (fecha, fecha + timedelta(days=1)),
-        )
+        async with mantenimiento_pruebas(uow):
+            await uow.ejecutar(
+                "DELETE FROM auditoria WHERE (entidad='pago' AND entidad_id IN "
+                "(SELECT id::text FROM pago WHERE pedido_id=%s)) OR "
+                "(entidad='cierre_caja' AND entidad_id IN "
+                "(SELECT id::text FROM cierre_caja WHERE fecha BETWEEN %s AND %s))",
+                (pedido, fecha, fecha + timedelta(days=1)),
+            )
+            await uow.ejecutar("DELETE FROM pago WHERE pedido_id=%s", (pedido,))
+            await uow.ejecutar("DELETE FROM pedido WHERE id=%s", (pedido,))
+            await uow.ejecutar("DELETE FROM cliente WHERE id=%s", (cliente,))
+            await uow.ejecutar(
+                "DELETE FROM cierre_caja WHERE fecha BETWEEN %s AND %s",
+                (fecha, fecha + timedelta(days=1)),
+            )
         await conn.commit()
         await conn.close()
 
@@ -150,10 +151,21 @@ async def test_http_caja_autoria_siempre_proviene_de_la_sesion(uow):
         assert cierre["generado_por"] == actor
         assert aprobacion.json()["aprobado_por"] == actor
     autores = await uow.todos(
-        "SELECT usuario_id FROM auditoria WHERE entidad='cierre_caja' AND entidad_id=%s",
+        "SELECT usuario_id FROM auditoria WHERE entidad='cierre_caja' AND entidad_id=%s "
+        "AND accion IN ('CIERRE_GENERADO','CIERRE_APROBADO')",
         (str(cierre["id"]),),
     )
     assert len(autores) == 2 and all(a["usuario_id"] == actor for a in autores)
+    # La aplicación de esta suite sustituye la resolución de sesión; los eventos
+    # automáticos se comprueban aparte de la atribución explícita de negocio.
+    automaticos = await uow.todos(
+        "SELECT accion,datos FROM auditoria WHERE entidad='cierre_caja' AND entidad_id=%s "
+        "AND accion IN ('DATOS_INSERTADOS','DATOS_MODIFICADOS') ORDER BY id",
+        (str(cierre["id"]),),
+    )
+    assert [e["datos"]["operacion"] for e in automaticos] == ["INSERT", "UPDATE"]
+    assert automaticos[0]["datos"]["antes"] is None
+    assert automaticos[1]["datos"]["despues"]["estado"] == "APROBADO"
 
 
 async def test_aprobado_no_cambia_y_acreditacion_tardia_arrastra_a_proximo_cierre(datos_caja):

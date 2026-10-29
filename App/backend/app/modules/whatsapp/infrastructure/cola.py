@@ -188,7 +188,7 @@ class ColaWhatsAppSQL:
         )
         items_pedido = await self.uow.todos(
             """SELECT pedido_id,nombre_producto nombre,cantidad,aclaraciones FROM pedido_item
-            WHERE pedido_id = ANY(%s) ORDER BY id""",
+            WHERE pedido_id = ANY(%s) AND eliminado_en IS NULL ORDER BY id""",
             ([a["pedido_id"] for a in atenciones if a["pedido_id"]],),
         )
         nombres = {

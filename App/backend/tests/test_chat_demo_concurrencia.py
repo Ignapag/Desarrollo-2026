@@ -13,7 +13,7 @@ from app.core.dependencias import obtener_uow
 from app.core.errores import manejador_error_dominio
 from app.errores import ErrorDominio
 from app.modules.whatsapp.domain.mensajes import hash_referencia
-from tests.soporte_bd import conectar_o_omitir
+from tests.soporte_bd import conectar_o_omitir, mantenimiento_pruebas
 from tests.test_whatsapp_bd import datos_prueba
 
 
@@ -79,8 +79,11 @@ async def test_doble_click_concurrente_confirma_una_entrada_y_recupera_conexion_
                 await db.ejecutar(
                     "DELETE FROM whatsapp_entrada WHERE telefono=%s", (sesion["telefono"],)
                 )
-                await db.ejecutar(
-                    "DELETE FROM whatsapp_borrador WHERE telefono=%s", (sesion["telefono"],)
-                )
-                await db.ejecutar("DELETE FROM chat_demo_sesion WHERE token_hash=%s", (token_hash,))
-                await db.ejecutar("DELETE FROM cliente WHERE id=%s", (sesion["cliente_id"],))
+                async with mantenimiento_pruebas(db):
+                    await db.ejecutar(
+                        "DELETE FROM whatsapp_borrador WHERE telefono=%s", (sesion["telefono"],)
+                    )
+                    await db.ejecutar(
+                        "DELETE FROM chat_demo_sesion WHERE token_hash=%s", (token_hash,),
+                    )
+                    await db.ejecutar("DELETE FROM cliente WHERE id=%s", (sesion["cliente_id"],))

@@ -15,7 +15,10 @@ class RepositorioReportesSQL:
         """Recibe la unidad de trabajo cuya transacción comparten las consultas."""
         self.uow = uow
 
-    async def clientes(self, *, q: str | None, limite: int, desplazamiento: int) -> dict:
+    async def clientes(
+        self, *, q: str | None, limite: int, desplazamiento: int,
+        incluir_inactivos: bool = False,
+    ) -> dict:
         """Devuelve una página del directorio de clientes con su actividad y zona frecuente.
 
         Ordena por último pedido y permite buscar por nombre o teléfono.
@@ -36,7 +39,8 @@ class RepositorioReportesSQL:
                     SELECT p.creado_en FROM pedido p WHERE p.cliente_id = c.id
                     ORDER BY p.creado_en DESC LIMIT 1
                 ) ultimo ON true
-                WHERE (%s::text IS NULL OR
+                WHERE (%s::boolean OR c.estado = 'ACTIVO')
+                  AND (%s::text IS NULL OR
                        concat_ws(' ', c.nombre, u.nombre, u.apellido,
                                  c.telefono_whatsapp) ILIKE '%%' || %s || '%%')
             ), pagina AS MATERIALIZED (
@@ -72,7 +76,7 @@ class RepositorioReportesSQL:
             ) zona ON c.id IS NOT NULL
             ORDER BY c.ultimo_pedido_en DESC NULLS LAST, c.id DESC
             """,
-            (q, q, limite, desplazamiento),
+            (incluir_inactivos, q, q, limite, desplazamiento),
         )
         # El total de candidatos viene repetido en cada fila; se separa del listado.
         total = filas[0]["total"]
@@ -137,7 +141,7 @@ class RepositorioReportesSQL:
             JOIN pedido p ON p.id = pi.pedido_id
             JOIN producto pr ON pr.id = pi.producto_id
             JOIN categoria c ON c.id = pr.categoria_id
-            WHERE p.estado = ANY(%s) AND p.confirmado_en IS NOT NULL
+            WHERE p.estado = ANY(%s) AND p.confirmado_en IS NOT NULL AND pi.eliminado_en IS NULL
               AND (p.confirmado_en AT TIME ZONE %s)::date >= %s
               AND (p.confirmado_en AT TIME ZONE %s)::date <= %s
               AND (%s::bigint IS NULL OR c.id = %s)
@@ -154,7 +158,7 @@ class RepositorioReportesSQL:
             JOIN pedido p ON p.id = pi.pedido_id
             JOIN producto pr ON pr.id = pi.producto_id
             JOIN categoria c ON c.id = pr.categoria_id
-            WHERE p.estado = ANY(%s) AND p.confirmado_en IS NOT NULL
+            WHERE p.estado = ANY(%s) AND p.confirmado_en IS NOT NULL AND pi.eliminado_en IS NULL
               AND (p.confirmado_en AT TIME ZONE %s)::date >= %s
               AND (p.confirmado_en AT TIME ZONE %s)::date <= %s
               AND (%s::bigint IS NULL OR c.id = %s)
@@ -216,7 +220,7 @@ class RepositorioReportesSQL:
             JOIN pedido p ON p.id = pi.pedido_id
             JOIN producto pr ON pr.id = pi.producto_id
             JOIN producto_costo pc ON pc.producto_id = pr.id
-            WHERE p.estado = ANY(%s) AND p.confirmado_en IS NOT NULL
+            WHERE p.estado = ANY(%s) AND p.confirmado_en IS NOT NULL AND pi.eliminado_en IS NULL
               AND (p.confirmado_en AT TIME ZONE %s)::date >= %s
               AND (p.confirmado_en AT TIME ZONE %s)::date <= %s
               AND (%s::bigint IS NULL OR pr.categoria_id = %s)

@@ -78,7 +78,8 @@ class RepositorioBotSQL:
         return await self.uow.todos(
             """SELECT b.referencia_hash,p.numero,
                 COALESCE((SELECT string_agg(it.cantidad || ' × ' || it.nombre_producto, ', '
-                    ORDER BY it.id) FROM pedido_item it WHERE it.pedido_id=p.id),
+                    ORDER BY it.id) FROM pedido_item it
+                    WHERE it.pedido_id=p.id AND it.eliminado_en IS NULL),
                     'Carrito pendiente de completar') AS descripcion
             FROM whatsapp_borrador b LEFT JOIN pedido p ON p.id=b.pedido_id
             WHERE b.telefono=%s AND b.ultimo_mensaje_en IS NOT NULL
@@ -311,7 +312,10 @@ class RepositorioBotSQL:
         )
         pedido["asignado"] = pedido["envio_id"] is not None
         pedido["items"] = await self.uow.todos(
-            "SELECT * FROM pedido_item WHERE pedido_id=%s ORDER BY id", (pedido_id,)
+            "SELECT id,pedido_id,producto_id,nombre_producto,cantidad,precio_unitario,"
+            "costo_opciones,subtotal,aclaraciones,variante,receta_snapshot "
+            "FROM pedido_item WHERE pedido_id=%s AND eliminado_en IS NULL ORDER BY id",
+            (pedido_id,),
         )
         pedido["fondos"] = await self.uow.todos(
             "SELECT id,tipo,metodo_pago,monto,estado FROM pago WHERE pedido_id=%s ORDER BY id",
@@ -361,7 +365,8 @@ class RepositorioBotSQL:
         """Ingredientes de la receta vigente del producto."""
         return await self.uow.todos(
             """SELECT i.nombre, pi.es_base FROM producto_ingrediente pi
-            JOIN ingrediente i ON i.id=pi.ingrediente_id WHERE pi.producto_id=%s
+            JOIN ingrediente i ON i.id=pi.ingrediente_id
+            WHERE pi.producto_id=%s AND pi.eliminado_en IS NULL
             ORDER BY i.nombre, i.id""",
             (producto_id,),
         )
@@ -397,6 +402,7 @@ class RepositorioBotSQL:
                 UNION ALL
                 SELECT it.indice,pi.ingrediente_id,pi.es_base FROM items it
                 JOIN producto_ingrediente pi ON pi.producto_id=it.producto_id
+                    AND pi.eliminado_en IS NULL
                 WHERE it.receta_snapshot IS NULL
             ) SELECT r.indice,i.nombre,r.es_base FROM recetas r
             JOIN ingrediente i ON i.id=r.ingrediente_id ORDER BY r.indice,i.nombre,i.id""",
@@ -436,13 +442,14 @@ class RepositorioBotSQL:
         """
         await self.uow.ejecutar(
             """UPDATE pedido_item SET cantidad=%s,aclaraciones=%s,
-            subtotal=(precio_unitario+costo_opciones)*%s WHERE id=%s""",
+            subtotal=(precio_unitario+costo_opciones)*%s WHERE id=%s AND eliminado_en IS NULL""",
             (cantidad, aclaraciones, cantidad, item["id"]),
         )
         await self.uow.ejecutar(
             """UPDATE pedido SET subtotal=s.subtotal,
             total=s.subtotal+costo_envio-descuento_total,version=version+1 FROM
-            (SELECT sum(subtotal) subtotal FROM pedido_item WHERE pedido_id=%s) s
+            (SELECT sum(subtotal) subtotal FROM pedido_item
+             WHERE pedido_id=%s AND eliminado_en IS NULL) s
             WHERE pedido.id=%s""",
             (pedido["id"], pedido["id"]),
         )

@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { Plus, Trash2, Check, Image as ImageIcon } from 'lucide-react';
 import RecipeEditor from './RecipeEditor';
 import RecipeModal from './RecipeModal';
+import InactiveProducts from './InactiveProducts';
 import { newRecipe, serializeRecipe } from './recipeModel';
 
 /** Gestión del catálogo de productos del menú. */
@@ -257,7 +258,7 @@ export default function Catalog() {
                       </div>
                     </div>
                   ) : (
-                    <button disabled={deleting || !can(user, 'productos.gestionar')} onClick={() => setDeletingId(product.id)} className="min-h-11 min-w-11 p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition" aria-label={`Desactivar ${product.name}`} title="Eliminar">
+                    <button disabled={deleting || !can(user, 'productos.gestionar')} onClick={() => setDeletingId(product.id)} className="min-h-11 min-w-11 p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition" aria-label={`Desactivar ${product.name}`} title="Desactivar">
                       <Trash2 className="w-5 h-5" />
                     </button>
                   )}
@@ -267,6 +268,7 @@ export default function Catalog() {
           </tbody>
         </table>
       </div>
+      {can(user, 'productos.gestionar') && <InactiveProducts key={user.id} revision={state.catalog} query={query} />}
       {/* Editor de receta del producto elegido */}
       {editingProduct && <RecipeModal key={editingProduct.id} product={editingProduct} onClose={() => setEditingProduct(null)} />}
     </div>

@@ -10,8 +10,10 @@ from app.modules.pedidos.presentation.dependencias import ServicioPedidosDep
 from app.modules.pedidos.presentation.esquemas import (
     CambiarEstadoEntrada,
     EditarOperacionEntrada,
+    ItemPedidoSalida,
     PedidoCrear,
     PedidoSalida,
+    RecuperarItemEntrada,
 )
 from app.modules.usuarios.domain.entidades import ClaimsSesion, Rol
 from app.modules.usuarios.presentation.dependencias import requiere_permiso
@@ -97,6 +99,31 @@ async def detalle_pedido(
         pedido_id,
         cliente_id=cliente_id,
         repartidor_id=sesion.usuario_id if sesion.rol == Rol.REPARTIDOR else None,
+    )
+    return PedidoSalida.para_sesion(fila, sesion)
+
+
+@router.get("/{pedido_id}/items-retirados", response_model=list[ItemPedidoSalida])
+async def items_retirados(
+    pedido_id: int, sesion: PermisoPedidosEditar, servicio: ServicioPedidosDep
+) -> list[ItemPedidoSalida]:
+    """Consulta bajas recuperables con los mismos permisos de edición del pedido."""
+    if sesion.rol == Rol.REPARTIDOR:
+        await servicio.detalle(pedido_id, repartidor_id=sesion.usuario_id)
+    return [ItemPedidoSalida(**i) for i in await servicio.items_retirados(pedido_id)]
+
+
+@router.post("/{pedido_id}/items/{item_id}/recuperar", response_model=PedidoSalida)
+async def recuperar_item(
+    pedido_id: int, item_id: int, datos: RecuperarItemEntrada,
+    sesion: PermisoPedidosEditar, servicio: ServicioPedidosDep,
+) -> PedidoSalida:
+    """Recupera una baja propia revalidando versión, estado, catálogo y stock."""
+    if sesion.rol == Rol.REPARTIDOR:
+        await servicio.detalle(pedido_id, repartidor_id=sesion.usuario_id)
+    fila = await servicio.recuperar_item(
+        pedido_id, item_id, version_esperada=datos.version_esperada,
+        usuario_id=sesion.usuario_id,
     )
     return PedidoSalida.para_sesion(fila, sesion)
 

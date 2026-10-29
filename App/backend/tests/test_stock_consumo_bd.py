@@ -20,7 +20,7 @@ from app.modules.stock.application.servicio_stock import (
 )
 from app.modules.stock.domain.entidades import ItemConsumoStock
 from app.modules.stock.infrastructure.repositorio_sql import RepositorioStockSQL
-from tests.soporte_bd import conectar_o_omitir
+from tests.soporte_bd import conectar_o_omitir, mantenimiento_pruebas
 
 
 async def escenario(unidad, *, saldo=Decimal("2"), dos_ingredientes=False):
@@ -218,31 +218,34 @@ async def escenario_concurrente():
             pedido_b, item_b = await crear_pedido(unidad, cliente_id, producto_id)
         yield producto_id, ingrediente_id, pedido_a, pedido_b
     finally:
-        if "pedido_a" in locals():
-            async with conn.transaction():
-                categoria_id = await unidad.valor(
-                    "SELECT categoria_id FROM producto WHERE id = %s", (producto_id,)
-                )
-                await unidad.ejecutar(
-                    "DELETE FROM movimiento_stock WHERE pedido_id = ANY(%s)",
-                    ([pedido_a, pedido_b],),
-                )
-                await unidad.ejecutar(
-                    "DELETE FROM pedido_item WHERE id = ANY(%s)", ([item_a, item_b],)
-                )
-                await unidad.ejecutar(
-                    "DELETE FROM pedido WHERE id = ANY(%s)", ([pedido_a, pedido_b],)
-                )
-                await unidad.ejecutar(
-                    "DELETE FROM producto_ingrediente WHERE producto_id = %s", (producto_id,)
-                )
-                await unidad.ejecutar("DELETE FROM producto WHERE id = %s", (producto_id,))
-                await unidad.ejecutar("DELETE FROM ingrediente WHERE id = %s", (ingrediente_id,))
-                await unidad.ejecutar("DELETE FROM categoria WHERE id = %s", (categoria_id,))
-                usuario_id = await unidad.valor(
-                    "DELETE FROM cliente WHERE id = %s RETURNING usuario_id", (cliente_id,)
-                )
-                await unidad.ejecutar("DELETE FROM usuario WHERE id = %s", (usuario_id,))
+        async with mantenimiento_pruebas(unidad):
+            if "pedido_a" in locals():
+                async with conn.transaction():
+                    categoria_id = await unidad.valor(
+                        "SELECT categoria_id FROM producto WHERE id = %s", (producto_id,)
+                    )
+                    await unidad.ejecutar(
+                        "DELETE FROM movimiento_stock WHERE pedido_id = ANY(%s)",
+                        ([pedido_a, pedido_b],),
+                    )
+                    await unidad.ejecutar(
+                        "DELETE FROM pedido_item WHERE id = ANY(%s)", ([item_a, item_b],)
+                    )
+                    await unidad.ejecutar(
+                        "DELETE FROM pedido WHERE id = ANY(%s)", ([pedido_a, pedido_b],)
+                    )
+                    await unidad.ejecutar(
+                        "DELETE FROM producto_ingrediente WHERE producto_id = %s", (producto_id,)
+                    )
+                    await unidad.ejecutar("DELETE FROM producto WHERE id = %s", (producto_id,))
+                    await unidad.ejecutar(
+                        "DELETE FROM ingrediente WHERE id = %s", (ingrediente_id,),
+                    )
+                    await unidad.ejecutar("DELETE FROM categoria WHERE id = %s", (categoria_id,))
+                    usuario_id = await unidad.valor(
+                        "DELETE FROM cliente WHERE id = %s RETURNING usuario_id", (cliente_id,)
+                    )
+                    await unidad.ejecutar("DELETE FROM usuario WHERE id = %s", (usuario_id,))
         await conn.close()
 
 

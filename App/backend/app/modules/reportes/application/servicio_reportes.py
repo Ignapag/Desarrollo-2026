@@ -15,7 +15,10 @@ from app.modules.stock.application.servicio_stock import ServicioStock
 class RepositorioReportes(Protocol):
     """Puerto de consultas agregadas que implementa el repositorio SQL de reportes."""
 
-    async def clientes(self, *, q: str | None, limite: int, desplazamiento: int) -> dict: ...
+    async def clientes(
+        self, *, q: str | None, limite: int, desplazamiento: int,
+        incluir_inactivos: bool = False,
+    ) -> dict: ...
     async def resumen_pedidos(self) -> dict: ...
     async def ventas(
         self,
@@ -52,13 +55,17 @@ class ServicioReportes:
         limite: int = 50,
         desplazamiento: int = 0,
         autorizado: bool | None = None,
+        incluir_inactivos: bool = False,
     ) -> dict:
         """Devuelve una página del directorio de clientes, solo para personal del local."""
         if not (
             rol in {"EMPLEADO", "ADMINISTRADOR", "DUENIO"} if autorizado is None else autorizado
         ):
             raise SinPermiso("No tiene permiso para consultar el directorio de clientes")
-        return await self.repo.clientes(q=q, limite=limite, desplazamiento=desplazamiento)
+        return await self.repo.clientes(
+            q=q, limite=limite, desplazamiento=desplazamiento,
+            incluir_inactivos=incluir_inactivos,
+        )
 
     async def dashboard(
         self,

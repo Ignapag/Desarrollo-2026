@@ -108,3 +108,5 @@ class EventoAuditoriaSalida(BaseModel):
     datos: Any | None
     ip: str | None
     creado_en: datetime
+    origen: str | None = None
+    identificador_operacion: str | None = None

@@ -115,6 +115,11 @@ compartida se **omiten** con ese motivo (`-rs` lo muestra). `MONU_PERMITIR_BD_RE
 desactiva la guarda: solo para una base remota descartable y nunca en tareas de agentes.
 Informar aprobadas y omitidas por separado.
 
+Las migraciones 029/030 incorporan conservación y auditoría automática. La
+[guía de gestión de datos](GESTION_DATOS.md) explica despliegue coordinado,
+reactivaciones, cobertura y limpieza administrativa de las pruebas. No usar los
+helpers de mantenimiento de tests desde el backend ni contra la base compartida.
+
 Base descartable para la suite completa, sin tocar el volumen de Compose
 (requiere Docker en ejecución; `--rm` la elimina al detenerla):
 

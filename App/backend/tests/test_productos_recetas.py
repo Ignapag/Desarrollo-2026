@@ -251,7 +251,8 @@ async def test_bd_edicion_atomica_no_cambia_precios_y_version_vieja_conflicta(uo
 async def test_bd_receta_legada_no_inventa_multiplicadores(uow):
     servicio, creado, _ = await crear_producto_prueba(uow)
     await uow.ejecutar(
-        "DELETE FROM producto_variante_ingrediente WHERE producto_id=%s", (creado["id"],)
+        "UPDATE producto_variante_ingrediente SET eliminado_en=now() WHERE producto_id=%s",
+        (creado["id"],),
     )
     receta = await servicio.obtener_receta(creado["id"])
     assert all(not v["receta_configurada"] for v in receta["variantes"])

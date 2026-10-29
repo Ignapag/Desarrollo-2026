@@ -12,6 +12,8 @@ class RepositorioEdicionItems(Protocol):
 
     async def productos(self, ids: list[int]) -> list[dict]: ...
     async def items_edicion(self, pedido_id: int) -> list[dict]: ...
+    async def items_retirados(self, pedido_id: int) -> list[dict]: ...
+    async def item_tiene_opciones(self, item_id: int) -> bool: ...
     async def receta_edicion(self, producto_id: int, variante: str | None) -> list[dict]: ...
     async def nombres_ingredientes(self, ids: list[int]) -> dict[int, str]: ...
     async def guardar_items(
@@ -83,6 +85,8 @@ async def preparar_items(
     repo: RepositorioEdicionItems,
     anteriores: list[dict],
     solicitados: list[dict],
+    *,
+    recuperables: list[dict] | None = None,
 ) -> list[dict]:
     """Valida la composición solicitada y arma las líneas definitivas del pedido.
 
@@ -92,7 +96,8 @@ async def preparar_items(
     """
     if not isinstance(solicitados, list) or not 1 <= len(solicitados) <= 50:
         raise DatosInvalidos("El pedido debe contener entre 1 y 50 lineas; para vaciarlo cancelelo")
-    existentes = {item["id"]: item for item in anteriores}
+    retirados = {item["id"]: item for item in recuperables or []}
+    existentes = {**retirados, **{item["id"]: item for item in anteriores}}
     nuevos_ids = []
     vistos = set()
     # Primera pasada: valida la estructura de cada línea y junta los productos a consultar.
@@ -122,7 +127,7 @@ async def preparar_items(
                 raise DatosInvalidos("El item no pertenece al pedido o esta repetido")
             vistos.add(item_id)
             anterior = existentes[item_id]
-            if item["cantidad"] > anterior["cantidad"]:
+            if item_id in retirados or item["cantidad"] > anterior["cantidad"]:
                 nuevos_ids.append(anterior["producto_id"])
             if item.get("producto_id", anterior["producto_id"]) != anterior[
                 "producto_id"
@@ -143,7 +148,7 @@ async def preparar_items(
         # Línea existente: si aumenta la cantidad, el producto debe seguir activo.
         if anterior is not None:
             item = dict(anterior)
-            if solicitado["cantidad"] > anterior["cantidad"]:
+            if anterior["id"] in retirados or solicitado["cantidad"] > anterior["cantidad"]:
                 producto = productos.get(anterior["producto_id"])
                 if producto is None or not producto.get("activo", producto["disponible"]):
                     raise ReglaDeNegocio("El producto esta inactivo")

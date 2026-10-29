@@ -284,6 +284,7 @@ class ServicioPedidos:
 
     async def _preparar_edicion_items(
         self, pedido_id: int, items: list[dict], *, version_esperada: int | None = None,
+        recuperar_id: int | None = None,
     ) -> tuple[dict, list[dict], list[dict], Decimal, Decimal]:
         """Valida y calcula una nueva composición de ítems sin persistirla."""
         pedido = await self.repo.obtener(pedido_id, bloquear=True)
@@ -294,7 +295,22 @@ class ServicioPedidos:
                 or pedido.get("preparacion_en") or pedido.get("asignado")):
             raise ReglaDeNegocio("La modificacion requiere revision del personal")
         anteriores = await self.repo.items_edicion(pedido_id)
-        nuevos = await preparar_items(self.repo, anteriores, items)
+        recuperables = []
+        if recuperar_id is not None:
+            retirado = next(
+                (i for i in await self.repo.items_retirados(pedido_id) if i["id"] == recuperar_id),
+                None,
+            )
+            if retirado is None:
+                raise NoEncontrado("La linea retirada no pertenece al pedido o ya esta activa")
+            if await self.repo.item_tiene_opciones(recuperar_id):
+                raise ReglaDeNegocio(
+                    "La recuperacion con opciones estructuradas requiere revision del personal"
+                )
+            recuperables = [retirado]
+            items = [{"id": i["id"], "cantidad": i["cantidad"]} for i in anteriores]
+            items.append({"id": retirado["id"], "cantidad": retirado["cantidad"]})
+        nuevos = await preparar_items(self.repo, anteriores, items, recuperables=recuperables)
         subtotal = sum((item["subtotal"] for item in nuevos), Decimal("0"))
         total = subtotal + pedido["costo_envio"] - pedido["descuento_total"]
         if total < 0:
@@ -304,6 +320,30 @@ class ServicioPedidos:
                 "El nuevo total es menor al neto cobrado; gestione el reintegro primero"
             )
         return pedido, anteriores, nuevos, subtotal, total
+
+    async def items_retirados(self, pedido_id: int) -> list[dict]:
+        """Consulta las líneas conservadas tras una baja lógica del pedido."""
+        await self.detalle(pedido_id)
+        return await self.repo.items_retirados(pedido_id)
+
+    async def recuperar_item(
+        self, pedido_id: int, item_id: int, *, version_esperada: int,
+        usuario_id: int | None = None, origen: str = "PANEL_RECUPERACION",
+    ) -> dict:
+        """Reactiva una línea propia usando sus valores históricos y las reglas de edición."""
+        if (isinstance(version_esperada, bool) or not isinstance(version_esperada, int)
+                or version_esperada < 1):
+            raise DatosInvalidos("La version esperada es obligatoria")
+        pedido, anteriores, nuevos, subtotal, total = await self._preparar_edicion_items(
+            pedido_id, [], version_esperada=version_esperada, recuperar_id=item_id,
+        )
+        await self.stock.ajustar_composicion(
+            pedido_id, anteriores, nuevos, pedido["version"], usuario_id, aplicar=True
+        )
+        return await self.repo.guardar_items(
+            pedido_id, nuevos, subtotal, total, usuario_id=usuario_id,
+            origen=origen, anteriores=anteriores,
+        )
 
     async def cliente_para_usuario(self, usuario_id: int) -> int:
         """Devuelve el cliente vinculado a la cuenta, o falla si no tiene uno activo."""

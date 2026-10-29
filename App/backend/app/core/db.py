@@ -11,7 +11,9 @@ import asyncio
 import sys
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
+from ipaddress import ip_address
 from typing import Any
+from uuid import uuid4
 
 from psycopg import AsyncConnection
 from psycopg.rows import dict_row
@@ -97,18 +99,67 @@ class UnidadDeTrabajo:
     pedido, descontar stock y registrar auditoria).
     """
 
-    def __init__(self, conn: AsyncConnection) -> None:
+    def __init__(
+        self, conn: AsyncConnection, *, origen: str | None = None,
+        identificador_operacion: str | None = None,
+    ) -> None:
         """Recibe la conexión (con su transacción) que comparten los repositorios."""
         self.conn = conn
+        # El worker puede declarar el origen sin abrir una transacción hasta su
+        # primera consulta. La identidad nunca se hereda de otra unidad de trabajo.
+        self._contexto_pendiente = (
+            ("", "", origen, identificador_operacion or str(uuid4())) if origen else None
+        )
+
+    async def configurar_auditoria(
+        self, *, origen: str, ip: str | None = None,
+        identificador_operacion: str | None = None,
+    ) -> None:
+        """Instala contexto local a esta transacción, inicialmente sin actor.
+
+        PostgreSQL lo descarta al confirmar o revertir. No se guardan datos de
+        usuario en una conexión de pool ni en un estado global de Python.
+        """
+        self._contexto_pendiente = (
+            "", str(ip_address(ip)) if ip else "", origen,
+            identificador_operacion or str(uuid4()),
+        )
+        await self._aplicar_contexto()
+
+    async def atribuir_actor(self, usuario_id: int) -> None:
+        """Atribuye escrituras posteriores a una identidad previamente validada."""
+        if usuario_id <= 0:
+            raise ValueError("El usuario de auditoría debe ser un identificador positivo")
+        await self._aplicar_contexto()
+        async with self.conn.cursor() as cur:
+            await cur.execute(
+                "SELECT set_config('monu.usuario_id', %s, true)", (str(usuario_id),),
+            )
+
+    async def _aplicar_contexto(self) -> None:
+        """Configura solo los GUC pendientes, antes de cualquier SQL del caso de uso."""
+        if self._contexto_pendiente is None:
+            return
+        async with self.conn.cursor() as cur:
+            await cur.execute(
+                """SELECT set_config('monu.usuario_id', %s, true),
+                          set_config('monu.ip', %s, true),
+                          set_config('monu.origen', %s, true),
+                          set_config('monu.identificador_operacion', %s, true)""",
+                self._contexto_pendiente,
+            )
+        self._contexto_pendiente = None
 
     async def uno(self, sql: str, parametros: Sequence[Any] | None = None) -> dict | None:
         """Ejecuta la consulta y devuelve la primera fila como dict, o ``None``."""
+        await self._aplicar_contexto()
         async with self.conn.cursor() as cur:
             await cur.execute(sql, parametros)
             return await cur.fetchone()
 
     async def todos(self, sql: str, parametros: Sequence[Any] | None = None) -> list[dict]:
         """Ejecuta la consulta y devuelve todas las filas como lista de dicts."""
+        await self._aplicar_contexto()
         async with self.conn.cursor() as cur:
             await cur.execute(sql, parametros)
             return list(await cur.fetchall())
@@ -122,6 +173,7 @@ class UnidadDeTrabajo:
 
     async def ejecutar(self, sql: str, parametros: Sequence[Any] | None = None) -> int:
         """Ejecuta una sentencia de escritura y devuelve la cantidad de filas afectadas."""
+        await self._aplicar_contexto()
         async with self.conn.cursor() as cur:
             await cur.execute(sql, parametros)
             return cur.rowcount

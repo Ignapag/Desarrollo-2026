@@ -192,6 +192,10 @@ class RepositorioPedidosSQL:
         """Devuelve las líneas actuales del pedido para editarlas."""
         return await self._items(pedido_id)
 
+    async def items_retirados(self, pedido_id: int) -> list[dict]:
+        """Devuelve las líneas retiradas para su recuperación validada por el caso de uso."""
+        return await self._items(pedido_id, retirados=True)
+
     async def receta_edicion(self, producto_id: int, variante: str | None) -> list[dict]:
         """Devuelve la receta vigente de un producto y variante, con cantidades como texto."""
         filas = await self.uow.todos(
@@ -230,17 +234,19 @@ class RepositorioPedidosSQL:
         return await self.detalle(pedido_id)
 
     async def _guardar_composicion(self, pedido_id: int, items: list[dict]) -> None:
-        """Sincroniza las líneas del pedido: borra, actualiza o inserta según corresponda."""
+        """Sincroniza líneas mediante baja lógica, actualización o alta."""
         conservados = [item["id"] for item in items if item.get("id") is not None]
         await self.uow.ejecutar(
-            "DELETE FROM pedido_item WHERE pedido_id=%s AND NOT (id=ANY(%s::bigint[]))",
+            "UPDATE pedido_item SET eliminado_en=now() WHERE pedido_id=%s "
+            "AND eliminado_en IS NULL AND NOT (id=ANY(%s::bigint[]))",
             (pedido_id, conservados),
         )
         # Las líneas existentes solo cambian cantidad y aclaraciones; las nuevas se insertan.
         for item in items:
             if item.get("id") is not None:
                 await self.uow.ejecutar(
-                    "UPDATE pedido_item SET cantidad=%s,aclaraciones=%s,subtotal=%s "
+                    "UPDATE pedido_item SET cantidad=%s,aclaraciones=%s,subtotal=%s,"
+                    "eliminado_en=NULL "
                     "WHERE id=%s AND pedido_id=%s",
                     (item["cantidad"], item["aclaraciones"], item["subtotal"],
                      item["id"], pedido_id),
@@ -461,7 +467,10 @@ class RepositorioPedidosSQL:
         for pedido in pedidos:
             pedido.update(items=[], historial=[], pagos=[], direccion=None, envio=None)
         items = await self.uow.todos(
-            "SELECT * FROM pedido_item WHERE pedido_id=ANY(%s) ORDER BY id", (ids,)
+            "SELECT id,pedido_id,producto_id,nombre_producto,cantidad,precio_unitario,"
+            "costo_opciones,subtotal,aclaraciones,variante,receta_snapshot "
+            "FROM pedido_item WHERE pedido_id=ANY(%s) "
+            "AND eliminado_en IS NULL ORDER BY id", (ids,)
         )
         for item in items:
             por_id[item["pedido_id"]]["items"].append(item)
@@ -506,15 +515,23 @@ class RepositorioPedidosSQL:
             )
             pedido["saldo_pendiente"] = max(Decimal("0"), pedido["total"] - pedido["neto_cobrado"])
 
-    async def _items(self, pedido_id: int) -> list[dict]:
-        """Devuelve las líneas del pedido con su receta congelada."""
+    async def item_tiene_opciones(self, item_id: int) -> bool:
+        """Detecta personalizaciones conservadas, aunque la línea esté retirada."""
+        return bool(await self.uow.valor(
+            "SELECT EXISTS (SELECT 1 FROM pedido_item_opcion WHERE pedido_item_id=%s)",
+            (item_id,),
+        ))
+
+    async def _items(self, pedido_id: int, *, retirados: bool = False) -> list[dict]:
+        """Devuelve líneas vigentes o retiradas con su precio y receta congelados."""
         return await self.uow.todos(
             """
             SELECT id, producto_id, nombre_producto, cantidad, precio_unitario,
                    costo_opciones, subtotal, aclaraciones, variante, receta_snapshot
-            FROM pedido_item WHERE pedido_id = %s ORDER BY id
+            FROM pedido_item WHERE pedido_id = %s
+              AND (eliminado_en IS NOT NULL) = %s ORDER BY id
             """,
-            (pedido_id,),
+            (pedido_id, retirados),
         )
 
     async def obtener(self, pedido_id: int, *, bloquear: bool = False) -> dict | None:
@@ -563,7 +580,7 @@ class RepositorioPedidosSQL:
         return await self.uow.todos(
             "SELECT producto_id, cantidad, aclaraciones, variante, receta_snapshot "
             "FROM pedido_item "
-            "WHERE pedido_id = %s ORDER BY id",
+            "WHERE pedido_id = %s AND eliminado_en IS NULL ORDER BY id",
             (pedido_id,),
         )
 

@@ -10,7 +10,7 @@ import pytest
 from app.core.db import UnidadDeTrabajo
 from app.errores import ReglaDeNegocio
 from app.modules.delivery.presentation.dependencias import obtener_servicio_delivery
-from tests.soporte_bd import conectar_o_omitir
+from tests.soporte_bd import conectar_o_omitir, mantenimiento_pruebas
 from tests.test_delivery_bd import ENSENADA_CENTRO, crear_pedido_listo
 from tests.test_delivery_seguridad import api as api_delivery
 from tests.test_delivery_seguridad import (
@@ -96,13 +96,14 @@ async def test_snapshot_planificador_anterior_a_commit_manual_no_roba_envio(monk
         await manual.rollback()
         await um.valor("SELECT pg_advisory_unlock(%s)", (clave,))
         if riders:
-            await um.ejecutar("DELETE FROM auditoria WHERE usuario_id=ANY(%s)", (riders,))
-            await um.ejecutar("DELETE FROM pedido WHERE id=%s", (pedido,))
-            await um.ejecutar("DELETE FROM viaje WHERE repartidor_id=ANY(%s)", (riders,))
-            await um.ejecutar("DELETE FROM direccion WHERE cliente_id=%s", (cliente,))
-            await um.ejecutar("DELETE FROM cliente WHERE id=%s", (cliente,))
-            await um.ejecutar("DELETE FROM repartidor WHERE usuario_id=ANY(%s)", (riders,))
-            await um.ejecutar("DELETE FROM usuario WHERE id=ANY(%s)", ([*riders, usuario],))
+            async with mantenimiento_pruebas(um):
+                await um.ejecutar("DELETE FROM auditoria WHERE usuario_id=ANY(%s)", (riders,))
+                await um.ejecutar("DELETE FROM pedido WHERE id=%s", (pedido,))
+                await um.ejecutar("DELETE FROM viaje WHERE repartidor_id=ANY(%s)", (riders,))
+                await um.ejecutar("DELETE FROM direccion WHERE cliente_id=%s", (cliente,))
+                await um.ejecutar("DELETE FROM cliente WHERE id=%s", (cliente,))
+                await um.ejecutar("DELETE FROM repartidor WHERE usuario_id=ANY(%s)", (riders,))
+                await um.ejecutar("DELETE FROM usuario WHERE id=ANY(%s)", ([*riders, usuario],))
             await manual.commit()
         await manual.close()
         await plan.close()

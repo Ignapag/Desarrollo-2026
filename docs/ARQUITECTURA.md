@@ -130,6 +130,12 @@ que traducen `ErrorDominio` (con su `codigo_http`) y la base caída (503) a JSON
 Los adaptadores traducen errores del driver; por ejemplo, el repositorio de usuarios
 convierte `UniqueViolation` en `ReglaDeNegocio`.
 
+La [gestión de datos](GESTION_DATOS.md) define las bajas lógicas, filtros de
+vigencia y recuperación validada. PostgreSQL registra automáticamente las imágenes
+anteriores/nuevas; la unidad de trabajo aporta usuario, IP, origen y correlación
+locales a la transacción. Los eventos de negocio conservan su intención y se
+distinguen de los eventos automáticos de fila.
+
 Ejemplo minimo:
 
 ```text

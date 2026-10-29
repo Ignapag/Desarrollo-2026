@@ -17,7 +17,7 @@ from app.errores import ReglaDeNegocio
 from app.main import app
 from app.modules.delivery.presentation.dependencias import obtener_servicio_delivery
 from app.modules.usuarios.presentation.dependencias import sesion_vigente, usuario_actual
-from tests.soporte_bd import conectar_o_omitir
+from tests.soporte_bd import conectar_o_omitir, mantenimiento_pruebas
 from tests.test_delivery_bd import ENSENADA_CENTRO, crear_pedido_listo
 
 
@@ -290,13 +290,16 @@ async def test_dos_entregas_concurrentes_serializan_cierre_del_mismo_viaje():
         await dos.rollback()
         await uno.rollback()
         if rider:
-            await uow1.ejecutar("DELETE FROM auditoria WHERE usuario_id=%s", (rider,))
-            await uow1.ejecutar("DELETE FROM pedido WHERE id=ANY(%s)", (pedidos,))
-            await uow1.ejecutar("DELETE FROM viaje WHERE id=%s", (viaje,))
-            await uow1.ejecutar("DELETE FROM direccion WHERE cliente_id=ANY(%s)", (cliente_ids,))
-            await uow1.ejecutar("DELETE FROM cliente WHERE id=ANY(%s)", (cliente_ids,))
-            await uow1.ejecutar("DELETE FROM repartidor WHERE usuario_id=%s", (rider,))
-            await uow1.ejecutar("DELETE FROM usuario WHERE id=ANY(%s)", ([rider, *usuarios],))
+            async with mantenimiento_pruebas(uow1):
+                await uow1.ejecutar("DELETE FROM auditoria WHERE usuario_id=%s", (rider,))
+                await uow1.ejecutar("DELETE FROM pedido WHERE id=ANY(%s)", (pedidos,))
+                await uow1.ejecutar("DELETE FROM viaje WHERE id=%s", (viaje,))
+                await uow1.ejecutar(
+                    "DELETE FROM direccion WHERE cliente_id=ANY(%s)", (cliente_ids,),
+                )
+                await uow1.ejecutar("DELETE FROM cliente WHERE id=ANY(%s)", (cliente_ids,))
+                await uow1.ejecutar("DELETE FROM repartidor WHERE usuario_id=%s", (rider,))
+                await uow1.ejecutar("DELETE FROM usuario WHERE id=ANY(%s)", ([rider, *usuarios],))
             await uno.commit()
         await uno.close()
         await dos.close()
@@ -349,12 +352,13 @@ async def test_edicion_modalidad_gana_carrera_a_asignacion_sin_envio_huerfano():
         await dos.rollback()
         await uno.rollback()
         if rider:
-            await uow1.ejecutar("DELETE FROM auditoria WHERE usuario_id=%s", (rider,))
-            await uow1.ejecutar("DELETE FROM pedido WHERE id=%s", (pedido,))
-            await uow1.ejecutar("DELETE FROM direccion WHERE cliente_id=%s", (cliente,))
-            await uow1.ejecutar("DELETE FROM cliente WHERE id=%s", (cliente,))
-            await uow1.ejecutar("DELETE FROM repartidor WHERE usuario_id=%s", (rider,))
-            await uow1.ejecutar("DELETE FROM usuario WHERE id=ANY(%s)", ([rider, usuario],))
+            async with mantenimiento_pruebas(uow1):
+                await uow1.ejecutar("DELETE FROM auditoria WHERE usuario_id=%s", (rider,))
+                await uow1.ejecutar("DELETE FROM pedido WHERE id=%s", (pedido,))
+                await uow1.ejecutar("DELETE FROM direccion WHERE cliente_id=%s", (cliente,))
+                await uow1.ejecutar("DELETE FROM cliente WHERE id=%s", (cliente,))
+                await uow1.ejecutar("DELETE FROM repartidor WHERE usuario_id=%s", (rider,))
+                await uow1.ejecutar("DELETE FROM usuario WHERE id=ANY(%s)", ([rider, usuario],))
             await uno.commit()
         await uno.close()
         await dos.close()

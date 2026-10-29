@@ -126,7 +126,7 @@ class ServicioNotificaciones:
     # ------------------------------ plantillas (CU_BOT_04 a 07) ---------
 
     async def buscar_plantillas(
-        self, *, nombre: str | None = None, evento: str | None = None, activa: bool | None = None
+        self, *, nombre: str | None = None, evento: str | None = None, activa: bool | None = True
     ) -> list[dict]:
         """Busca plantillas filtrando por nombre, evento y estado activo."""
         return await self.repo.buscar_plantillas(nombre=nombre, evento=evento, activa=activa)

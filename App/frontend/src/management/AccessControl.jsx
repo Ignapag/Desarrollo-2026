@@ -118,7 +118,7 @@ export default function AccessControl() {
     if (user?.backendRole !== 'ADMINISTRADOR') return undefined;
     const controller = new AbortController();
     Promise.resolve().then(() => { if (!controller.signal.aborted) { setSnapshot(null); setError(null); } });
-    Promise.all([apiFetch('/api/acceso', { signal: controller.signal }), apiFetch('/api/usuarios', { signal: controller.signal })]).then(([access, people]) => {
+    Promise.all([apiFetch('/api/acceso', { signal: controller.signal }), apiFetch('/api/usuarios?incluir_inactivos=true', { signal: controller.signal })]).then(([access, people]) => {
       if (!validAccess(access) || !Array.isArray(people) || !people.every((person) => confirmsUser(person, { role: person?.rol }))) throw new Error('Respuesta de usuarios y permisos incompleta');
       if (!controller.signal.aborted && owner.current === user) setSnapshot({ owner: user, access, people });
     }).catch((failure) => { if (!controller.signal.aborted && owner.current === user) setError(userErrorMessage(failure, 'No pudimos cargar los usuarios y permisos. Intentá nuevamente más tarde.')); });

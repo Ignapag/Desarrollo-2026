@@ -16,7 +16,7 @@ from app.modules.whatsapp.domain.mensajes import hash_referencia, referencia_en
 from app.modules.whatsapp.infrastructure.cola import ColaWhatsAppSQL
 from app.modules.whatsapp.presentation import procesamiento
 from app.modules.whatsapp.presentation.dependencias import construir_servicio
-from tests.soporte_bd import HOSTS_DESCARTABLES, conectar_o_omitir
+from tests.soporte_bd import HOSTS_DESCARTABLES, conectar_o_omitir, mantenimiento_pruebas
 
 
 @pytest_asyncio.fixture
@@ -205,17 +205,18 @@ async def worker_independiente(conexiones_locales, monkeypatch):
             )
         ]
         await uow.ejecutar("DELETE FROM whatsapp_salida WHERE telefono=%s", (telefono,))
-        await uow.ejecutar(
-            "DELETE FROM whatsapp_atencion WHERE referencia_hash IN "
-            "(SELECT referencia_hash FROM whatsapp_borrador WHERE telefono=%s)",
-            (telefono,),
-        )
-        await uow.ejecutar("DELETE FROM whatsapp_cambio WHERE pedido_id = ANY(%s)", (pedidos,))
-        await uow.ejecutar("DELETE FROM whatsapp_entrada WHERE telefono=%s", (telefono,))
-        await uow.ejecutar("DELETE FROM whatsapp_borrador WHERE telefono=%s", (telefono,))
-        await uow.ejecutar("DELETE FROM movimiento_stock WHERE pedido_id = ANY(%s)", (pedidos,))
-        await uow.ejecutar("DELETE FROM pago WHERE pedido_id = ANY(%s)", (pedidos,))
-        await uow.ejecutar("DELETE FROM pedido WHERE id = ANY(%s)", (pedidos,))
+        async with mantenimiento_pruebas(uow):
+            await uow.ejecutar(
+                "DELETE FROM whatsapp_atencion WHERE referencia_hash IN "
+                "(SELECT referencia_hash FROM whatsapp_borrador WHERE telefono=%s)",
+                (telefono,),
+            )
+            await uow.ejecutar("DELETE FROM whatsapp_cambio WHERE pedido_id = ANY(%s)", (pedidos,))
+            await uow.ejecutar("DELETE FROM whatsapp_entrada WHERE telefono=%s", (telefono,))
+            await uow.ejecutar("DELETE FROM whatsapp_borrador WHERE telefono=%s", (telefono,))
+            await uow.ejecutar("DELETE FROM movimiento_stock WHERE pedido_id = ANY(%s)", (pedidos,))
+            await uow.ejecutar("DELETE FROM pago WHERE pedido_id = ANY(%s)", (pedidos,))
+            await uow.ejecutar("DELETE FROM pedido WHERE id = ANY(%s)", (pedidos,))
         await conn1.commit()
 
 
@@ -536,11 +537,12 @@ async def test_reclamo_publico_concurrente_es_unico(
             "DELETE FROM whatsapp_salida WHERE telefono=ANY(%s)", ([telefono, otro],)
         )
         await uow1.ejecutar("DELETE FROM whatsapp_entrada WHERE id=ANY(%s)", (ids,))
-        await uow1.ejecutar(
-            "DELETE FROM whatsapp_borrador WHERE referencia_hash=ANY(%s)", (referencias,)
-        )
-        await uow1.ejecutar("DELETE FROM pedido WHERE id=ANY(%s)", (pedidos,))
-        await uow1.ejecutar(
-            "DELETE FROM cliente WHERE id=ANY(%s) AND usuario_id IS NULL", (clientes,)
-        )
+        async with mantenimiento_pruebas(uow1):
+            await uow1.ejecutar(
+                "DELETE FROM whatsapp_borrador WHERE referencia_hash=ANY(%s)", (referencias,)
+            )
+            await uow1.ejecutar("DELETE FROM pedido WHERE id=ANY(%s)", (pedidos,))
+            await uow1.ejecutar(
+                "DELETE FROM cliente WHERE id=ANY(%s) AND usuario_id IS NULL", (clientes,)
+            )
         await conn1.commit()

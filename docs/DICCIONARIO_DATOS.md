@@ -76,6 +76,10 @@ columnas, tipos, obligatoriedad, relaciones y valores permitidos.
 
 **Permisos por rol** — [`rol_acceso`](#rol_acceso), [`rol_permiso`](#rol_permiso)
 
+**Bajas logicas** — sin tablas nuevas
+
+**Auditoria automatica** — sin tablas nuevas
+
 Total: **41 tablas**.
 
 ---
@@ -194,6 +198,8 @@ _auditoria: implementa HISTORIALACTIVIDAD del ER y el RNF-09. Se agregan entidad
 | `datos` | JSONB | No | — |
 | `ip` | INET | No | — |
 | `creado_en` | TIMESTAMPTZ | Sí | default `now()` |
+| `origen` | TEXT | No | — |
+| `identificador_operacion` | TEXT | No | — |
 
 ### parametro
 
@@ -269,6 +275,7 @@ _producto_ingrediente: receta. cantidad_requerida es lo que faltaba para poder d
 | `ingrediente_id` | BIGINT | Sí | PK · FK → `ingrediente.id` |
 | `cantidad_requerida` | NUMERIC(12,3) | Sí | — |
 | `es_base` | BOOLEAN | Sí | default `TRUE` |
+| `eliminado_en` | TIMESTAMPTZ | No | — |
 
 ### producto_opcion
 
@@ -368,6 +375,7 @@ _pedido_item: los precios se congelan al confirmar (snapshot), para que un cambi
 | `aclaraciones` | TEXT | No | — |
 | `variante` | TEXT | No | — |
 | `receta_snapshot` | JSONB | No | — |
+| `eliminado_en` | TIMESTAMPTZ | No | — |
 
 ### pedido_item_opcion
 
@@ -751,6 +759,7 @@ _Recetas explícitas por variante. No se infieren cantidades ni se modifican las
 | `ingrediente_id` | BIGINT | Sí | PK · FK → `ingrediente.id` |
 | `cantidad_requerida` | NUMERIC(12,3) | Sí | — |
 | `es_base` | BOOLEAN | Sí | default `TRUE` |
+| `eliminado_en` | TIMESTAMPTZ | No | — |
 
 **Vistas:** `producto_disponible`
 
@@ -809,3 +818,14 @@ _Matrices de acceso versionadas. No modifica usuarios ni credenciales._
 |---------|------|-------------|-------|
 | `rol` | TEXT | Sí | PK · FK → `rol_acceso.rol` |
 | `permiso` | TEXT | Sí | PK · valores: `auditoria.ver`, `caja.aprobar`, `caja.generar`, `caja.ver`, `clientes.ver`, `delivery.corregir`, `delivery.operar`, `delivery.planificar`, `delivery.ver`, `pagos.conciliar`, `pagos.corregir`, `pagos.registrar`, `pagos.ver`, `pedidos.cambiar_estado`, `pedidos.crear`, `pedidos.editar`, `pedidos.recuperar`, `pedidos.ver`, `productos.gestionar`, `productos.ver_receta`, `reportes.financieros`, `reportes.ver`, `stock.gestionar`, `stock.reponer`, `stock.ver`, `usuarios.administrar_permisos`, `usuarios.asignar_roles`, `usuarios.gestionar`, `usuarios.ver`, `whatsapp.gestionar`, `whatsapp.gestionar_notificaciones`, `whatsapp.ver`, `whatsapp.ver_notificaciones` |
+| `eliminado_en` | TIMESTAMPTZ | No | — |
+
+## 029_bajas_logicas — Bajas logicas
+
+**Vistas:** `producto_costo`
+
+**Funciones:** `receta_producto`
+
+## 030_auditoria_automatica — Auditoria automatica
+
+**Triggers:** `monu_auditar_cambio`, `monu_conservar_filas`, `monu_conservar_tabla`, `monu_conservar_log_filas`, `monu_conservar_log_tabla`

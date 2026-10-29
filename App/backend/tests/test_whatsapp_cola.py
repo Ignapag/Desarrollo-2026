@@ -4,7 +4,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from datetime import timedelta
 from types import SimpleNamespace
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -153,6 +153,7 @@ def worker_aislado(monkeypatch):
         abiertas=0,
         resultados=[],
         envios=[],
+        contextos=[],
         ventana=True,
         modo="real",
         error=None,
@@ -168,8 +169,9 @@ def worker_aislado(monkeypatch):
             observado.abiertas -= 1
 
     class UowFalsa:
-        def __init__(self, conn):
+        def __init__(self, conn, *, origen=None, identificador_operacion=None):
             self.conn = conn
+            observado.contextos.append((origen, identificador_operacion))
 
         async def valor(self, sql, parametros=None):
             assert observado.abiertas == 1
@@ -228,6 +230,11 @@ async def test_worker_cierra_transaccion_antes_de_transportar(
     assert observado.envios == [(TELEFONO, "Pedido recibido", 0)]
     assert observado.resultados == [(7, estado, proveedor_id)]
     assert observado.abiertas == 0
+    assert len(observado.contextos) == 2
+    origen, operacion = observado.contextos[0]
+    assert origen == "whatsapp"
+    assert UUID(operacion)
+    assert observado.contextos[1] == (origen, operacion)
 
 
 @pytest.mark.parametrize(

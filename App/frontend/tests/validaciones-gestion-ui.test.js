@@ -257,7 +257,7 @@ test('receta no consulta el endpoint si la sesión no tiene permiso', async (t) 
 test('desactivar producto bloquea dos confirmaciones simultáneas', async (t) => {
   const wait = deferred(); let calls = 0; data.deactivateProduct = async () => { calls++; return wait.promise; };
   const container = await mount(t, Catalog);
-  await act(async () => reactProps(find(container, 'button').find((node) => reactProps(node).title === 'Eliminar')).onClick());
+  await act(async () => reactProps(button(container, 'Desactivar Cheese')).onClick());
   let first, second;
   await act(async () => { const click = reactProps(button(container, 'Sí')).onClick; first = click(); second = click(); });
   await act(async () => { wait.resolve(); await Promise.all([first, second]); });
@@ -314,4 +314,57 @@ test('alta de insumo no anuncia éxito a otra sesión después de desmontarse', 
   await act(async () => root.unmount());
   await act(async () => { wait.resolve({}); await saving; });
   assert.equal(globalThis.__validationArea.successes.length, 0);
+});
+
+test('productos inactivos quedan fuera del catálogo y un rechazo no anuncia recuperación', async (t) => {
+  const inactive = { id: 62, nombre: 'Burger retirada', categoria: 'Burgers', activo: false };
+  let reads = 0, writes = 0;
+  globalThis.fetch = async () => { reads++; return { ok: true, json: async () => [inactive, { id: 1, nombre: 'Cheese', activo: true }] }; };
+  const pending = deferred();
+  data.reactivateProduct = async () => { writes++; return writes === 1 ? pending.promise : { ...inactive, activo: true }; };
+  t.after(() => { delete data.reactivateProduct; });
+  const container = await mount(t, Catalog);
+  assert.equal(reads, 0);
+  await act(async () => reactProps(button(container, 'Productos inactivos')).onClick());
+  assert.equal(reads, 1);
+  assert.equal(data.state.catalog.length, 1);
+  assert.equal(data.state.catalog[0].name, 'Cheese');
+  assert.ok(button(container, 'Reactivar Burger retirada'));
+  assert.equal(Boolean(button(container, 'Reactivar Cheese')), false);
+
+  let first, second;
+  await act(async () => {
+    const click = reactProps(button(container, 'Reactivar Burger retirada')).onClick;
+    first = click(); second = click();
+  });
+  assert.equal(writes, 1);
+  assert.equal(button(container, 'Reactivar Burger retirada').disabled, true);
+  const { UserFacingError } = await server.ssrLoadModule('/src/shared/api/userErrors.js');
+  await act(async () => { pending.reject(new UserFacingError('La categoría está inactiva.', { status: 409 })); await Promise.all([first, second]); });
+  assert.match(container.textContent, /La categoría está inactiva/);
+  assert.doesNotMatch(container.textContent, /se reactivó/);
+  assert.equal(button(container, 'Reactivar Burger retirada').disabled, false);
+
+  await act(async () => reactProps(button(container, 'Reactivar Burger retirada')).onClick());
+  assert.equal(writes, 2);
+  assert.equal(Boolean(button(container, 'Reactivar Burger retirada')), false);
+  assert.match(container.textContent, /Burger retirada se reactivó/);
+});
+
+test('ingredientes inactivos se recuperan sin mezclarse con el inventario activo', async (t) => {
+  const inactive = { id: 73, nombre: 'Pan retirado', activo: false, cantidad_actual: '12.000', unidad_medida: 'UNIDAD' };
+  const requested = [], restored = [];
+  globalThis.fetch = async (path) => { requested.push(path); return { ok: true, json: async () => [inactive] }; };
+  data.reactivateIngredient = async (id) => { restored.push(id); return { ...inactive, activo: true }; };
+  t.after(() => { delete data.reactivateIngredient; });
+  const container = await mount(t, Inventory);
+  await act(async () => reactProps(button(container, 'Ingredientes inactivos')).onClick());
+  assert.deepEqual(requested, ['/api/stock/ingredientes?activo=false']);
+  assert.equal(data.state.inventory.length, 0);
+  assert.match(container.textContent, /Stock conservado: 12.000 UNIDAD/);
+
+  await act(async () => reactProps(button(container, 'Reactivar Pan retirado')).onClick());
+  assert.deepEqual(restored, [73]);
+  assert.equal(Boolean(button(container, 'Reactivar Pan retirado')), false);
+  assert.match(container.textContent, /Pan retirado se reactivó conservando su stock/);
 });

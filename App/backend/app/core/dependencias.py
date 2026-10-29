@@ -11,10 +11,13 @@ from fastapi import Depends, Request
 from app.core.db import UnidadDeTrabajo, conexion
 
 
-async def obtener_uow() -> AsyncIterator[UnidadDeTrabajo]:
+async def obtener_uow(request: Request) -> AsyncIterator[UnidadDeTrabajo]:
     """Una transaccion por request: commit al terminar, rollback si hay error."""
     async with conexion() as conn:
-        yield UnidadDeTrabajo(conn)
+        uow = UnidadDeTrabajo(conn)
+        origen = "chat_demo" if request.url.path.startswith("/api/chat-demo/") else "http"
+        await uow.configurar_auditoria(origen=origen, ip=ip_cliente(request))
+        yield uow
 
 
 UoW = Annotated[UnidadDeTrabajo, Depends(obtener_uow)]

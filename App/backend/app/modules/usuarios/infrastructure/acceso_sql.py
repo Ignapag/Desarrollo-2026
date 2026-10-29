@@ -20,7 +20,8 @@ class RepositorioAccesoSQL:
     async def permisos(self, rol: str) -> list[str]:
         """Devuelve los permisos concedidos a un rol, ordenados."""
         filas = await self.uow.todos(
-            "SELECT permiso FROM rol_permiso WHERE rol=%s ORDER BY permiso", (rol,),
+            "SELECT permiso FROM rol_permiso WHERE rol=%s AND eliminado_en IS NULL "
+            "ORDER BY permiso", (rol,),
         )
         return [fila["permiso"] for fila in filas]
 
@@ -30,7 +31,7 @@ class RepositorioAccesoSQL:
             """SELECT r.rol, r.version,
                       COALESCE(array_agg(p.permiso ORDER BY p.permiso)
                           FILTER (WHERE p.permiso IS NOT NULL), ARRAY[]::text[]) AS permisos
-               FROM rol_acceso r LEFT JOIN rol_permiso p ON p.rol=r.rol
+               FROM rol_acceso r LEFT JOIN rol_permiso p ON p.rol=r.rol AND p.eliminado_en IS NULL
                GROUP BY r.rol, r.version ORDER BY r.rol"""
         )
 
@@ -46,11 +47,16 @@ class RepositorioAccesoSQL:
         if anterior is None or anterior["version"] != version:
             return None
         previos = await self.permisos(rol)
-        # Reemplazo completo de las concesiones y aumento de versión.
-        await self.uow.ejecutar("DELETE FROM rol_permiso WHERE rol=%s", (rol,))
+        # Conserva concesiones revocadas; ninguna lectura de acceso las considera vigentes.
+        await self.uow.ejecutar(
+            "UPDATE rol_permiso SET eliminado_en=now() WHERE rol=%s "
+            "AND eliminado_en IS NULL AND NOT (permiso=ANY(%s::text[]))", (rol, permisos),
+        )
         for permiso in permisos:
             await self.uow.ejecutar(
-                "INSERT INTO rol_permiso (rol, permiso) VALUES (%s,%s)", (rol, permiso),
+                "INSERT INTO rol_permiso (rol, permiso) VALUES (%s,%s) "
+                "ON CONFLICT (rol, permiso) DO UPDATE SET eliminado_en=NULL "
+                "WHERE rol_permiso.eliminado_en IS NOT NULL", (rol, permiso),
             )
         await self.uow.ejecutar(
             "UPDATE rol_acceso SET version=version+1 WHERE rol=%s", (rol,),

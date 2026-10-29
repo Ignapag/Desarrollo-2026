@@ -17,7 +17,7 @@ from app.modules.pagos.presentation.dependencias import (
     obtener_servicio_caja,
     obtener_servicio_conciliacion,
 )
-from tests.soporte_bd import conectar_o_omitir
+from tests.soporte_bd import conectar_o_omitir, mantenimiento_pruebas
 from tests.test_caja_seguridad import datos_caja as datos_caja_fixture
 from tests.test_delivery_seguridad import api as api_fixture
 from tests.test_delivery_seguridad import autenticar, crear_viaje_propio
@@ -96,14 +96,18 @@ async def test_aprobado_que_contabilizo_pendientes_exige_revision_contable(uow):
     caja = ServicioCaja(uow, RepositorioCajaSQL(uow))
     aprobado = await caja.obtener_cierre(cierre_id)
     pago = await RepositorioPagosSQL(uow).obtener_pago_por_id(pago_id)
+    eventos_antes = await uow.todos(
+        "SELECT id,accion,datos FROM auditoria WHERE entidad='pago' AND entidad_id=%s ORDER BY id",
+        (str(pago_id),),
+    )
     with pytest.raises(ReglaDeNegocio, match="revisión contable"):
         await obtener_servicio_conciliacion(uow).conciliar_pago(pago_id, conciliar_por=actor)
     assert await caja.obtener_cierre(cierre_id) == aprobado
     assert await RepositorioPagosSQL(uow).obtener_pago_por_id(pago_id) == pago
-    assert not await uow.valor(
-        "SELECT count(*) FROM auditoria WHERE entidad='pago' AND entidad_id=%s",
+    assert await uow.todos(
+        "SELECT id,accion,datos FROM auditoria WHERE entidad='pago' AND entidad_id=%s ORDER BY id",
         (str(pago_id),),
-    )
+    ) == eventos_antes
 
 
 @pytest.mark.parametrize("primera", ["aprobacion", "conciliacion"])
@@ -298,15 +302,16 @@ async def test_lotes_con_pedidos_distintos_y_turnos_invertidos_no_interbloquean(
         await a.rollback()
         await b.rollback()
         if cliente is not None:
-            await ua.ejecutar(
-                "DELETE FROM auditoria WHERE (entidad='pago' AND entidad_id=ANY(%s)) "
-                "OR (entidad='cierre_caja' AND entidad_id=ANY(%s))",
-                ([str(p) for p in pagos], [str(c) for c in cierres]),
-            )
-            await ua.ejecutar("DELETE FROM pago WHERE pedido_id=ANY(%s)", (pedidos,))
-            await ua.ejecutar("DELETE FROM pedido WHERE id=ANY(%s)", (pedidos,))
-            await ua.ejecutar("DELETE FROM cierre_caja WHERE id=ANY(%s)", (cierres,))
-            await ua.ejecutar("DELETE FROM cliente WHERE id=%s", (cliente,))
+            async with mantenimiento_pruebas(ua):
+                await ua.ejecutar(
+                    "DELETE FROM auditoria WHERE (entidad='pago' AND entidad_id=ANY(%s)) "
+                    "OR (entidad='cierre_caja' AND entidad_id=ANY(%s))",
+                    ([str(p) for p in pagos], [str(c) for c in cierres]),
+                )
+                await ua.ejecutar("DELETE FROM pago WHERE pedido_id=ANY(%s)", (pedidos,))
+                await ua.ejecutar("DELETE FROM pedido WHERE id=ANY(%s)", (pedidos,))
+                await ua.ejecutar("DELETE FROM cierre_caja WHERE id=ANY(%s)", (cierres,))
+                await ua.ejecutar("DELETE FROM cliente WHERE id=%s", (cliente,))
             await a.commit()
         await a.close()
         await b.close()

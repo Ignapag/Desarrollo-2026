@@ -100,7 +100,8 @@ async def test_mismo_producto_con_dos_variantes_conserva_cada_receta(uow, receta
 @pytest.mark.asyncio
 async def test_variante_legacy_sin_receta_explicita_conserva_base_sin_multiplicadores(uow, receta):
     await uow.ejecutar(
-        "DELETE FROM producto_variante_ingrediente WHERE producto_id=%s", (receta[1],),
+        "UPDATE producto_variante_ingrediente SET eliminado_en=now() WHERE producto_id=%s",
+        (receta[1],),
     )
     pedido = await crear(uow, receta, cantidad=1)
     await confirmar(uow, pedido)
@@ -214,7 +215,8 @@ async def test_reapertura_reconsume_snapshot_y_cancelacion_prev_cocina_devuelve_
     )
     assert await saldos(uow, receta) == [Decimal("10"), Decimal("10"), Decimal("10")]
     await uow.ejecutar(
-        "DELETE FROM producto_variante_ingrediente WHERE producto_id=%s", (receta[1],),
+        "UPDATE producto_variante_ingrediente SET eliminado_en=now() WHERE producto_id=%s",
+        (receta[1],),
     )
     await uow.ejecutar(
         "UPDATE producto_ingrediente SET cantidad_requerida=9 WHERE producto_id=%s", (receta[1],),

@@ -27,7 +27,7 @@ import pytest_asyncio
 
 from app.core.db import UnidadDeTrabajo, abrir_pool, cerrar_pool, conexion, verificar_conexion
 from app.main import app
-from tests.soporte_bd import exigir_base_descartable
+from tests.soporte_bd import exigir_base_descartable, mantenimiento_pruebas
 
 CONTRASENIA_SEED = "Monu2026!"
 
@@ -66,12 +66,13 @@ async def _pool_de_pruebas() -> AsyncIterator[None]:
     finally:
         async with conexion() as conn:
             uow = UnidadDeTrabajo(conn)
-            await uow.ejecutar("DELETE FROM auditoria WHERE id > %s", (ultimo_id_auditoria,))
             for fila in accesos:
                 await uow.ejecutar(
                     "UPDATE usuario SET ultimo_acceso = %s WHERE id = %s",
                     (fila["ultimo_acceso"], fila["id"]),
                 )
+            async with mantenimiento_pruebas(uow):
+                await uow.ejecutar("DELETE FROM auditoria WHERE id > %s", (ultimo_id_auditoria,))
         await cerrar_pool()
 
 

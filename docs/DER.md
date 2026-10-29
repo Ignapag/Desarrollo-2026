@@ -193,6 +193,8 @@ erDiagram
         jsonb datos
         inet ip
         timestamptz creado_en
+        text origen
+        text identificador_operacion
     }
     PARAMETRO {
         text clave PK
@@ -250,6 +252,7 @@ erDiagram
         bigint ingrediente_id PK
         numeric cantidad_requerida
         boolean es_base
+        timestamptz eliminado_en
     }
     PRODUCTO_OPCION {
         bigint id PK
@@ -331,6 +334,7 @@ erDiagram
         text aclaraciones
         text variante
         jsonb receta_snapshot
+        timestamptz eliminado_en
     }
     PEDIDO_ITEM_OPCION {
         bigint id PK
@@ -612,6 +616,7 @@ erDiagram
         bigint ingrediente_id PK
         numeric cantidad_requerida
         boolean es_base
+        timestamptz eliminado_en
     }
 ```
 
@@ -656,6 +661,7 @@ erDiagram
     ROL_PERMISO {
         text rol PK
         text permiso PK
+        timestamptz eliminado_en
     }
 ```
 

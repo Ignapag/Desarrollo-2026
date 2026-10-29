@@ -30,7 +30,8 @@ class RepositorioProductosSQL:
                    pd.disponible,
                    ARRAY(SELECT i.nombre FROM producto_ingrediente pi
                          JOIN ingrediente i ON i.id=pi.ingrediente_id
-                         WHERE pi.producto_id=p.id ORDER BY lower(i.nombre),i.id)
+                         WHERE pi.producto_id=p.id AND pi.eliminado_en IS NULL
+                         ORDER BY lower(i.nombre),i.id)
                    AS ingredientes_receta
             FROM producto p
             JOIN categoria c ON c.id = p.categoria_id
@@ -121,7 +122,8 @@ class RepositorioProductosSQL:
                    pd.disponible,
                    ARRAY(SELECT i.nombre FROM producto_ingrediente pi
                          JOIN ingrediente i ON i.id=pi.ingrediente_id
-                         WHERE pi.producto_id=p.id ORDER BY lower(i.nombre),i.id)
+                         WHERE pi.producto_id=p.id AND pi.eliminado_en IS NULL
+                         ORDER BY lower(i.nombre),i.id)
                    AS ingredientes_receta
             FROM producto p
             JOIN categoria c ON c.id = p.categoria_id
@@ -132,7 +134,7 @@ class RepositorioProductosSQL:
         )
 
     async def _guardar_variantes(self, producto_id: int, variantes) -> None:
-        """Inserta la receta de cada variante del producto."""
+        """Inserta o reactiva cada relación de las recetas de variantes."""
         for variante in variantes:
             for item in variante.ingredientes:
                 await self.uow.ejecutar(
@@ -140,6 +142,13 @@ class RepositorioProductosSQL:
                     INSERT INTO producto_variante_ingrediente
                         (producto_id, variante, ingrediente_id, cantidad_requerida, es_base)
                     VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (producto_id, variante, ingrediente_id) DO UPDATE
+                    SET cantidad_requerida=EXCLUDED.cantidad_requerida,
+                        es_base=EXCLUDED.es_base, eliminado_en=NULL
+                    WHERE producto_variante_ingrediente.eliminado_en IS NOT NULL
+                       OR (producto_variante_ingrediente.cantidad_requerida,
+                           producto_variante_ingrediente.es_base)
+                          IS DISTINCT FROM (EXCLUDED.cantidad_requerida, EXCLUDED.es_base)
                     """,
                     (
                         producto_id,
@@ -174,7 +183,8 @@ class RepositorioProductosSQL:
             nombre = variante["nombre"]
             configurada = await self.uow.valor(
                 """SELECT EXISTS(SELECT 1 FROM producto_variante_ingrediente
-                   WHERE producto_id=%s AND lower(btrim(variante))=lower(btrim(%s)))""",
+                   WHERE producto_id=%s AND eliminado_en IS NULL
+                     AND lower(btrim(variante))=lower(btrim(%s)))""",
                 (producto_id, nombre),
             )
             variantes.append(
@@ -211,17 +221,37 @@ class RepositorioProductosSQL:
         )
         if fila is None:
             raise ReglaDeNegocio("La receta fue modificada; recargala antes de guardar")
-        # Reemplaza la receta completa: borra la anterior y vuelve a insertar base y variantes.
+        # Solo retira relaciones ausentes; los upserts conservan las claves históricas.
+        variantes = [
+            {"variante": variante.nombre, "ingrediente_id": item.ingrediente_id}
+            for variante in datos.variantes for item in variante.ingredientes
+        ]
         await self.uow.ejecutar(
-            "DELETE FROM producto_variante_ingrediente WHERE producto_id=%s", (producto_id,)
+            """UPDATE producto_variante_ingrediente r SET eliminado_en=now()
+               WHERE r.producto_id=%s AND r.eliminado_en IS NULL
+                 AND NOT EXISTS (
+                     SELECT 1 FROM jsonb_to_recordset(%s::jsonb)
+                         AS v(variante text, ingrediente_id bigint)
+                     WHERE v.variante=r.variante AND v.ingrediente_id=r.ingrediente_id
+                 )""",
+            (producto_id, Jsonb(variantes)),
         )
         await self.uow.ejecutar(
-            "DELETE FROM producto_ingrediente WHERE producto_id=%s", (producto_id,)
+            "UPDATE producto_ingrediente SET eliminado_en=now() "
+            "WHERE producto_id=%s AND eliminado_en IS NULL "
+            "AND NOT (ingrediente_id=ANY(%s::bigint[]))",
+            (producto_id, [item.ingrediente_id for item in datos.ingredientes]),
         )
         for item in datos.ingredientes:
             await self.uow.ejecutar(
                 """INSERT INTO producto_ingrediente
-                   (producto_id,ingrediente_id,cantidad_requerida,es_base) VALUES (%s,%s,%s,%s)""",
+                   (producto_id,ingrediente_id,cantidad_requerida,es_base) VALUES (%s,%s,%s,%s)
+                   ON CONFLICT (producto_id,ingrediente_id) DO UPDATE
+                   SET cantidad_requerida=EXCLUDED.cantidad_requerida,
+                       es_base=EXCLUDED.es_base, eliminado_en=NULL
+                   WHERE producto_ingrediente.eliminado_en IS NOT NULL
+                      OR (producto_ingrediente.cantidad_requerida, producto_ingrediente.es_base)
+                         IS DISTINCT FROM (EXCLUDED.cantidad_requerida, EXCLUDED.es_base)""",
                 (producto_id, item.ingrediente_id, item.cantidad_requerida, item.es_base),
             )
         await self._guardar_variantes(producto_id, datos.variantes)
@@ -249,7 +279,8 @@ class RepositorioProductosSQL:
                    pd.disponible,
                    ARRAY(SELECT i.nombre FROM producto_ingrediente pi
                          JOIN ingrediente i ON i.id=pi.ingrediente_id
-                         WHERE pi.producto_id=p.id ORDER BY lower(i.nombre),i.id)
+                         WHERE pi.producto_id=p.id AND pi.eliminado_en IS NULL
+                         ORDER BY lower(i.nombre),i.id)
                    AS ingredientes_receta
             FROM producto p
             JOIN categoria c ON c.id = p.categoria_id

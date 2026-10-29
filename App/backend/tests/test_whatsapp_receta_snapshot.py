@@ -70,11 +70,13 @@ async def test_bot_usa_snapshot_para_contexto_y_devolucion_fraccionada(
         )
     else:
         await uow.ejecutar(
-            "DELETE FROM producto_variante_ingrediente WHERE producto_id=%s AND ingrediente_id=%s",
+            "UPDATE producto_variante_ingrediente SET eliminado_en=now() "
+            "WHERE producto_id=%s AND ingrediente_id=%s",
             (producto_id, tomate_id),
         )
         await uow.ejecutar(
-            "DELETE FROM producto_ingrediente WHERE producto_id=%s AND ingrediente_id=%s",
+            "UPDATE producto_ingrediente SET eliminado_en=now() "
+            "WHERE producto_id=%s AND ingrediente_id=%s",
             (producto_id, tomate_id),
         )
         assert all(

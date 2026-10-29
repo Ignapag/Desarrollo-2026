@@ -32,7 +32,7 @@ class FiltrosUsuario:
     apellido: str | None = None
     username: str | None = None
     rol: str | None = None
-    estado: str | None = None
+    estado: str | None = "ACTIVO"
 
 
 @dataclass(slots=True, frozen=True)

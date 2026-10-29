@@ -32,8 +32,14 @@ async def registrar(
     """
     await uow.ejecutar(
         """
-        INSERT INTO auditoria (usuario_id, accion, entidad, entidad_id, datos, ip)
-        VALUES (%s, %s, %s, %s, %s, %s)
+        INSERT INTO auditoria
+            (usuario_id, accion, entidad, entidad_id, datos, ip, origen, identificador_operacion)
+        SELECT COALESCE(%s::bigint, NULLIF(current_setting('monu.usuario_id', true), '')::bigint),
+               %s, %s, %s, %s,
+               COALESCE(%s::inet, NULLIF(current_setting('monu.ip', true), '')::inet),
+               COALESCE(NULLIF(current_setting('monu.origen', true), ''), 'SQL:' || session_user),
+               COALESCE(NULLIF(current_setting('monu.identificador_operacion', true), ''),
+                        'sql:' || txid_current()::text)
         """,
         (
             usuario_id,
@@ -48,7 +54,7 @@ async def registrar(
 
 _CAMPOS_EVENTO = """
     a.id, a.usuario_id, u.username, a.accion, a.entidad, a.entidad_id,
-    a.datos, a.ip::text AS ip, a.creado_en
+    a.datos, host(a.ip) AS ip, a.creado_en, a.origen, a.identificador_operacion
 """
 
 

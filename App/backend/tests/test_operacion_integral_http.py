@@ -18,7 +18,7 @@ from app.core.db import UnidadDeTrabajo, abrir_pool, cerrar_pool, conexion
 from app.core.seguridad import hashear_password
 from app.main import app
 from app.modules.whatsapp.presentation.dependencias import construir_servicio
-from tests.soporte_bd import exigir_base_descartable
+from tests.soporte_bd import exigir_base_descartable, mantenimiento_pruebas
 
 PASSWORD = "HttpIntegral2026!"
 
@@ -237,31 +237,36 @@ async def circuito(uow):
             )
         ]
         await uow.ejecutar("DELETE FROM whatsapp_salida WHERE telefono=%s", (telefono,))
-        await uow.ejecutar(
-            "DELETE FROM whatsapp_atencion WHERE referencia_hash IN "
-            "(SELECT referencia_hash FROM whatsapp_borrador WHERE telefono=%s)",
-            (telefono,),
-        )
-        await uow.ejecutar("DELETE FROM whatsapp_comprobante WHERE pedido_id=ANY(%s)", (pedidos,))
-        await uow.ejecutar("DELETE FROM whatsapp_cambio WHERE pedido_id=ANY(%s)", (pedidos,))
-        await uow.ejecutar("DELETE FROM whatsapp_entrada WHERE telefono=%s", (telefono,))
-        await uow.ejecutar(
-            "DELETE FROM whatsapp_borrador WHERE telefono=%s " "OR contacto->>'telefono'=%s",
-            (telefono, telefono),
-        )
-        await uow.ejecutar("DELETE FROM notificacion WHERE pedido_id=ANY(%s)", (pedidos,))
-        await uow.ejecutar("DELETE FROM pago WHERE pedido_id=ANY(%s)", (pedidos,))
-        await uow.ejecutar("DELETE FROM movimiento_stock WHERE ingrediente_id=%s", (ingrediente,))
-        await uow.ejecutar("DELETE FROM pedido WHERE id=ANY(%s)", (pedidos,))
-        await uow.ejecutar("DELETE FROM viaje WHERE repartidor_id=%s", (actores[1],))
-        await uow.ejecutar("DELETE FROM cliente WHERE id=ANY(%s)", (clientes,))
-        await uow.ejecutar("DELETE FROM producto WHERE id=%s", (producto,))
-        await uow.ejecutar("DELETE FROM ingrediente WHERE id=%s", (ingrediente,))
-        await uow.ejecutar("DELETE FROM categoria WHERE id=%s", (categoria,))
-        await uow.ejecutar("DELETE FROM zona_cobertura WHERE id=%s", (zona,))
-        await uow.ejecutar("DELETE FROM auditoria WHERE usuario_id=ANY(%s)", (actores,))
-        await uow.ejecutar("DELETE FROM repartidor WHERE usuario_id=%s", (actores[1],))
-        await uow.ejecutar("DELETE FROM usuario WHERE id=ANY(%s)", (actores,))
+        async with mantenimiento_pruebas(uow):
+            await uow.ejecutar(
+                "DELETE FROM whatsapp_atencion WHERE referencia_hash IN "
+                "(SELECT referencia_hash FROM whatsapp_borrador WHERE telefono=%s)",
+                (telefono,),
+            )
+            await uow.ejecutar(
+                "DELETE FROM whatsapp_comprobante WHERE pedido_id=ANY(%s)", (pedidos,),
+            )
+            await uow.ejecutar("DELETE FROM whatsapp_cambio WHERE pedido_id=ANY(%s)", (pedidos,))
+            await uow.ejecutar("DELETE FROM whatsapp_entrada WHERE telefono=%s", (telefono,))
+            await uow.ejecutar(
+                "DELETE FROM whatsapp_borrador WHERE telefono=%s " "OR contacto->>'telefono'=%s",
+                (telefono, telefono),
+            )
+            await uow.ejecutar("DELETE FROM notificacion WHERE pedido_id=ANY(%s)", (pedidos,))
+            await uow.ejecutar("DELETE FROM pago WHERE pedido_id=ANY(%s)", (pedidos,))
+            await uow.ejecutar(
+                "DELETE FROM movimiento_stock WHERE ingrediente_id=%s", (ingrediente,),
+            )
+            await uow.ejecutar("DELETE FROM pedido WHERE id=ANY(%s)", (pedidos,))
+            await uow.ejecutar("DELETE FROM viaje WHERE repartidor_id=%s", (actores[1],))
+            await uow.ejecutar("DELETE FROM cliente WHERE id=ANY(%s)", (clientes,))
+            await uow.ejecutar("DELETE FROM producto WHERE id=%s", (producto,))
+            await uow.ejecutar("DELETE FROM ingrediente WHERE id=%s", (ingrediente,))
+            await uow.ejecutar("DELETE FROM categoria WHERE id=%s", (categoria,))
+            await uow.ejecutar("DELETE FROM zona_cobertura WHERE id=%s", (zona,))
+            await uow.ejecutar("DELETE FROM auditoria WHERE usuario_id=ANY(%s)", (actores,))
+            await uow.ejecutar("DELETE FROM repartidor WHERE usuario_id=%s", (actores[1],))
+            await uow.ejecutar("DELETE FROM usuario WHERE id=ANY(%s)", (actores,))
         await uow.conn.commit()
         await cerrar_pool()
 

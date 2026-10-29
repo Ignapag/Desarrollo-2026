@@ -65,6 +65,7 @@ class ServicioAuth:
             raise NoAutenticado(MENSAJE_CUENTA_INACTIVA)
 
         # Inicio exitoso: se registra el acceso y se emite el token.
+        await self.uow.atribuir_actor(fila["id"])
         await self.repo.actualizar_ultimo_acceso(fila["id"])
         await auditoria.registrar(
             self.uow,

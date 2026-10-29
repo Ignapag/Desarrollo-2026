@@ -22,7 +22,7 @@ from app.modules.pagos.presentation.dependencias import (
     obtener_servicio_caja,
     obtener_servicio_conciliacion,
 )
-from tests.soporte_bd import conectar_o_omitir
+from tests.soporte_bd import conectar_o_omitir, mantenimiento_pruebas
 from tests.test_pagos_privacidad import aplicacion, sesion
 
 
@@ -201,14 +201,15 @@ async def pedido_confirmado():
         yield pedido_id
     finally:
         await conn.rollback()
-        await uow.ejecutar(
-            "DELETE FROM auditoria WHERE entidad='pago' AND entidad_id IN "
-            "(SELECT id::text FROM pago WHERE pedido_id=%s)",
-            (pedido_id,),
-        )
-        await uow.ejecutar("DELETE FROM pago WHERE pedido_id=%s", (pedido_id,))
-        await uow.ejecutar("DELETE FROM pedido WHERE id=%s", (pedido_id,))
-        await uow.ejecutar("DELETE FROM cliente WHERE id=%s", (cliente_id,))
+        async with mantenimiento_pruebas(uow):
+            await uow.ejecutar(
+                "DELETE FROM auditoria WHERE entidad='pago' AND entidad_id IN "
+                "(SELECT id::text FROM pago WHERE pedido_id=%s)",
+                (pedido_id,),
+            )
+            await uow.ejecutar("DELETE FROM pago WHERE pedido_id=%s", (pedido_id,))
+            await uow.ejecutar("DELETE FROM pedido WHERE id=%s", (pedido_id,))
+            await uow.ejecutar("DELETE FROM cliente WHERE id=%s", (cliente_id,))
         await conn.commit()
         await conn.close()
 

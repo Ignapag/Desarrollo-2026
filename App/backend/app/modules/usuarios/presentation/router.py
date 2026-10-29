@@ -119,11 +119,13 @@ async def buscar_usuarios(
     apellido: str | None = None,
     username: str | None = None,
     rol: str | None = None,
-    estado: str | None = None,
+    estado: str | None = "ACTIVO",
+    incluir_inactivos: bool = False,
 ) -> list[UsuarioSalida]:
     """Busca cuentas con filtros combinables (solo administrador)."""
     filtros = FiltrosUsuario(
-        nombre=nombre, apellido=apellido, username=username, rol=rol, estado=estado
+        nombre=nombre, apellido=apellido, username=username, rol=rol,
+        estado=None if incluir_inactivos else estado,
     )
     return [UsuarioSalida(**f) for f in await servicio.buscar(filtros)]
 

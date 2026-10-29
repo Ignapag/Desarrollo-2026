@@ -71,6 +71,13 @@ class EditarOperacionEntrada(BaseModel):
     observaciones: str | None = Field(default=None, max_length=500)
 
 
+class RecuperarItemEntrada(BaseModel):
+    """Control de concurrencia al recuperar una línea retirada de un pedido."""
+
+    model_config = ConfigDict(extra="forbid")
+    version_esperada: int = Field(gt=0)
+
+
 class ItemPedidoSalida(BaseModel):
     """Línea del pedido con su precio congelado y subtotal."""
 

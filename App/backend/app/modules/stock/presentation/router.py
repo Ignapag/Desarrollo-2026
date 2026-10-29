@@ -34,12 +34,14 @@ async def listar_ingredientes(
     servicio: ServicioStockDep,
     nombre: str | None = None,
     responsable_id: int | None = Query(default=None, gt=0),
-    activo: bool | None = None,
+    activo: bool | None = True,
     nivel: str | None = None,
+    incluir_inactivos: bool = False,
 ) -> list[IngredienteSalida]:
     """Lista ingredientes filtrando por nombre, responsable, estado y nivel."""
     filas = await servicio.listar(
-        nombre=nombre, responsable_id=responsable_id, activo=activo, nivel=nivel
+        nombre=nombre, responsable_id=responsable_id,
+        activo=None if incluir_inactivos else activo, nivel=nivel,
     )
     return [IngredienteSalida(**fila) for fila in filas]
 

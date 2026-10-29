@@ -564,6 +564,15 @@ export function DataProvider({ children }) {
     if (userRef.current === user) dispatch({ type: 'DELETE_CATALOG_ITEM', payload: id });
   }, 'productos.gestionar');
 
+  // Reactiva una baja confirmada; la valla vuelve a consultar solo el catálogo activo.
+  const reactivateProduct = async (id) => runResourceMutation('catalog', async () => {
+    const updated = await apiFetch(`/api/productos/${id}/estado`, {
+      method: 'PATCH', body: JSON.stringify({ activo: true }),
+    });
+    if (updated?.id !== id || updated.activo !== true) throw new UserFacingError('No pudimos confirmar la reactivación. Actualizá el catálogo antes de reintentar.');
+    return updated;
+  }, 'productos.gestionar');
+
   // Cambia el estado de un pedido conocido (con versión y estado esperados).
   const changeOrderStatus = async (id, status, options = {}) => {
     if (!can(user, 'pedidos.cambiar_estado')) throw new UserFacingError('No tenés acceso a cambiar el estado.');
@@ -629,6 +638,15 @@ export function DataProvider({ children }) {
     return item;
   }, 'stock.gestionar');
 
+  // Reactiva el insumo conservando su stock; el servidor valida la operación.
+  const reactivateIngredient = async (id) => runResourceMutation('inventory', async () => {
+    const updated = await apiFetch(`/api/stock/ingredientes/${id}`, {
+      method: 'PATCH', body: JSON.stringify({ activo: true }),
+    });
+    if (updated?.id !== id || updated.activo !== true) throw new UserFacingError('No pudimos confirmar la reactivación. Actualizá el inventario antes de reintentar.');
+    return updated;
+  }, 'stock.gestionar');
+
   // quantity admite el texto decimal exacto ("2500.5") para no perder precisión en el JSON.
   const replenishIngredient = async (id, quantity = 1) => runResourceMutation('inventory', async () => {
     const delta = Number(quantity);
@@ -664,6 +682,7 @@ export function DataProvider({ children }) {
       createProduct,
       updateRecipe,
       deactivateProduct,
+      reactivateProduct,
       changeOrderStatus,
       placeOrder,
       refreshOrders,
@@ -680,6 +699,7 @@ export function DataProvider({ children }) {
       orderOperations: operations.owner === user ? operations.entries : [],
       createIngredient,
       updateIngredientCost,
+      reactivateIngredient,
       replenishIngredient,
     }}>
       {children}

@@ -45,10 +45,13 @@ async def buscar_plantillas(
     servicio: ServicioNotificacionesDep,
     nombre: str | None = None,
     evento: str | None = None,
-    activa: bool | None = None,
+    activa: bool | None = True,
+    incluir_inactivos: bool = False,
 ) -> list[PlantillaSalida]:
     """Lista plantillas de notificación con filtros opcionales."""
-    filas = await servicio.buscar_plantillas(nombre=nombre, evento=evento, activa=activa)
+    filas = await servicio.buscar_plantillas(
+        nombre=nombre, evento=evento, activa=None if incluir_inactivos else activa
+    )
     return [PlantillaSalida(**f) for f in filas]
 
 

@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from uuid import uuid4
 
 from app.core.config import settings
 from app.core.db import UnidadDeTrabajo, conexion
@@ -47,9 +48,13 @@ async def procesar_entrada(identificador):
     base y aplica la acción revalidada. Si el pedido cambió durante la interpretación se reintenta;
     ante errores se cierra el mensaje derivándolo.
     """
+    # Los IDs web: los genera CanalDemoSQL; no se persiste ese identificador
+    # como correlación porque contiene el hash de una sesión de demostración.
+    origen = "chat_demo" if str(identificador).startswith("web:") else "whatsapp"
+    operacion = str(uuid4())
     for intento in range(INTENTOS_INTERPRETACION):
         async with conexion() as conn:
-            uow = UnidadDeTrabajo(conn)
+            uow = UnidadDeTrabajo(conn, origen=origen, identificador_operacion=operacion)
             preparado = await construir_servicio(uow).preparar(identificador)
             if preparado and preparado["interpretar"] and settings.chat_demo_gemini_modo:
                 preparado["canal_demo"] = await uow.valor(
@@ -65,7 +70,8 @@ async def procesar_entrada(identificador):
         accion = await _interpretar(preparado) if preparado["interpretar"] else CONSULTA
         try:
             async with conexion() as conn:
-                await construir_servicio(UnidadDeTrabajo(conn)).procesar(
+                uow = UnidadDeTrabajo(conn, origen=origen, identificador_operacion=operacion)
+                await construir_servicio(uow).procesar(
                     identificador,
                     accion,
                     vinculo,
@@ -75,7 +81,7 @@ async def procesar_entrada(identificador):
         except InterpretacionDesactualizada:
             continue
         except ErrorDominio:
-            await _finalizar_fallido(identificador)
+            await _finalizar_fallido(identificador, origen=origen, operacion=operacion)
             return
         except Exception as error:
             # La conexión del intento ya salió con rollback. Si la base responde,
@@ -83,15 +89,16 @@ async def procesar_entrada(identificador):
             logging.getLogger("monuburger.whatsapp.procesamiento").error(
                 "whatsapp_operacion_no_controlada clase=%s", type(error).__name__,
             )
-            await _finalizar_fallido(identificador)
+            await _finalizar_fallido(identificador, origen=origen, operacion=operacion)
             return
 
 
-async def _finalizar_fallido(identificador):
+async def _finalizar_fallido(identificador, *, origen="whatsapp", operacion=None):
     """Cierra un mensaje que no pudo procesarse, derivándolo al personal y avisando al cliente."""
     # La transacción del intento fallido ya revirtió todos sus efectos.
     async with conexion() as conn:
-        servicio = construir_servicio(UnidadDeTrabajo(conn))
+        uow = UnidadDeTrabajo(conn, origen=origen, identificador_operacion=operacion)
+        servicio = construir_servicio(uow)
         entrada = await servicio.repo.entrada(identificador, bloquear=True)
         if entrada and entrada["estado"] != "PROCESADO":
             b, _ = await servicio._conversacion(entrada, bloquear=True)
@@ -112,8 +119,10 @@ async def enviar_uno(*, solo_demo=False):
     """Reclama y envía una salida pendiente; devuelve False si no había ninguna. El envío ocurre
     fuera de la transacción y su resultado se registra en otra.
     """
+    operacion = str(uuid4())
+    origen = "chat_demo" if solo_demo else "whatsapp"
     async with conexion() as conn:
-        uow = UnidadDeTrabajo(conn)
+        uow = UnidadDeTrabajo(conn, origen=origen, identificador_operacion=operacion)
         cola = ColaWhatsAppSQL(uow)
         mensaje = await cola.reclamar(solo_demo=True) if solo_demo else await cola.reclamar()
         if not mensaje:
@@ -123,12 +132,15 @@ async def enviar_uno(*, solo_demo=False):
             "SELECT EXISTS (SELECT 1 FROM chat_demo_sesion WHERE telefono=%s)",
             (mensaje["telefono"],),
         ):
+            await uow.configurar_auditoria(
+                origen="chat_demo", identificador_operacion=operacion,
+            )
             await cola.resultado(mensaje["id"], "SIMULADO")
             return True
         if settings.whatsapp_modo == "real" and not await cola.dentro_ventana(mensaje["telefono"]):
             await cola.resultado(mensaje["id"], "FALLIDO")
             # Fuera de ventana requiere plantilla; queda retenido para personal.
-            await UnidadDeTrabajo(conn).ejecutar(
+            await uow.ejecutar(
                 "UPDATE whatsapp_salida SET intentos=3 WHERE id=%s", (mensaje["id"],)
             )
             return True
@@ -142,7 +154,8 @@ async def enviar_uno(*, solo_demo=False):
     except ReglaDeNegocio:
         estado = "FALLIDO"
     async with conexion() as conn:
-        await ColaWhatsAppSQL(UnidadDeTrabajo(conn)).resultado(mensaje["id"], estado, proveedor_id)
+        uow = UnidadDeTrabajo(conn, origen=origen, identificador_operacion=operacion)
+        await ColaWhatsAppSQL(uow).resultado(mensaje["id"], estado, proveedor_id)
     return True
 
 
@@ -169,7 +182,8 @@ async def procesar_lote(limite=20, *, solo_demo=False):
     salidas encoladas.
     """
     async with conexion() as conn:
-        pendientes = await ColaWhatsAppSQL(UnidadDeTrabajo(conn)).pendientes(
+        uow = UnidadDeTrabajo(conn, origen="chat_demo" if solo_demo else "whatsapp")
+        pendientes = await ColaWhatsAppSQL(uow).pendientes(
             limite, solo_demo=solo_demo,
         )
     conversaciones = {}

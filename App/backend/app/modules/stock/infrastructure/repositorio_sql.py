@@ -75,7 +75,8 @@ class RepositorioStockSQL:
         return bool(
             await self.uow.valor(
                 "SELECT EXISTS (SELECT 1 FROM pedido_item_opcion o "
-                "JOIN pedido_item i ON i.id = o.pedido_item_id WHERE i.pedido_id = %s)",
+                "JOIN pedido_item i ON i.id = o.pedido_item_id "
+                "WHERE i.pedido_id = %s AND i.eliminado_en IS NULL)",
                 (pedido_id,),
             )
         )
@@ -86,7 +87,7 @@ class RepositorioStockSQL:
             "SELECT p.estado, p.preparacion_en, i.producto_id, i.cantidad, i.aclaraciones, "
             "i.receta_snapshot "
             "FROM pedido p JOIN pedido_item i ON i.pedido_id = p.id "
-            "WHERE p.id = %s AND i.id = %s FOR UPDATE OF i",
+            "WHERE p.id = %s AND i.id = %s AND i.eliminado_en IS NULL FOR UPDATE OF i",
             (pedido_id, item_id),
         )
 
@@ -121,9 +122,11 @@ class RepositorioStockSQL:
                 SELECT pi.ingrediente_id, pi.cantidad_requerida
                 FROM producto_ingrediente pi
                 WHERE i.receta_snapshot IS NULL AND pi.producto_id = i.producto_id
+                  AND pi.eliminado_en IS NULL
             ) receta
             JOIN ingrediente ing ON ing.id = receta.ingrediente_id
             WHERE p.id = %s AND i.id = %s AND lower(ing.nombre) = %s
+              AND i.eliminado_en IS NULL
             FOR UPDATE OF i, ing
             """,
             (pedido_id, item_id, nombre),
@@ -180,7 +183,7 @@ class RepositorioStockSQL:
             """
             SELECT p.id AS producto_id, pi.ingrediente_id, pi.cantidad_requerida
             FROM producto p
-            LEFT JOIN producto_ingrediente pi ON pi.producto_id = p.id
+            LEFT JOIN producto_ingrediente pi ON pi.producto_id = p.id AND pi.eliminado_en IS NULL
             WHERE p.id = ANY(%s)
             ORDER BY p.id, pi.ingrediente_id
             """,
@@ -304,7 +307,7 @@ class RepositorioStockSQL:
                 SELECT EXISTS (
                     SELECT 1 FROM producto_ingrediente pi
                     JOIN producto p ON p.id = pi.producto_id
-                    WHERE pi.ingrediente_id = %s AND p.activo
+                    WHERE pi.ingrediente_id = %s AND p.activo AND pi.eliminado_en IS NULL
                 )
                 """,
                 (ingrediente_id,),

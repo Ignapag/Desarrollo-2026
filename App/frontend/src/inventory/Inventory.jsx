@@ -14,6 +14,7 @@ import { parseRecipeQuantity, recipeUnit } from '../management/recipeModel';
 import { costUnitLabel, formatUnitCost, parseUnitCost } from './ingredientCost';
 import IngredientCostDialog from './IngredientCostDialog';
 import ReplenishDialog from './ReplenishDialog';
+import InactiveIngredients from './InactiveIngredients';
 import { isUncertainReplenishment, quantityWithUnit } from './replenishment';
 
 // Stock inicial del alta: acepta cero explícito; el resto se valida como cantidad de receta.
@@ -301,6 +302,8 @@ export default function Inventory() {
           </table>
         </div>
       </div>
+
+      {canManage && <InactiveIngredients key={user.id} revision={inventory} />}
 
       {/* Diálogos de reposición y de costo */}
       {replenishItem && (

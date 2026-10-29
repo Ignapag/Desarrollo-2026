@@ -29,10 +29,13 @@ async def api(uow):
 async def permisos(api, uow, autorizados):
     identidad = await uow.uno("SELECT id, rol, username FROM usuario WHERE username='taramburu'")
     assert identidad["rol"] == "EMPLEADO"
-    await uow.ejecutar("DELETE FROM rol_permiso WHERE rol='EMPLEADO'")
+    await uow.ejecutar(
+        "UPDATE rol_permiso SET eliminado_en=now() WHERE rol='EMPLEADO' AND eliminado_en IS NULL"
+    )
     for permiso in autorizados:
         await uow.ejecutar(
-            "INSERT INTO rol_permiso (rol, permiso) VALUES ('EMPLEADO', %s)", (permiso,)
+            "INSERT INTO rol_permiso (rol, permiso) VALUES ('EMPLEADO', %s) "
+            "ON CONFLICT (rol, permiso) DO UPDATE SET eliminado_en=NULL", (permiso,)
         )
     api.cookies.set(settings.cookie_sesion, crear_token(
         usuario_id=identidad["id"], rol=identidad["rol"], username=identidad["username"]
@@ -75,7 +78,8 @@ async def test_contratos_filtros_y_revocacion_misma_cookie(api, uow):
     assert (await api.get(invertido)).status_code == 422
     assert (await api.get(ruta.replace("2026-09-01", "2026-08-01"))).json() == []
     await uow.ejecutar(
-        "INSERT INTO rol_permiso (rol, permiso) VALUES ('EMPLEADO', 'reportes.financieros')"
+        "INSERT INTO rol_permiso (rol, permiso) VALUES ('EMPLEADO', 'reportes.financieros') "
+        "ON CONFLICT (rol, permiso) DO UPDATE SET eliminado_en=NULL"
     )
     financiero = (await api.get(ruta)).json()[0]
     assert financiero["monto_total"] == "300.00"
@@ -83,5 +87,7 @@ async def test_contratos_filtros_y_revocacion_misma_cookie(api, uow):
     rentabilidad = await api.get(f"/api/reportes/rentabilidad{QUERY}&producto_id={productos[0]}")
     assert rentabilidad.status_code == 200, rentabilidad.text
     assert rentabilidad.json()[0]["tipo"] == "RENTABILIDAD_ESTIMADA"
-    await uow.ejecutar("DELETE FROM rol_permiso WHERE rol='EMPLEADO'")
+    await uow.ejecutar(
+        "UPDATE rol_permiso SET eliminado_en=now() WHERE rol='EMPLEADO' AND eliminado_en IS NULL"
+    )
     assert (await api.get(ruta)).status_code == 403

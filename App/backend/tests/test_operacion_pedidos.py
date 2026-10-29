@@ -13,6 +13,7 @@ from app.errores import DatosInvalidos, ReglaDeNegocio
 from app.modules.pedidos.application.servicio_pedidos import ItemNuevoPedido
 from app.modules.pedidos.domain.entidades import EstadoPedido as E
 from app.modules.pedidos.presentation.dependencias import obtener_servicio_pedidos
+from tests.soporte_bd import mantenimiento_pruebas
 from tests.test_stock_consumo_bd import crear_pedido, escenario
 
 pytest_plugins = ("tests.test_stock_consumo_bd",)
@@ -463,19 +464,20 @@ async def test_indicadores_se_releen_despues_de_esperar_bloqueo(escenario_concur
             await asyncio.gather(intento, return_exceptions=True)
         await segunda.rollback()
         await segunda.close()
-        await unidad.ejecutar("DELETE FROM pago WHERE pedido_id=%s", (pedido,))
-        await unidad.ejecutar("DELETE FROM envio WHERE pedido_id=%s", (pedido,))
-        if viaje is not None:
-            await unidad.ejecutar("DELETE FROM viaje WHERE id=%s", (viaje,))
-        if repartidor is not None:
-            await unidad.ejecutar("DELETE FROM repartidor WHERE usuario_id=%s", (repartidor,))
-            await unidad.ejecutar("DELETE FROM usuario WHERE id=%s", (repartidor,))
-        if direccion is not None:
-            await unidad.ejecutar(
-                "UPDATE pedido SET tipo_entrega='RETIRO',direccion_id=NULL " "WHERE id=%s",
-                (pedido,),
-            )
-            await unidad.ejecutar("DELETE FROM direccion WHERE id=%s", (direccion,))
+        async with mantenimiento_pruebas(unidad):
+            await unidad.ejecutar("DELETE FROM pago WHERE pedido_id=%s", (pedido,))
+            await unidad.ejecutar("DELETE FROM envio WHERE pedido_id=%s", (pedido,))
+            if viaje is not None:
+                await unidad.ejecutar("DELETE FROM viaje WHERE id=%s", (viaje,))
+            if repartidor is not None:
+                await unidad.ejecutar("DELETE FROM repartidor WHERE usuario_id=%s", (repartidor,))
+                await unidad.ejecutar("DELETE FROM usuario WHERE id=%s", (repartidor,))
+            if direccion is not None:
+                await unidad.ejecutar(
+                    "UPDATE pedido SET tipo_entrega='RETIRO',direccion_id=NULL " "WHERE id=%s",
+                    (pedido,),
+                )
+                await unidad.ejecutar("DELETE FROM direccion WHERE id=%s", (direccion,))
         await primera.commit()
         await primera.close()
 

@@ -11,7 +11,7 @@ from app.errores import DatosInvalidos, ReglaDeNegocio
 from app.modules.pedidos.domain.entidades import EstadoPedido
 from app.modules.pedidos.infrastructure.repositorio_sql import RepositorioPedidosSQL
 from app.modules.stock.application.servicio_stock import StockInsuficiente
-from tests.soporte_bd import conectar_o_omitir
+from tests.soporte_bd import conectar_o_omitir, mantenimiento_pruebas
 from tests.test_edicion_items_bd import crear
 
 
@@ -233,10 +233,11 @@ async def test_cotizacion_bloquea_tarifa_y_desactivacion_hasta_fin_transaccion(c
     finally:
         await primera.rollback()
         await segunda.rollback()
-        if cliente is not None:
-            await unidad.ejecutar("DELETE FROM cliente WHERE id=%s", (cliente,))
-        if zona is not None:
-            await unidad.ejecutar("DELETE FROM zona_cobertura WHERE id=%s", (zona,))
+        async with mantenimiento_pruebas(unidad):
+            if cliente is not None:
+                await unidad.ejecutar("DELETE FROM cliente WHERE id=%s", (cliente,))
+            if zona is not None:
+                await unidad.ejecutar("DELETE FROM zona_cobertura WHERE id=%s", (zona,))
         await primera.commit()
         await primera.close()
         await segunda.close()

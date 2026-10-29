@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from app.core.config import settings
 from app.core.db import UnidadDeTrabajo, conexion
-from app.core.dependencias import UoW
+from app.core.dependencias import UoW, ip_cliente
 from app.errores import DatosInvalidos, NoEncontrado, SinPermiso
 from app.modules.usuarios.domain.entidades import ClaimsSesion
 from app.modules.usuarios.presentation.dependencias import requiere_permiso
@@ -261,6 +261,7 @@ async def webhook(request: Request):
                 eventos.append(valor)
         async with conexion() as conn:
             uow = UnidadDeTrabajo(conn)
+            await uow.configurar_auditoria(origen="whatsapp_webhook", ip=ip_cliente(request))
             servicio = construir_servicio(uow)
             # Registra mensajes (texto o adjunto) y estados de entrega en una única transacción.
             for valor in eventos:

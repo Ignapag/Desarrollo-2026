@@ -6,6 +6,7 @@ from app.errores import SinPermiso
 from app.modules.delivery.application.servicio_delivery import ServicioDelivery
 from app.modules.reportes.application.servicio_reportes import ServicioReportes
 from app.modules.reportes.domain.reglas import validar_rol
+from tests.soporte_bd import mantenimiento_pruebas
 
 
 def test_reporte_concedido_a_empleado_y_financiero_revocado_a_duenio():
@@ -241,8 +242,9 @@ async def test_gestion_bloqueada_no_ofrece_candidato_y_revalida_al_confirmar(cam
         await asignacion.rollback()
         await gestion.rollback()
         if usuario is not None:
-            await ug.ejecutar("DELETE FROM repartidor WHERE usuario_id=%s", (usuario,))
-            await ug.ejecutar("DELETE FROM usuario WHERE id=%s", (usuario,))
+            async with mantenimiento_pruebas(ug):
+                await ug.ejecutar("DELETE FROM repartidor WHERE usuario_id=%s", (usuario,))
+                await ug.ejecutar("DELETE FROM usuario WHERE id=%s", (usuario,))
             await gestion.commit()
         await asignacion.close()
         await gestion.close()

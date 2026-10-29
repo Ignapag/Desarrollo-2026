@@ -66,9 +66,11 @@ def obtener_servicio_acceso(uow: UoW) -> ServicioAcceso:
 ServicioAccesoDep = Annotated[ServicioAcceso, Depends(obtener_servicio_acceso)]
 
 
-async def sesion_vigente(token: TokenSesion, acceso: ServicioAccesoDep) -> ClaimsSesion:
+async def sesion_vigente(token: TokenSesion, acceso: ServicioAccesoDep, uow: UoW) -> ClaimsSesion:
     """Completa la identidad del token con el estado, rol y permisos vigentes en la base."""
-    return await acceso.sesion(token)
+    sesion = await acceso.sesion(token)
+    await uow.atribuir_actor(sesion.usuario_id)
+    return sesion
 
 
 Sesion = Annotated[ClaimsSesion, Depends(sesion_vigente)]
