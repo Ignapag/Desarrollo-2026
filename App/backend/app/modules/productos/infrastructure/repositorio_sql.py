@@ -24,10 +24,12 @@ class RepositorioProductosSQL:
             SELECT p.id, p.categoria_id, c.nombre AS categoria, p.nombre,
                    p.descripcion, p.precio_base, p.imagen_url,
                    COALESCE((SELECT jsonb_agg(v || jsonb_build_object(
-                       'disponible', variante_producto_disponible(p.id, v->>'nombre')) ORDER BY n)
+                       'disponible', variante_producto_disponible(p.id, v->>'nombre'),
+                       'max_unidades', variante_producto_max_unidades(p.id, v->>'nombre'))
+                       ORDER BY n)
                        FROM jsonb_array_elements(p.variantes) WITH ORDINALITY x(v,n)),
                        '[]'::jsonb) AS variantes, p.activo,
-                   pd.disponible,
+                   pd.disponible, producto_max_unidades(p.id) AS max_unidades,
                    ARRAY(SELECT i.nombre FROM producto_ingrediente pi
                          JOIN ingrediente i ON i.id=pi.ingrediente_id
                          WHERE pi.producto_id=p.id AND pi.eliminado_en IS NULL
@@ -140,10 +142,12 @@ class RepositorioProductosSQL:
             SELECT p.id, p.categoria_id, c.nombre AS categoria, p.nombre,
                    p.descripcion, p.precio_base, p.imagen_url,
                    COALESCE((SELECT jsonb_agg(v || jsonb_build_object(
-                       'disponible', variante_producto_disponible(p.id, v->>'nombre')) ORDER BY n)
+                       'disponible', variante_producto_disponible(p.id, v->>'nombre'),
+                       'max_unidades', variante_producto_max_unidades(p.id, v->>'nombre'))
+                       ORDER BY n)
                        FROM jsonb_array_elements(p.variantes) WITH ORDINALITY x(v,n)),
                        '[]'::jsonb) AS variantes, p.activo,
-                   pd.disponible,
+                   pd.disponible, producto_max_unidades(p.id) AS max_unidades,
                    ARRAY(SELECT i.nombre FROM producto_ingrediente pi
                          JOIN ingrediente i ON i.id=pi.ingrediente_id
                          WHERE pi.producto_id=p.id AND pi.eliminado_en IS NULL
@@ -305,10 +309,12 @@ class RepositorioProductosSQL:
             SELECT p.id, p.categoria_id, c.nombre AS categoria, p.nombre,
                    p.descripcion, p.precio_base, p.imagen_url,
                    COALESCE((SELECT jsonb_agg(v || jsonb_build_object(
-                       'disponible', variante_producto_disponible(p.id, v->>'nombre')) ORDER BY n)
+                       'disponible', variante_producto_disponible(p.id, v->>'nombre'),
+                       'max_unidades', variante_producto_max_unidades(p.id, v->>'nombre'))
+                       ORDER BY n)
                        FROM jsonb_array_elements(p.variantes) WITH ORDINALITY x(v,n)),
                        '[]'::jsonb) AS variantes, p.activo,
-                   pd.disponible,
+                   pd.disponible, producto_max_unidades(p.id) AS max_unidades,
                    ARRAY(SELECT i.nombre FROM producto_ingrediente pi
                          JOIN ingrediente i ON i.id=pi.ingrediente_id
                          WHERE pi.producto_id=p.id AND pi.eliminado_en IS NULL

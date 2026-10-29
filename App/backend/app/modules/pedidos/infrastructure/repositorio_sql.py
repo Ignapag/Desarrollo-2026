@@ -76,7 +76,7 @@ class RepositorioPedidosSQL:
                 raise ReglaDeNegocio("La receta contiene ingredientes inactivos o inexistentes")
             if cantidad > saldo["cantidad_actual"]:
                 raise StockInsuficiente(
-                    "Stock insuficiente para los extras del pedido",
+                    "No hay stock suficiente para la cantidad pedida. Revisá el carrito.",
                     {"ingrediente_id": ingrediente_id},
                 )
 

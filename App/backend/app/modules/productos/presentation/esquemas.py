@@ -177,6 +177,8 @@ class VarianteProductoSalida(BaseModel):
     nombre: str
     precio: Decimal
     disponible: bool = True
+    # Unidades que alcanza el stock actual (tope 50); el pedido se revalida en el servidor.
+    max_unidades: int | None = None
 
 
 class ProductoSalida(BaseModel):
@@ -194,6 +196,7 @@ class ProductoSalida(BaseModel):
     extras_disponibles: list[dict] = Field(default_factory=list)
     activo: bool
     disponible: bool
+    max_unidades: int | None = None
 
 
 class EstadoProductoEntrada(BaseModel):

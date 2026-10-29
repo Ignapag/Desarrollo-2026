@@ -246,8 +246,8 @@ class ServicioBot:
                 cotizaciones.append({**i, "receta_snapshot": cotizacion["receta_snapshot"]})
             else:
                 cotizaciones.append(i)
-        if any(i.get("extras") for i in items):
-            await self.pedidos.validar_disponibilidad_items(cotizaciones)
+        # La demanda conjunta del carrito (cantidades y extras) debe alcanzar con el stock.
+        await self.pedidos.validar_disponibilidad_items(cotizaciones)
         if datos.get("tipo_entrega") not in {None, "RETIRO", "DELIVERY"}:
             raise DatosInvalidos("Modalidad inválida")
         if datos.get("metodo_pago") not in {None, "EFECTIVO", "TRANSFERENCIA"}:

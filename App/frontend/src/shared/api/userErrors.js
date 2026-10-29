@@ -34,6 +34,7 @@ const businessMessages = new Map([
   ['Stock insuficiente para el pedido', 'No hay insumos suficientes para preparar el pedido. Revisá los productos.'],
   ['Stock insuficiente para modificar el pedido', 'No hay insumos suficientes para modificar el pedido. Revisá los productos.'],
   ['Stock insuficiente para aumentar la cantidad', 'No hay insumos suficientes para aumentar la cantidad.'],
+  ['No hay stock suficiente para la cantidad pedida. Revisá el carrito.', 'No hay stock suficiente para la cantidad pedida. Reducí las unidades del carrito e intentá nuevamente.'],
   ['La direccion no tiene cobertura activa', 'La dirección está fuera de la zona de entrega. Elegí otra dirección o retiro en el local.'],
   ['La cantidad acumulada del producto no puede superar 50', 'Podés pedir hasta 50 unidades de cada producto.'],
   ['El monto debe ser positivo y no superar el saldo pendiente', 'Ingresá un importe mayor a cero que no supere el saldo pendiente.'],

@@ -510,8 +510,8 @@ class ServicioPedidos:
                     }
                 )
                 items_snapshot[-1].update({k: v for k, v in cotizacion.items() if k != "extras"})
-        if any(item.get("extras_snapshot") for item in items_snapshot):
-            await self.validar_disponibilidad_items(items_snapshot)
+        # Ninguna cantidad puede superar el stock, aunque el ítem no lleve extras.
+        await self.validar_disponibilidad_items(items_snapshot)
         if metodo_pago_acordado not in {"EFECTIVO", "TRANSFERENCIA"}:
             raise DatosInvalidos("El metodo acordado no es valido")
         # El método acordado solo se envía si difiere del valor por defecto.

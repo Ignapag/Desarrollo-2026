@@ -36,6 +36,12 @@ class RepositorioPedidosMemoria:
         self.datos = datos
         return {**self.pedido, **datos}
 
+    async def receta_edicion(self, producto_id, variante):
+        return [{"ingrediente_id": 1, "cantidad_requerida": "1", "es_base": True}]
+
+    async def validar_stock_recetas(self, items):
+        return None
+
     async def obtener(self, pedido_id, *, bloquear=False):
         self.bloqueado = bloquear
         return self.pedido
@@ -171,7 +177,8 @@ async def test_solo_notas_de_retiros_permitidos_afectan_consumo(notas, omitidos)
 @pytest.mark.asyncio
 @pytest.mark.parametrize("canal", ["WEB", "WHATSAPP", "MOSTRADOR"])
 async def test_sql_persiste_canal_y_aclaraciones_separadas(uow, canal):
-    cliente_id, producto_id, (ingrediente_id,) = await escenario(uow)
+    # Stock para las tres unidades del pedido: la creación valida la demanda conjunta.
+    cliente_id, producto_id, (ingrediente_id,) = await escenario(uow, saldo=Decimal("3"))
     servicio = ServicioPedidos(RepositorioPedidosSQL(uow), StockMemoria())
     pedido = await servicio.crear(
         cliente_id=cliente_id, tipo_entrega="RETIRO", direccion_id=None,

@@ -8,6 +8,7 @@ import { buildWhatsAppDraftPayload, createWhatsAppDraft } from './whatsapp';
 import { openChatSession, sendChatDraft } from './chatDemo';
 import { validateCheckout } from './checkoutValidation';
 import { portionLabel } from './ingredientExtras';
+import { cartItemLimit, unitsInCart, unitsLabel } from './stockLimits';
 import { userErrorMessage } from '../shared/api/userErrors';
 
 // Clases de campos, botones y etiquetas del carrito.
@@ -205,7 +206,12 @@ export default function CartDrawer({ isOpen, onClose, chatConfig = { status: 're
                     <span className="rounded-full bg-white px-3 py-1 text-sm font-bold text-monu-green">{cart.reduce((sum, item) => sum + item.quantity, 0)} uds.</span>
                   </div>
                   <ul className="space-y-5">
-                    {cart.map((item, index) => (
+                    {cart.map((item, index) => {
+                      // Unidades del producto y variante en todo el carrito frente a lo que alcanza el stock.
+                      const limit = cartItemLimit(state.catalog || [], item);
+                      const units = unitsInCart(cart, item.productId ?? item.id, item.variant);
+                      const atLimit = limit !== null && units >= limit;
+                      return (
                       <li key={index} className="flex gap-3 border-b border-monu-green/10 pb-5 last:border-0 last:pb-0">
                         <div className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-monu-cream sm:size-20">
                           <img src={item.image || '/favicon.png'} alt="" className={item.image ? 'size-full object-cover' : 'size-10 object-contain'} />
@@ -221,13 +227,15 @@ export default function CartDrawer({ isOpen, onClose, chatConfig = { status: 're
                             <div className="flex items-center rounded-xl border border-monu-green/15 bg-white">
                               <button type="button" disabled={busy} aria-label={'Reducir cantidad de ' + item.name} onClick={() => dispatch({ type: 'UPDATE_CART_QUANTITY', payload: { index, delta: -1 } })} className={iconButtonClass + ' font-bold text-monu-green hover:bg-monu-green/5'}>−</button>
                               <span className="w-5 text-center text-sm font-extrabold">{item.quantity}</span>
-                              <button type="button" disabled={busy || item.quantity >= 50} aria-label={'Aumentar cantidad de ' + item.name} onClick={() => dispatch({ type: 'UPDATE_CART_QUANTITY', payload: { index, delta: 1 } })} className={iconButtonClass + ' font-bold text-monu-green hover:bg-monu-green/5'}>+</button>
+                              <button type="button" disabled={busy || item.quantity >= 50 || atLimit} aria-label={'Aumentar cantidad de ' + item.name} onClick={() => dispatch({ type: 'UPDATE_CART_QUANTITY', payload: { index, delta: 1 } })} className={iconButtonClass + ' font-bold text-monu-green hover:bg-monu-green/5'}>+</button>
                             </div>
                             <span className="font-extrabold text-monu-dark">{'$' + (item.price * item.quantity).toLocaleString('es-AR')}</span>
                           </div>
+                          {atLimit && <p role="status" className="mt-2 text-sm font-bold text-orange-800">{units > limit ? `Solo hay stock para ${unitsLabel(limit)}. Reducí la cantidad.` : 'No hay más stock para más unidades.'}</p>}
                         </div>
                       </li>
-                    ))}
+                      );
+                    })}
                   </ul>
                 </section>
                 {/* Datos del cliente, entrega y pago */}

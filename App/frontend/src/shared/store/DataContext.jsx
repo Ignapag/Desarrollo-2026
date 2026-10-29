@@ -49,9 +49,12 @@ function mapProduct(product) {
       name: variant.nombre,
       price: Number(variant.precio),
       available: variant.disponible ?? true,
+      maxUnits: variant.max_unidades ?? null,
     })),
     active: product.activo,
     available: product.disponible,
+    // Unidades que alcanza el stock actual; el servidor revalida al crear el pedido.
+    maxUnits: product.max_unidades ?? null,
     removableIngredients: product.ingredientes_quitables || [],
     extraOptions: product.extras_disponibles || [],
   };

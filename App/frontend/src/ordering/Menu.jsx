@@ -7,6 +7,7 @@ import { Settings2 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { buildCustomizedItem, extrasForVariant, portionLabel } from './ingredientExtras';
+import { cartItemLimit, unitsInCart, unitsLabel } from './stockLimits';
 
 // Categorías del menú en el orden en que se muestran las pestañas.
 const CATEGORIES = ['Todas', 'Nuestras Burgers', 'Monufusión', 'Opciones Individuales', 'Combos', 'Acompañamientos', 'Bebidas', 'Dips Extra'];
@@ -204,11 +205,17 @@ export default function Menu() {
     return matchCat && matchQuery;
   });
 
-  // Agrega al carrito respetando los límites del pedido (50 productos y 50 unidades por ítem).
+  // Agrega al carrito respetando los límites del pedido (50 productos y 50 unidades por ítem)
+  // y las unidades que alcanza el stock del producto y su variante.
   const addToCart = (product) => {
     const existing = state.cart.find((item) => item.id === product.id);
     if ((existing?.quantity || 0) >= 50 || (!existing && state.cart.length >= 50)) {
       toast.error('Revisá el carrito', { description: 'El pedido admite hasta 50 productos y 50 unidades por ítem.' });
+      return false;
+    }
+    const limit = cartItemLimit(state.catalog || [], product);
+    if (limit !== null && unitsInCart(state.cart, product.productId, product.variant) >= limit) {
+      toast.error('No hay más stock', { description: `Solo hay stock para ${unitsLabel(limit)} de ${product.name}.` });
       return false;
     }
     dispatch({ type: 'ADD_TO_CART', payload: { ...product, quantity: 1 } });

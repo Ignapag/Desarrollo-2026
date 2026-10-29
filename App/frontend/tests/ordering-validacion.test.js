@@ -110,6 +110,33 @@ test('una personalización retirada del catálogo exige revisión antes de agreg
   assert.match(container.textContent, /cambiaron|cambió|Revisá/);
 });
 
+test('el menú no agrega más unidades de las que alcanza el stock de la variante', async (t) => {
+  store.state.catalog = [{ ...product, variants: [{ name: 'Simple', price: 100, maxUnits: 1 }, { name: 'Doble', price: 200, maxUnits: 5 }] }];
+  store.state.cart = [{ id: '1-otra-config', productId: 1, variant: 'Simple', name: 'Burger (Simple)', price: 100, quantity: 1 }];
+  const container = await mount(t, Menu, {}, true);
+  await act(async () => reactProps(button(container, 'Agregar Burger')).onClick());
+  assert.deepEqual(store.actions, [], 'Otra personalización de la misma variante comparte el stock');
+  await change(elements(container, (node) => node.localName === 'select')[0], 'Doble');
+  await act(async () => reactProps(button(container, 'Agregar Burger')).onClick());
+  assert.equal(store.actions.at(-1).type, 'ADD_TO_CART');
+  assert.equal(store.actions.at(-1).payload.variant, 'Doble');
+});
+
+test('el carrito bloquea sumar unidades sin stock y avisa al cliente', async (t) => {
+  store.state.catalog = [{ ...product, variants: [{ name: 'Simple', price: 100, maxUnits: 2 }] }];
+  store.state.cart = [{ id: '1-simple', productId: 1, variant: 'Simple', name: 'Burger (Simple)', price: 100, quantity: 2 }];
+  const container = await mount(t, CartDrawer, { isOpen: true, onClose() {}, chatConfig: { status: 'ready', habilitado: false } });
+  assert.equal(reactProps(button(container, 'Aumentar cantidad de Burger')).disabled, true);
+  assert.match(container.textContent, /No hay más stock para más unidades/);
+  store.state.cart = [{ ...store.state.cart[0], quantity: 3 }];
+  await container.rerender();
+  assert.match(container.textContent, /Solo hay stock para 2 unidades/);
+  store.state.cart = [{ ...store.state.cart[0], quantity: 1 }];
+  await container.rerender();
+  assert.equal(reactProps(button(container, 'Aumentar cantidad de Burger')).disabled, false);
+  assert.doesNotMatch(container.textContent, /No hay más stock/);
+});
+
 test('carrito no envía cantidades fuera del contrato aunque provengan del estado', async (t) => {
   let requests = 0;
   store.state.cart[0].quantity = 51;

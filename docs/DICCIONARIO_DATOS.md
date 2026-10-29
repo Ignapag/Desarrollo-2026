@@ -86,6 +86,8 @@ columnas, tipos, obligatoriedad, relaciones y valores permitidos.
 
 **Extras pedidos** — sin tablas nuevas
 
+**Max unidades stock** — sin tablas nuevas
+
 Total: **42 tablas**.
 
 ---
@@ -869,3 +871,7 @@ _intento_login: fallos de inicio de sesión de la ventana vigente (CU_USR_01), u
 | `vence_en` | TIMESTAMPTZ | Sí | — |
 
 ## 033_extras_pedidos — Extras pedidos
+
+## 034_max_unidades_stock — Max unidades stock
+
+**Funciones:** `variante_producto_max_unidades`, `producto_max_unidades`

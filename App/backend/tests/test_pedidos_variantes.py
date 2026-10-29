@@ -45,6 +45,12 @@ class RepoPedidosFalso:
         self.items_creados = datos["items"]
         return {"id": 99}
 
+    async def receta_edicion(self, producto_id: int, variante: str | None) -> list[dict]:
+        return [{"ingrediente_id": 1, "cantidad_requerida": "1", "es_base": True}]
+
+    async def validar_stock_recetas(self, items: list[dict]) -> None:
+        return None
+
 
 class StockFalso:
     async def procesar(self, pedido_id: int, items: list[dict]) -> None:
