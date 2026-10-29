@@ -347,6 +347,35 @@ async def test_comprobante_aprobado_acredita_avisa_y_sale_de_la_bandeja(uow):
 
 
 @pytest.mark.asyncio
+async def test_comprobante_de_pago_confirmado_desde_pedidos_se_da_por_chequeado(uow):
+    from uuid import uuid4
+
+    from app.modules.pagos.presentation.dependencias import (
+        obtener_servicio_conciliacion,
+        obtener_servicio_pagos,
+    )
+    from app.modules.whatsapp.infrastructure.cola import ColaWhatsAppSQL
+
+    s, pid = await crear_pedido_bot(uow, "TRANSFERENCIA")
+    empleado = await uow.valor("SELECT id FROM usuario WHERE rol='ADMINISTRADOR' LIMIT 1")
+    await s.recibir("foto-panel", "5492215550000", "", "imagen-panel")
+    await s.procesar("foto-panel", {})
+    cid = await uow.valor("SELECT id FROM whatsapp_comprobante WHERE entrada_id='foto-panel'")
+    cola = ColaWhatsAppSQL(uow)
+    pendientes = (await cola.avisos())["comprobantes_pendientes"]
+    total = await uow.valor("SELECT total FROM pedido WHERE id=%s", (pid,))
+    # Una transferencia informada pero sin confirmar el ingreso todavía exige verificarla.
+    pago = await obtener_servicio_pagos(uow).registrar_transferencia(
+        pedido_id=pid, monto=total, registrado_por=empleado, clave_operacion=str(uuid4())
+    )
+    assert cid in [c["id"] for c in (await cola.bandeja())["comprobantes"]]
+    # Confirmado el ingreso desde Pedidos, el comprobante ya no requiere revisión.
+    await obtener_servicio_conciliacion(uow).conciliar_pago(pago.id, conciliar_por=empleado)
+    assert cid not in [c["id"] for c in (await cola.bandeja())["comprobantes"]]
+    assert (await cola.avisos())["comprobantes_pendientes"] == pendientes - 1
+
+
+@pytest.mark.asyncio
 async def test_reintento_despues_de_preparar_no_repite_stock(uow):
     from app.modules.pedidos.domain.entidades import EstadoPedido
 

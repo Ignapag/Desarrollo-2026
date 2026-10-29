@@ -158,7 +158,12 @@ fallida nunca se anuncia como ausencia de pendientes.
 
 ## Confirmar un comprobante desde la bandeja
 
-La bandeja de WhatsApp lista sólo los comprobantes pendientes de revisión. Para
+La bandeja de WhatsApp lista sólo los comprobantes pendientes de revisión cuyo
+pedido todavía no tiene el total cubierto por cobros conciliados (menos
+devoluciones). Si el ingreso ya se confirmó desde Pedidos o Pagos, el comprobante
+se da por chequeado: deja la bandeja y la campanita, sin otra acción ni mensaje
+automático al cliente. Una transferencia sólo informada, sin confirmar el ingreso,
+no lo retira. Para
 acreditar uno, el personal con `whatsapp.gestionar`, `pagos.registrar` y
 `pagos.conciliar` marca la casilla de verificación personal de la transferencia y
 pulsa **Confirmar pago**. La nota es opcional; sin texto se registra

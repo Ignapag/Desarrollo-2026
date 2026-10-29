@@ -3,6 +3,14 @@
 from app.core.db import UnidadDeTrabajo
 from app.modules.whatsapp.domain.mensajes import ocultar_referencias
 
+# Comprobante `c` que todavía requiere verificación humana: sigue PENDIENTE y su pedido
+# no tiene el total cubierto por cobros menos devoluciones conciliados. Si el pago ya se
+# confirmó desde Pedidos o Pagos, no queda nada por verificar y se da por chequeado.
+_COMPROBANTE_POR_VERIFICAR = """c.estado='PENDIENTE' AND (
+    SELECT COALESCE(sum(CASE WHEN g.tipo='COBRO' THEN g.monto ELSE -g.monto END),0)
+    FROM pago g WHERE g.pedido_id=c.pedido_id AND g.estado='CONCILIADO'
+) < (SELECT p2.total FROM pedido p2 WHERE p2.id=c.pedido_id)"""
+
 
 class ColaWhatsAppSQL:
     """Cola SQL de WhatsApp: mensajes entrantes pendientes, reclamo y resultado de salidas, estados
@@ -112,8 +120,8 @@ class ColaWhatsAppSQL:
     async def avisos(self):
         """Sólo cantidades pendientes; no descarga historial ni datos de clientes."""
         return await self.uow.uno(
-            """SELECT
-            (SELECT count(*) FROM whatsapp_comprobante WHERE estado='PENDIENTE') +
+            f"""SELECT
+            (SELECT count(*) FROM whatsapp_comprobante c WHERE {_COMPROBANTE_POR_VERIFICAR}) +
             (SELECT count(*) FROM whatsapp_atencion
                 WHERE estado='PENDIENTE' AND motivo='COMPROBANTE')
                 comprobantes_pendientes,
@@ -124,14 +132,14 @@ class ColaWhatsAppSQL:
 
     async def bandeja(self):
         """Bandeja del personal: comprobantes, cambios y atenciones pendientes y últimas salidas."""
-        # Un comprobante revisado deja la bandeja; la decisión queda guardada en el comprobante
-        # y, al aprobarlo con saldo, en el cobro conciliado del pedido.
+        # Un comprobante revisado o cuyo pago ya se confirmó desde Pedidos deja la bandeja;
+        # la decisión queda guardada en el comprobante o en el cobro conciliado del pedido.
         comprobantes = await self.uow.todos(
-            """SELECT c.id,c.pedido_id,p.numero,p.total,b.metodo_pago,
+            f"""SELECT c.id,c.pedido_id,p.numero,p.total,b.metodo_pago,
             c.estado,c.creado_en,c.revisado_por,c.motivo
             FROM whatsapp_comprobante c JOIN pedido p ON p.id=c.pedido_id
             JOIN whatsapp_borrador b ON b.pedido_id=p.id
-            WHERE c.estado='PENDIENTE' ORDER BY c.creado_en,c.id LIMIT 100"""
+            WHERE {_COMPROBANTE_POR_VERIFICAR} ORDER BY c.creado_en,c.id LIMIT 100"""
         )
         cambios = await self.uow.todos(
             "SELECT * FROM whatsapp_cambio WHERE estado='PENDIENTE_EMPLEADO' ORDER BY id LIMIT 100"
