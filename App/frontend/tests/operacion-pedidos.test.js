@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ORDER_STATES, mapOrder, ordersPath, stateCommands, stateLabel, hasAssignment, canEditOperation, createFreshnessFence, ageMinutes, money } from '../src/fulfillment/orderModel.js';
+import { ORDER_STATES, mapOrder, ordersPath, stateCommands, stateLabel, hasAssignment, canEditOperation, createFreshnessFence, ageMinutes, isShipmentPaid, money } from '../src/fulfillment/orderModel.js';
 import { createOrderCommands, createPaymentAttempt, executePayment } from '../src/fulfillment/orderCommands.js';
 import { paymentFixture } from './payment-fixtures.js';
 
@@ -59,10 +59,23 @@ test('repartidor y cliente no reciben comandos de estado, edición ni pagos loca
   }
 });
 
-test('retiro listo puede entregarse; delivery nunca salta el viaje', () => {
+test('retiro listo requiere cobro completo incluso en efectivo; delivery nunca salta el viaje', () => {
   const ready = { ...base, estado: 'LISTO' };
-  assert.ok(commandsFor({ ...ready, tipo_entrega: 'RETIRO', metodo_pago_acordado: 'EFECTIVO' }).some((command) => command.estado === 'ENTREGADO'));
+  for (const metodo_pago_acordado of ['EFECTIVO', 'TRANSFERENCIA']) {
+    const pickup = { ...ready, tipo_entrega: 'RETIRO', metodo_pago_acordado };
+    assert.equal(commandsFor(pickup).some((command) => command.estado === 'ENTREGADO'), false);
+    assert.equal(commandsFor({ ...pickup, neto_cobrado: ready.total, saldo_pendiente: '0' }).some((command) => command.estado === 'ENTREGADO'), true);
+  }
   assert.ok(!commandsFor(ready).some((command) => ['EN_CAMINO', 'ENTREGADO'].includes(command.estado)));
+});
+
+test('la entrega en reparto exige saldo confirmado cero y no toma datos ausentes como pagados', () => {
+  assert.equal(isShipmentPaid({ total: '12000', saldo_pendiente: '0' }), true);
+  assert.equal(isShipmentPaid({ total: '12000', saldo_pendiente: '0.01' }), false);
+  for (const saldo_pendiente of [undefined, null, '', 'NaN', 'true']) {
+    assert.equal(isShipmentPaid({ total: '12000', saldo_pendiente }), false);
+  }
+  assert.equal(isShipmentPaid({ saldo_pendiente: '0' }), false);
 });
 
 test('cancelar tras cocina declara merma incluso después de corregir a pendiente', () => {

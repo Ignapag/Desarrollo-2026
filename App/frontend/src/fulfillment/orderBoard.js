@@ -2,7 +2,7 @@
 // nuevos), ordena, calcula esperas y alertas visuales y expone utilidades de
 // presentación (resúmenes, etiquetas y media query del tablero).
 import { useCallback, useSyncExternalStore } from 'react';
-import { ORDER_STATES, ageMinutes, isOrderPaid } from './orderModel';
+import { ORDER_STATES, ageMinutes, hasPaymentDebt, isOrderPaid } from './orderModel';
 
 // Estados finales: el pedido ya no está en operación (historial).
 export const CLOSED_STATES = ['ENTREGADO', 'CANCELADO'];
@@ -10,14 +10,15 @@ export const CLOSED_STATES = ['ENTREGADO', 'CANCELADO'];
 export const LONG_WAIT_MINUTES = 30;
 
 // Grupos de gestión: no son estados que se envíen a la API ni cambian cocina.
-export const ORDER_GROUPS = [['PENDIENTE', 'Nuevos'], ['PAGADOS', 'Pagados'],
+export const ORDER_GROUPS = [['PENDIENTE', 'Nuevos'], ['PAGADOS', 'Pagados'], ['POR_COBRAR', 'Por cobrar'],
   ...ORDER_STATES.filter(([id]) => !['PENDIENTE', 'CONFIRMADO'].includes(id))];
 // Grupo del tablero de un pedido: los pendientes/confirmados se dividen según estén pagados.
-export const orderGroup = (order) => ['PENDIENTE', 'CONFIRMADO'].includes(order.estado)
+export const orderGroup = (order) => order.estado === 'ENTREGADO' && hasPaymentDebt(order) ? 'POR_COBRAR'
+  : ['PENDIENTE', 'CONFIRMADO'].includes(order.estado)
   ? isOrderPaid(order) ? 'PAGADOS' : 'PENDIENTE' : order.estado;
 
 // Grupos visibles según la vista: activos, historial o todos.
-export const scopeStates = (scope) => ORDER_GROUPS.filter(([id]) => scope === 'history' ? CLOSED_STATES.includes(id)
+export const scopeStates = (scope) => ORDER_GROUPS.filter(([id]) => scope === 'history' ? CLOSED_STATES.includes(id) || id === 'POR_COBRAR'
   : scope === 'active' ? !CLOSED_STATES.includes(id) : true);
 
 // Convierte una fecha a milisegundos (null si es inválida) y obtiene la fecha de cierre del pedido.
@@ -29,7 +30,7 @@ const byTime = (left, right, direction) => left == null || right == null
 
 // Ordena: los cerrados del más reciente al más viejo; los activos por antigüedad (el más viejo primero).
 export function sortOrders(orders, state) {
-  const closed = CLOSED_STATES.includes(state);
+  const closed = CLOSED_STATES.includes(state) || state === 'POR_COBRAR';
   return [...orders].sort((a, b) => closed
     ? byTime(timestamp(closedAt(a)), timestamp(closedAt(b)), -1) || (b.number ?? 0) - (a.number ?? 0)
     : byTime(timestamp(a.date), timestamp(b.date), 1) || (a.number ?? 0) - (b.number ?? 0));

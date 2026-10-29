@@ -95,27 +95,40 @@ class RepositorioDeliverySQL:
         ]
 
     async def repartidores_disponibles(
-        self, *, bloquear: bool = False
+        self, *, bloquear: bool = False, repartidor_id: int | None = None
     ) -> list[RepartidorDisponible]:
-        """Repartidores disponibles y sin ningun viaje abierto."""
-        # Solo repartidores activos, en estado disponible y sin viajes planificados o en ruta.
+        """Repartidores activos con su carga actual, aunque ya tengan asignaciones."""
         filas = await self.uow.todos(
             """
-            SELECT r.usuario_id, r.ultima_lat, r.ultima_lng,
-                   u.nombre || ' ' || u.apellido AS nombre
+            SELECT r.usuario_id, r.ultima_lat, r.ultima_lng, r.estado,
+                   u.nombre || ' ' || u.apellido AS nombre,
+                   COALESCE((
+                       SELECT sum(i.cantidad * COALESCE(pr.hamburguesas_por_unidad,
+                           CASE WHEN lower(c.nombre) IN (
+                               'nuestras burgers','monufusión','opciones individuales',
+                               'hamburguesas','burgers'
+                           ) THEN 1 ELSE 0 END))
+                       FROM viaje v JOIN envio e ON e.viaje_id=v.id
+                       JOIN pedido p ON p.id=e.pedido_id
+                       JOIN pedido_item i ON i.pedido_id=p.id AND i.eliminado_en IS NULL
+                       JOIN producto pr ON pr.id=i.producto_id
+                       JOIN categoria c ON c.id=pr.categoria_id
+                       WHERE v.repartidor_id=r.usuario_id
+                         AND v.estado IN ('PLANIFICADO','EN_RUTA')
+                         AND e.estado IN ('ASIGNADO','EN_CAMINO','FALLIDO')
+                         AND p.estado NOT IN ('ENTREGADO','CANCELADO')
+                   ),0) AS hamburguesas_asignadas
             FROM repartidor r
             JOIN usuario u ON u.id = r.usuario_id
-            WHERE r.estado = 'DISPONIBLE'
+            WHERE r.estado IN ('DISPONIBLE','EN_RUTA')
               AND u.estado = 'ACTIVO'
               AND u.rol = 'REPARTIDOR'
-              AND NOT EXISTS (
-                  SELECT 1 FROM viaje v
-                  WHERE v.repartidor_id = r.usuario_id
-                    AND v.estado IN ('PLANIFICADO','EN_RUTA')
-              )
+              AND (%s::bigint IS NULL OR r.usuario_id=%s)
             ORDER BY r.usuario_id
             """
-            + (" FOR UPDATE OF r SKIP LOCKED" if bloquear else "")
+            + (" FOR UPDATE OF r" if bloquear else "")
+            + (" SKIP LOCKED" if bloquear and repartidor_id is None else ""),
+            (repartidor_id, repartidor_id),
         )
         if bloquear:
             # El JOIN usuario puede provenir del snapshot anterior a esperar el perfil.
@@ -125,7 +138,7 @@ class RepositorioDeliverySQL:
                 return []
             return [
                 repartidor
-                for repartidor in await self.repartidores_disponibles()
+                for repartidor in await self.repartidores_disponibles(repartidor_id=repartidor_id)
                 if repartidor.repartidor_id in ids_bloqueados
             ]
         return [
@@ -134,6 +147,8 @@ class RepositorioDeliverySQL:
                 nombre=f["nombre"],
                 lat=_float(f["ultima_lat"]),
                 lng=_float(f["ultima_lng"]),
+                hamburguesas_asignadas=int(f["hamburguesas_asignadas"]),
+                estado=f["estado"],
             )
             for f in filas
         ]
@@ -205,6 +220,8 @@ class RepositorioDeliverySQL:
             """
             SELECT id, estado FROM viaje
             WHERE repartidor_id = %s AND estado IN ('PLANIFICADO','EN_RUTA')
+            ORDER BY CASE WHEN estado='EN_RUTA' THEN 0 ELSE 1 END, creado_en, id
+            LIMIT 1
             """,
             (repartidor_id,),
         )
@@ -243,6 +260,33 @@ class RepositorioDeliverySQL:
             (repartidor_id, asignado_por, automatica),
         )
         return fila["id"]  # type: ignore[index]
+
+    async def viaje_planificado_de(self, repartidor_id: int) -> int | None:
+        """Próxima salida del repartidor, con lock para coordinar asignación y salida."""
+        return await self.uow.valor(
+            "SELECT id FROM viaje WHERE repartidor_id=%s AND estado='PLANIFICADO' "
+            "ORDER BY id LIMIT 1 FOR UPDATE", (repartidor_id,),
+        )
+
+    async def siguiente_orden(self, viaje_id: int) -> int:
+        """Posición después de los envíos existentes del viaje bloqueado."""
+        return await self.uow.valor(
+            "SELECT COALESCE(max(orden_en_viaje),0)+1 FROM envio WHERE viaje_id=%s", (viaje_id,),
+        )
+
+    async def tiene_viajes_abiertos(self, repartidor_id: int) -> bool:
+        """Evita liberar al repartidor mientras atiende otra salida."""
+        return bool(await self.uow.valor(
+            "SELECT EXISTS(SELECT 1 FROM viaje WHERE repartidor_id=%s "
+            "AND estado IN ('PLANIFICADO','EN_RUTA'))", (repartidor_id,),
+        ))
+
+    async def bloquear_repartidores(self, ids: list[int]) -> None:
+        """Orden estable para un relevo entre repartidores, evitando bloqueos cruzados."""
+        await self.uow.todos(
+            "SELECT usuario_id FROM repartidor WHERE usuario_id=ANY(%s) "
+            "ORDER BY usuario_id FOR UPDATE", (ids,),
+        )
 
     async def asignar_envio(
         self,
@@ -357,7 +401,14 @@ class RepositorioDeliverySQL:
 
     async def bloquear_viaje(self, viaje_id: int) -> dict | None:
         """Bloquea los pedidos del viaje y el viaje (FOR UPDATE) y lo devuelve."""
-        # Todos los comandos usan pedido(s) -> viaje -> envio -> repartidor.
+        # Orden común: repartidor -> pedidos -> viaje. Asignar puede anexar a una
+        # salida existente, por eso cerrar/salir debe tomar el mismo lock primero.
+        rider = await self.uow.valor("SELECT repartidor_id FROM viaje WHERE id=%s", (viaje_id,))
+        if rider is None:
+            return None
+        await self.uow.valor(
+            "SELECT usuario_id FROM repartidor WHERE usuario_id=%s FOR UPDATE", (rider,)
+        )
         await self.uow.todos(
             """SELECT p.id FROM pedido p JOIN envio e ON e.pedido_id = p.id
                WHERE e.viaje_id = %s ORDER BY p.id FOR UPDATE OF p""",
@@ -365,6 +416,16 @@ class RepositorioDeliverySQL:
         )
         await self.uow.valor("SELECT id FROM viaje WHERE id = %s FOR UPDATE", (viaje_id,))
         return await self.viaje(viaje_id)
+
+    async def pedido_pago_completo(self, pedido_id: int) -> bool:
+        """Bloquea y relee cobros netos conciliados antes de cambiar la entrega."""
+        await self.uow.valor("SELECT id FROM pedido WHERE id=%s FOR UPDATE", (pedido_id,))
+        return bool(await self.uow.valor(
+            "SELECT p.total <= COALESCE((SELECT sum(CASE WHEN pg.tipo='COBRO' "
+            "THEN pg.monto ELSE -pg.monto END) FROM pago pg "
+            "WHERE pg.pedido_id=p.id AND pg.estado='CONCILIADO'),0) "
+            "FROM pedido p WHERE p.id=%s", (pedido_id,),
+        ))
 
     async def pedido_asignable(self, pedido_id: int) -> dict | None:
         """Bloquea el pedido y devuelve estado, tipo de entrega y zona de su dirección."""

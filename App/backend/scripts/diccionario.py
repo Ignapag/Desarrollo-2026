@@ -322,12 +322,15 @@ def parsear_esquema(archivos: list[Path]) -> list[Tabla]:
 
 
 def otros_objetos(archivo: Path) -> dict[str, list[str]]:
-    """Vistas, funciones y triggers creados por la migración."""
+    """Objetos creados o retirados explícitamente por cada migración."""
     contenido = archivo.read_text(encoding="utf-8")
     return {
-        "vistas": re.findall(r"CREATE OR REPLACE VIEW (\w+)", contenido),
-        "funciones": re.findall(r"CREATE OR REPLACE FUNCTION (\w+)", contenido),
+        "vistas": re.findall(r"CREATE(?: OR REPLACE)? VIEW (\w+)", contenido),
+        "funciones": re.findall(r"CREATE(?: OR REPLACE)? FUNCTION (\w+)", contenido),
         "triggers": re.findall(r"CREATE TRIGGER (\w+)", contenido),
+        "funciones_eliminadas": re.findall(r"DROP FUNCTION(?: IF EXISTS)? (\w+)", contenido),
+        "triggers_eliminados": re.findall(r"DROP TRIGGER(?: IF EXISTS)? (\w+)", contenido),
+        "indices_eliminados": re.findall(r"DROP INDEX(?: IF EXISTS)? (\w+)", contenido),
     }
 
 
@@ -422,6 +425,9 @@ def generar() -> str:
             ("vistas", "Vistas"),
             ("funciones", "Funciones"),
             ("triggers", "Triggers"),
+            ("funciones_eliminadas", "Funciones eliminadas"),
+            ("triggers_eliminados", "Triggers eliminados"),
+            ("indices_eliminados", "Índices eliminados"),
         ):
             if objetos[clave]:
                 cuerpo += [

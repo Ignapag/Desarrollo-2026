@@ -3,7 +3,7 @@
 // y corregir entregas erróneas, según permisos y estado del envío.
 import { userErrorMessage } from '../shared/api/userErrors.js';
 import { useEffect, useState } from 'react';
-import { hasAssignment, isPrivileged, dateTime } from './orderModel';
+import { hasAssignment, isOrderPaid, isPrivileged, dateTime } from './orderModel';
 import { buttonClass, inputClass, Field, Reason, DataError } from './operationUi';
 
 /**
@@ -80,11 +80,12 @@ export default function OrderDelivery({ order, role, commands, run, busy, can = 
     <h3 className="font-extrabold text-monu-dark">Reparto</h3>
     <p className="text-sm text-monu-text">{assigned ? `${riderName || 'Repartidor asignado'}. ${shipment.estado === 'FALLIDO' ? 'Problema de entrega: coordinar regreso.' : beforeDeparture ? 'Pedido todavía en el local.' : 'Viaje en curso.'}` : 'Sin repartidor asignado.'}</p>
     {shipment?.salida_en && <p className="text-sm">Salida registrada: {dateTime(shipment.salida_en)}</p>}
+    {shipment?.estado === 'EN_CAMINO' && !isOrderPaid(order) && <p role="status" className="text-sm text-orange-900">En camino. Registrá el pago completo en la sección Pago antes de marcar entregado.</p>}
     <DataError message={error} retry={refreshRiders} busy={busy} />
     {/* Formulario de la acción de reparto */}
     {actions.length > 0 && <form onSubmit={submit} className="space-y-3">
       {actions.length > 1 && <Field label="Acción de reparto"><select value={selectedAction} disabled={busy} onChange={(event) => { setAction(event.target.value); setConfirmReturn(false); }} className={inputClass}>{actions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></Field>}
-      {needsRider && <><Field label="Repartidor disponible"><select required value={rider} onChange={(event) => setRider(event.target.value)} disabled={busy || !riders} className={inputClass}><option value="">{riders ? 'Elegir repartidor' : 'Consultando disponibilidad...'}</option>{riders?.map((item) => <option key={item.id} value={item.id}>{item.nombre}</option>)}</select>{riders?.length === 0 && <span>No hay repartidores disponibles.</span>}</Field><button type="button" disabled={busy} onClick={refreshRiders} className={buttonClass}>Consultar disponibilidad nuevamente</button></>}
+      {needsRider && <><Field label="Repartidor disponible"><select required value={rider} onChange={(event) => setRider(event.target.value)} disabled={busy || !riders} className={inputClass}><option value="">{riders ? 'Elegir repartidor' : 'Consultando disponibilidad...'}</option>{riders?.map((item) => <option key={item.id} value={item.id}>{item.nombre} · {Number.isSafeInteger(item.hamburguesas_asignadas) && item.hamburguesas_asignadas >= 0 ? `${item.hamburguesas_asignadas} ${item.hamburguesas_asignadas === 1 ? 'hamburguesa asignada' : 'hamburguesas asignadas'}` : 'Carga sin consultar'}</option>)}</select>{riders?.length === 0 && <span>No hay repartidores disponibles.</span>}</Field><button type="button" disabled={busy} onClick={refreshRiders} className={buttonClass}>Consultar disponibilidad nuevamente</button></>}
       {selectedAction === 'fallo' && <p className="text-sm text-orange-900">El pedido sigue asignado hasta registrar su regreso al local.</p>}
       <Reason value={reason} onChange={setReason} disabled={busy} />
       {/* Confirmación del regreso físico al local o botón de envío */}

@@ -76,12 +76,13 @@ export default function Orders() {
   // Pedidos a mostrar y agrupación por estado con los totales.
   const orders = remote ? results?.path === queryPath ? results.orders.map((order) => projectOrder?.(order) || order) : [] : state.orders;
   const countsKnown = remote ? results?.path === queryPath : state.ordersStatus === 'ready' || orders.length > 0;
-  const states = scopeStates(scope);
-  const groups = groupOrders(orders, states, now);
+  const availableStates = scopeStates(scope);
+  const groups = groupOrders(orders, availableStates, now);
+  const states = availableStates.filter(([id]) => id !== 'POR_COBRAR' || groups[id].count > 0 || focus === id);
   groups.ALL = Object.values(groups).reduce((total, group) => ({ count: total.count + group.count, longWait: total.longWait + group.longWait }), { count: 0, longWait: 0 });
   // Sin elección válida: tablero completo si entra en una fila; si no, el primer estado con pedidos.
   const validFocus = focus === 'ALL' ? board : states.some(([id]) => id === focus);
-  const current = validFocus ? focus : board && states.length <= 5 ? 'ALL' : (states.find(([id]) => groups[id].count > 0) || states[0])[0];
+  const current = validFocus ? focus : board ? 'ALL' : (states.find(([id]) => groups[id].count > 0) || states[0])[0];
   const options = board ? [['ALL', 'Todos'], ...states] : states;
   const loadingOrders = loading || (!remote && state.ordersStatus === 'loading');
   const stale = state.ordersStatus === 'error' || Boolean(error);

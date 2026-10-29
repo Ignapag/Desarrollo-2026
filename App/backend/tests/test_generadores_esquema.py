@@ -3,6 +3,24 @@
 from scripts import der, diccionario
 
 
+def test_diccionario_explica_objetos_retirados_por_migracion(tmp_path, monkeypatch):
+    (tmp_path / "001_original.sql").write_text(
+        "CREATE TABLE envio (\n    id BIGINT PRIMARY KEY\n);\n"
+        "CREATE FUNCTION valida_capacidad() RETURNS trigger LANGUAGE plpgsql AS $$\n"
+        "BEGIN RETURN NEW; END; $$;\n"
+        "CREATE TRIGGER capacidad BEFORE INSERT ON envio "
+        "FOR EACH ROW EXECUTE FUNCTION valida_capacidad();\n", encoding="utf-8",
+    )
+    (tmp_path / "002_sin_limite.sql").write_text(
+        "DROP TRIGGER capacidad ON envio;\nDROP FUNCTION valida_capacidad();\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(diccionario, "DIR_MIGRACIONES", tmp_path)
+    documento = diccionario.generar()
+    assert "**Funciones eliminadas:** `valida_capacidad`" in documento
+    assert "**Triggers eliminados:** `capacidad`" in documento
+
+
 def test_reemplaza_check_implicito_de_columna(tmp_path):
     original = tmp_path / "001_original.sql"
     original.write_text(

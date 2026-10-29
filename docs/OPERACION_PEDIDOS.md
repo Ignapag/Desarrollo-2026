@@ -71,6 +71,12 @@ la agrupación de los pedidos que aún no entraron a cocina. Búsquedas y vistas
 responsive usan el mismo selector; la API ya entrega neto_cobrado y saldo_pendiente,
 sin agregar datos financieros al contrato ni alterar permisos.
 
+Los pedidos asignados y en camino permanecen visibles en su etapa y permiten
+registrar el cobro. **Por cobrar** reúne los entregados antiguos que todavía
+tienen saldo: conservan su estado ENTREGADO, aparecen también en la consulta
+de activos mientras exista deuda y pasan a quedar sólo en el historial cuando
+se saldan. Registrar un cobro no inventa una entrega ni cambia su estado físico.
+
 ## Centro de notificaciones
 
 La campanita del panel abre un diálogo con dos solapas principales:
@@ -118,15 +124,15 @@ fallida nunca se anuncia como ausencia de pendientes.
 
 ## Retiro en el local
 
-Un pedido RETIRO en LISTO puede pasar a ENTREGADO cuando el total vigente está
-cubierto por pagos conciliados o el método acordado es EFECTIVO, para cobrar al
-retirar. La selección de efectivo no registra un ingreso ni convierte el pedido
-en pagado. El personal conserva el flujo de cobro cuando recibe el dinero.
-Un pedido ya pagado se entrega sin otro cobro; una transferencia pendiente,
-parcial o respaldada sólo por un comprobante no habilita el retiro.
+Un pedido RETIRO en LISTO puede pasar a ENTREGADO únicamente cuando el total
+vigente está cubierto por cobros menos devoluciones conciliados. Primero se
+registra el dinero realmente recibido y después la entrega. Esto incluye el
+efectivo: seleccionar ese método no acredita un pago. Un pedido ya pagado se
+entrega sin otro cobro; un pago pendiente, parcial o respaldado sólo por un
+comprobante no habilita el retiro.
 
 La pantalla y el servicio de pedidos verifican la condición. El servicio reutiliza
-el indicador de cobertura calculado por el repositorio después de bloquear el
+el indicador `pago_completo` calculado por el repositorio después de bloquear el
 pedido, considerando cobros menos devoluciones conciliadas. El comando conserva
 la versión esperada y no crea pagos, reconcilia dinero ni consume stock de nuevo.
 No habilita retiros antes de LISTO ni cambia la entrega por viaje de delivery.
@@ -227,10 +233,33 @@ separa su contrato de las verificaciones efectivamente ejecutadas.
 
 ## Entrega y correcciones
 
+Un DELIVERY permanece en **En camino** mientras no se confirme su entrega.
+Registrar la entrega exige cobertura completa del total vigente, también en
+efectivo. Un repartidor puede cobrar al llegar, pero el ingreso debe quedar
+registrado por una cuenta autorizada antes de cerrar la entrega. El servicio
+verifica el pago bajo bloqueo antes de cambiar envío o pedido; un rechazo
+conserva el viaje y el envío en curso.
+
+La asignación manual admite varios pedidos por repartidor sin un límite de
+cantidad. El selector incluye repartidores activos aunque ya tengan trabajo y
+muestra las **hamburguesas asignadas**, no la cantidad de pedidos ni de medallones.
+Las asignaciones se suman al viaje planificado; si el repartidor ya salió,
+los próximos pedidos quedan en otro viaje planificado sin modificar la salida
+existente. Cerrar un viaje no libera al repartidor mientras conserve otros abiertos.
+
+La carga cuenta cantidades de ítems vigentes en envíos asignados, en camino o
+con un fallo pendiente de resolución. Excluye entregados, retirados, bebidas y
+acompañamientos. Las hamburguesas simples/dobles/triples cuentan una unidad;
+los combos conocidos con dos hamburguesas cuentan dos. Los combos usan
+`producto.hamburguesas_por_unidad` cuando está configurado; no se infiere la
+cantidad desde los medallones o el texto de una receta. La migración 031 retira
+la capacidad máxima anterior y conserva sólo una salida planificada por repartidor.
+El parámetro histórico `delivery.pedidos_por_viaje` ya no limita las asignaciones.
+
 | Situación | Recorrido |
 | --- | --- |
-| Retiro listo | El personal registra la entrega en el local, sin crear un viaje. |
-| Delivery listo | Asignar un repartidor, iniciar el viaje y registrar cada entrega. |
+| Retiro listo | Registrar el cobro completo y luego la entrega en el local, sin crear un viaje. |
+| Delivery listo | Asignar un repartidor, iniciar el viaje, registrar el cobro si falta y confirmar cada entrega pagada. |
 | Cambio de dirección o retiro/delivery | Editar el mismo pedido antes de tener un repartidor asignado. La API valida cobertura y recalcula envío y total. |
 | Asignación incorrecta antes de salir | Desasignar el envío con un motivo; editar o asignar nuevamente. |
 | Problema después de salir | Registrar el fallo y coordinar el regreso real. El fallo por sí solo no libera al repartidor ni devuelve el pedido al local. |

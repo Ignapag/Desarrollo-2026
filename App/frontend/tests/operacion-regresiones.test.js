@@ -60,6 +60,40 @@ async function submit(container) { await act(async () => reactProps(elements(con
 const response = (data) => ({ ok: true, status: 200, json: async () => data });
 const completed = async (predicate) => { for (let i = 0; i < 20 && !predicate(); i += 1) await act(async () => { await new Promise((resolve) => setImmediate(resolve)); }); assert.ok(predicate(), 'La operación React debería completarse'); };
 
+test('al elegir repartidor se muestra su carga de hamburguesas sin ocultar al ocupado', async (t) => {
+  const riders = [{ id: 8, nombre: 'Ana', estado: 'EN_REPARTO', hamburguesas_asignadas: 7 }, { id: 9, nombre: 'Luis', estado: 'DISPONIBLE', hamburguesas_asignadas: 0 }];
+  const container = await mount(t, OrderDelivery, { order: { ...order, estado: 'LISTO' }, role: 'EMPLEADO', busy: false,
+    commands: { riders: async () => riders }, run: async (operation) => operation() });
+  assert.match(container.textContent, /Ana · 7 hamburguesas asignadas/);
+  assert.match(container.textContent, /Luis · 0 hamburguesas asignadas/);
+});
+
+test('retiro efectivo listo explica el cobro obligatorio y no ofrece entregarlo antes', async (t) => {
+  const container = await mount(t, StateOperation, { order: { ...order, estado: 'LISTO', tipo_entrega: 'RETIRO' }, role: 'EMPLEADO', busy: false,
+    commands: {}, run: async () => {} });
+  assert.equal(Boolean(button(container, 'Registrar retiro entregado')), false);
+  assert.match(container.textContent, /registrá el pago completo/i);
+  assert.doesNotMatch(container.textContent, /acordá el cobro en efectivo/);
+});
+
+test('el repartidor ve en camino y debe registrar el cobro antes de entregar', async (t) => {
+  let writes = 0;
+  globalThis.fetch = async (path, options = {}) => {
+    if (options.method === 'POST') { writes++; return response({}); }
+    if (path === '/api/delivery/viajes') return response([{ id: 5 }]);
+    if (path === '/api/delivery/viajes/5') return response({ id: 5, estado: 'EN_RUTA', salida_en: '2026-10-28T18:00:00Z', repartidor_nombre: 'Ana', envios: [{ id: 7, pedido_id: 17, numero: 88, estado: 'EN_CAMINO', total: '12000', saldo_pendiente: '12000', cliente_nombre: 'Cliente' }] });
+    return response(path === '/api/whatsapp/avisos' ? { comprobantes_pendientes: 0, atenciones_pendientes: 0 } : []);
+  };
+  const container = await mount(t, () => createElement(MemoryRouter, null, createElement(DeliveryPanel)), {}, true);
+  await completed(() => Boolean(button(container, 'Marcar entregado')));
+  const deliver = button(container, 'Marcar entregado');
+  assert.equal(reactProps(deliver).disabled, true);
+  await act(async () => reactProps(deliver).onClick());
+  assert.equal(writes, 0);
+  assert.match(container.textContent, /pago completo antes de marcar entregado/i);
+  assert.match(container.textContent, /En camino/);
+});
+
 test('reparto no anuncia éxito ante un acuse inesperado y permite comprobar el viaje', async (t) => {
   let writes = 0;
   globalThis.fetch = async (path, options = {}) => {

@@ -80,6 +80,8 @@ columnas, tipos, obligatoriedad, relaciones y valores permitidos.
 
 **Auditoria automatica** — sin tablas nuevas
 
+**Reparto sin limite** — sin tablas nuevas
+
 Total: **41 tablas**.
 
 ---
@@ -262,6 +264,7 @@ _producto: sin columna stock. Su disponibilidad se deriva del stock de sus ingre
 | `creado_en` | TIMESTAMPTZ | Sí | default `now()` |
 | `actualizado_en` | TIMESTAMPTZ | Sí | default `now()` |
 | `variantes` | JSONB | Sí | default `'[]'::jsonb` |
+| `hamburguesas_por_unidad` | INTEGER | No | — |
 
 Únicos: `(categoria_id, nombre)`
 
@@ -665,6 +668,8 @@ _Cambios propuestos, aplicados o derivados. La cocina lee pedido_item vigente._
 | `motivo` | TEXT | No | — |
 | `creado_en` | TIMESTAMPTZ | Sí | default `now()` |
 
+**Funciones:** `whatsapp_evento_estado`
+
 **Triggers:** `whatsapp_estado_trg`
 
 ## 012_whatsapp_estados_envio — Whatsapp estados envio
@@ -681,6 +686,8 @@ _Los callbacks pueden adelantarse a la persistencia de la respuesta HTTP de Meta
 | `recibido_en` | TIMESTAMPTZ | Sí | default `now()` |
 
 ## 013_whatsapp_saldo_transferencia — Whatsapp saldo transferencia
+
+**Funciones:** `whatsapp_validar_saldo_transferencia`
 
 **Triggers:** `whatsapp_saldo_transferencia_trg`
 
@@ -763,6 +770,8 @@ _Recetas explícitas por variante. No se infieren cantidades ni se modifican las
 
 **Vistas:** `producto_disponible`
 
+**Funciones:** `receta_producto`, `variante_producto_disponible`
+
 ## 026_pedido_item_receta_snapshot — Pedido item receta snapshot
 
 ## 027_chat_demo — Chat demo
@@ -828,4 +837,16 @@ _Matrices de acceso versionadas. No modifica usuarios ni credenciales._
 
 ## 030_auditoria_automatica — Auditoria automatica
 
+**Funciones:** `monu_auditoria_json_negocio`, `monu_auditoria_poligono`, `monu_auditoria_imagen`, `monu_registrar_cambio`, `monu_impedir_destruccion`
+
 **Triggers:** `monu_auditar_cambio`, `monu_conservar_filas`, `monu_conservar_tabla`, `monu_conservar_log_filas`, `monu_conservar_log_tabla`
+
+## 031_reparto_sin_limite — Reparto sin limite
+
+**Triggers:** `monu_auditar_cambio`
+
+**Funciones eliminadas:** `valida_capacidad_viaje`
+
+**Triggers eliminados:** `envio_capacidad_trg`, `monu_auditar_cambio`
+
+**Índices eliminados:** `viaje_abierto_uk`

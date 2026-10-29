@@ -71,7 +71,7 @@ async def viajes_activos(
 async def repartidores_disponibles(
     sesion: PermisoDeliveryPlanificar, servicio: ServicioDeliveryDep
 ) -> list[dict]:
-    """Repartidores activos, disponibles y sin viaje abierto para asignacion manual."""
+    """Repartidores activos con hamburguesas asignadas, sin limitar su carga."""
     filas = await servicio.repartidores_disponibles(
         rol=sesion.rol, autorizado=sesion.puede("delivery.planificar")
     )

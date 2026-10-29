@@ -68,8 +68,18 @@ export function isOrderPaid(order) {
   return total !== null && total >= 0n && net !== null && net >= total
     && balance !== null && balance <= 0n;
 }
-// El retiro en local solo se entrega si se acordó efectivo o el pedido ya está pagado.
-export const allowsPickup = (order) => order.metodo_pago_acordado === 'EFECTIVO' || isOrderPaid(order);
+// Los pendientes de cobro no se cierran por seleccionar una forma de pago.
+export const allowsPickup = (order) => isOrderPaid(order);
+export const hasPaymentDebt = (order) => {
+  const balance = paymentCents(order.saldo_pendiente);
+  return balance !== null && balance > 0n;
+};
+// La API de reparto informa el saldo conciliado, sin el desglose de pagos del pedido.
+export function isShipmentPaid(shipment) {
+  const total = paymentCents(shipment.total);
+  const balance = paymentCents(shipment.saldo_pendiente);
+  return total !== null && total >= 0n && balance !== null && balance <= 0n;
+}
 
 // Solo ofrece comandos compatibles con el estado físico conocido. La API vuelve a validarlos.
 export function stateCommands(order, role, can = null) {

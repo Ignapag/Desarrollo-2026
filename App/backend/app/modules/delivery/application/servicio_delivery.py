@@ -22,7 +22,6 @@ from app.modules.delivery.infrastructure.repositorio_sql import RepositorioDeliv
 from app.modules.pedidos.domain.entidades import EstadoPedido
 
 # Valores por defecto si la tabla de parámetros no define la configuración de delivery.
-MAX_POR_VIAJE_POR_DEFECTO = 2
 RADIO_AGRUPACION_POR_DEFECTO = 1.5
 RADIO_BUSQUEDA_POR_DEFECTO = 10.0
 
@@ -76,8 +75,8 @@ class ServicioDelivery:
 
     # ------------------------------ planificacion ---------------------
 
-    async def _parametros(self) -> tuple[float, float, int]:
-        """Lee los radios de agrupación/búsqueda y el máximo de pedidos por viaje."""
+    async def _parametros(self) -> tuple[float, float, None]:
+        """Lee radios de cercanía; la cantidad asignada no tiene un máximo."""
         radio_agrupacion = float(
             await self.repo.parametro(
                 "delivery.radio_agrupacion_km", str(RADIO_AGRUPACION_POR_DEFECTO)
@@ -88,10 +87,7 @@ class ServicioDelivery:
                 "delivery.radio_busqueda_repartidor_km", str(RADIO_BUSQUEDA_POR_DEFECTO)
             )
         )
-        max_por_viaje = int(
-            await self.repo.parametro("delivery.pedidos_por_viaje", str(MAX_POR_VIAJE_POR_DEFECTO))
-        )
-        return radio_agrupacion, radio_busqueda, max_por_viaje
+        return radio_agrupacion, radio_busqueda, None
 
     async def previsualizar(self) -> list[AsignacionPropuesta]:
         """Calcula la asignacion sin escribir nada.
@@ -127,8 +123,8 @@ class ServicioDelivery:
             raise SinPermiso("La planificacion global no se limita a tu propio viaje")
         radio_agrupacion, radio_busqueda, max_por_viaje = await self._parametros()
         # Bloquea pedidos y repartidores para que dos planificaciones simultáneas no se pisen.
-        candidatos = await self.repo.pedidos_para_despachar(bloquear=True)
         repartidores = await self.repo.repartidores_disponibles(bloquear=True)
+        candidatos = await self.repo.pedidos_para_despachar(bloquear=True)
         propuestas = planificar(
             candidatos,
             repartidores,
@@ -140,7 +136,7 @@ class ServicioDelivery:
         viajes: list[ViajeCreado] = []
         sin_asignar: list[int] = []
         evaluados = sum(p.grupo.cantidad for p in propuestas)
-        disponibles = sum(1 for p in propuestas if p.asignable)
+        disponibles = len({p.repartidor.repartidor_id for p in propuestas if p.repartidor})
 
         # Persiste cada propuesta asignable: viaje, envíos ordenados, repartidor en ruta y
         # auditoría.
@@ -152,12 +148,13 @@ class ServicioDelivery:
             repartidor = propuesta.repartidor
             assert repartidor is not None
 
-            viaje_id = await self.repo.crear_viaje(
-                repartidor.repartidor_id, asignado_por=usuario_id, automatica=True
+            viaje_id = await self._viaje_para_asignacion(
+                repartidor.repartidor_id, usuario_id, automatica=True
             )
+            siguiente_orden = await self.repo.siguiente_orden(viaje_id)
 
             # El primer envío guarda la distancia desde el repartidor; el resto no la tiene.
-            for orden, pedido in enumerate(propuesta.grupo.pedidos, start=1):
+            for orden, pedido in enumerate(propuesta.grupo.pedidos, start=siguiente_orden):
                 await self.repo.asignar_envio(
                     pedido_id=pedido.pedido_id,
                     viaje_id=viaje_id,
@@ -185,6 +182,10 @@ class ServicioDelivery:
                 },
             )
 
+            anterior = next((v for v in viajes if v.viaje_id == viaje_id), None)
+            if anterior is not None:
+                anterior.pedidos.extend(pedidos_ids)
+                continue
             viajes.append(
                 ViajeCreado(
                     viaje_id=viaje_id,
@@ -200,6 +201,17 @@ class ServicioDelivery:
             sin_asignar=sin_asignar,
             pedidos_evaluados=evaluados,
             repartidores_disponibles=disponibles,
+        )
+
+    async def _viaje_para_asignacion(
+        self, repartidor_id: int, usuario_id: int | None, *, automatica: bool
+    ) -> int:
+        """Acumula en la próxima salida sin anexar pedidos a una salida ya iniciada."""
+        planificado = await self.repo.viaje_planificado_de(repartidor_id)
+        if planificado is not None:
+            return planificado
+        return await self.repo.crear_viaje(
+            repartidor_id, asignado_por=usuario_id, automatica=automatica
         )
 
     # ------------------------------ operacion -------------------------
@@ -298,6 +310,8 @@ class ServicioDelivery:
             or viaje["salida_en"] is None
         ):
             raise ReglaDeNegocio("La entrega requiere un envio en camino y salida real del viaje")
+        if not await self.repo.pedido_pago_completo(envio["pedido_id"]):
+            raise ReglaDeNegocio("La entrega requiere pago completo registrado y conciliado")
         await self.repo.cambiar_estado_envio(envio_id, "ENTREGADO")
         await self.pedidos.cambiar_estado(
             envio["pedido_id"],
@@ -329,7 +343,10 @@ class ServicioDelivery:
             return False
         estado = "FINALIZADO" if viaje["salida_en"] else "CANCELADO"
         await self.repo.cambiar_estado_viaje(viaje["id"], estado)
-        await self.repo.cambiar_estado_repartidor(viaje["repartidor_id"], "DISPONIBLE")
+        ocupado = await self.repo.tiene_viajes_abiertos(viaje["repartidor_id"])
+        await self.repo.cambiar_estado_repartidor(
+            viaje["repartidor_id"], "EN_RUTA" if ocupado else "DISPONIBLE"
+        )
         await auditoria.registrar(
             self.uow,
             accion=AccionesDelivery.VIAJE_FINALIZADO,
@@ -386,6 +403,11 @@ class ServicioDelivery:
         self._autorizar({"repartidor_id": repartidor_id}, usuario_id, rol)
         if not motivo.strip():
             raise ReglaDeNegocio("La asignacion requiere un motivo")
+        disponibles = await self.repo.repartidores_disponibles(
+            bloquear=True, repartidor_id=repartidor_id
+        )
+        if not any(r.repartidor_id == repartidor_id for r in disponibles):
+            raise ReglaDeNegocio("El repartidor no esta disponible")
         pedido = await self.repo.pedido_asignable(pedido_id)
         if pedido is None:
             raise NoEncontrado("El pedido no existe")
@@ -400,9 +422,6 @@ class ServicioDelivery:
         )
         if existente and existente["viaje_id"] is not None and not recuperado:
             raise ReglaDeNegocio("Desasigna el envio antes de volver a asignarlo")
-        disponibles = await self.repo.repartidores_disponibles(bloquear=True)
-        if not any(r.repartidor_id == repartidor_id for r in disponibles):
-            raise ReglaDeNegocio("El repartidor no esta disponible")
         # Recuperación: se audita el envío anterior y se lo libera del viaje viejo.
         if recuperado:
             await auditoria.registrar(
@@ -418,15 +437,15 @@ class ServicioDelivery:
                 },
             )
             await self.repo.desenganchar_envio(existente["id"], motivo)
-        # Crea un viaje manual de un solo pedido y pone al repartidor en ruta.
-        viaje_id = await self.repo.crear_viaje(
-            repartidor_id, asignado_por=usuario_id, automatica=False
+        # Anexa a la próxima salida o crea otra si el repartidor ya salió.
+        viaje_id = await self._viaje_para_asignacion(
+            repartidor_id, usuario_id, automatica=False
         )
         envio_id = await self.repo.asignar_envio(
             pedido_id=pedido_id,
             viaje_id=viaje_id,
             zona_id=pedido["zona_id"],
-            orden=1,
+            orden=await self.repo.siguiente_orden(viaje_id),
             distancia_km=None,
         )
         await self.repo.cambiar_estado_repartidor(repartidor_id, "EN_RUTA")
@@ -451,6 +470,17 @@ class ServicioDelivery:
         autorizado: bool | None = None,
     ) -> dict:
         """Desasigna el envío y lo asigna a otro repartidor (desasignar + asignar)."""
+        self._personal(rol, autorizado=autorizado)
+        previo = await self.repo.envio(envio_id)
+        if previo is None:
+            raise NoEncontrado("El envio no existe")
+        ids = {repartidor_id}
+        if previo["repartidor_id"] is not None:
+            ids.add(previo["repartidor_id"])
+        await self.repo.bloquear_repartidores(sorted(ids))
+        actual = await self.repo.envio(envio_id)
+        if actual["viaje_id"] != previo["viaje_id"]:
+            raise ReglaDeNegocio("La asignacion cambio; actualiza el viaje")
         liberado = await self.desasignar_envio(
             envio_id, motivo=motivo, usuario_id=usuario_id, rol=rol, autorizado=autorizado
         )
@@ -537,10 +567,11 @@ class ServicioDelivery:
     async def repartidores_disponibles(
         self, *, rol: str, autorizado: bool | None = None
     ) -> list[dict]:
-        """Repartidores libres para asignación manual (solo personal del local)."""
+        """Repartidores activos y su carga para asignación manual."""
         self._personal(rol, autorizado=autorizado)
         return [
-            {"id": r.repartidor_id, "nombre": r.nombre, "estado": "DISPONIBLE"}
+            {"id": r.repartidor_id, "nombre": r.nombre, "estado": r.estado,
+             "hamburguesas_asignadas": r.hamburguesas_asignadas}
             for r in await self.repo.repartidores_disponibles()
         ]
 

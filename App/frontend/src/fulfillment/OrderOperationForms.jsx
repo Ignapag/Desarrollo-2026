@@ -93,12 +93,13 @@ export function StateOperation({ order, role, commands, run, busy, can = null })
     : item.correccion ? ({ PENDIENTE: 'Volver a nuevos', CONFIRMADO: 'Volver a confirmados', EN_PREPARACION: 'Volver a cocina', LISTO: 'Volver a listo' })[item.estado] || item.label : item.label;
   // Aplica el comando con su nota y muestra el nuevo estado de forma optimista.
   const apply = (command) => {
-    if (busy || (command.estado === 'EN_PREPARACION' && needsPayment)) return;
+    if (busy || (command.estado === 'EN_PREPARACION' && needsPayment)
+      || (command.estado === 'ENTREGADO' && !allowsPickup(order))) return;
     void run(() => commands.state(order, command, reason.trim() || `Acción desde el panel: ${command.label}.`), 'Pedido actualizado.', { optimisticOrder: { ...order, estado: command.estado } });
   };
   return <section aria-label="Acciones del pedido" className="space-y-3">
     {/* Aviso de retiro bloqueado por falta de pago */}
-    {order.estado === 'LISTO' && order.tipo_entrega === 'RETIRO' && !allowsPickup(order) && <p role="status" className="text-sm">Para registrar el retiro, confirmá el pago completo o acordá el cobro en efectivo al retirar. Un comprobante pendiente no acredita el pago.</p>}
+    {order.estado === 'LISTO' && order.tipo_entrega === 'RETIRO' && !allowsPickup(order) && <p role="status" className="text-sm">Antes de entregar el retiro, registrá el pago completo en la sección Pago. Elegir efectivo o recibir un comprobante no acredita el ingreso.</p>}
     {/* Acción principal del flujo */}
     {primary && <button type="button" disabled={busy || (primary.estado === 'EN_PREPARACION' && needsPayment)} onClick={() => apply(primary)} className={`${buttonClass} w-full bg-monu-dark text-white`}>{label(primary)}</button>}
     {primary?.estado === 'EN_PREPARACION' && needsPayment && <p className="text-sm">Confirmá el ingreso de la transferencia para enviarlo a cocina.</p>}

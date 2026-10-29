@@ -16,6 +16,7 @@ class RepoRetiro:
         self.pedido = {
             "id": 7, "estado": "LISTO", "tipo_entrega": "RETIRO", "version": 3,
             "metodo_pago_acordado": metodo, "puede_preparar": aprobado,
+            "pago_completo": aprobado,
             "pagos": [{"id": 9, "estado": "CONCILIADO" if aprobado else "PENDIENTE"}],
             **datos,
         }
@@ -47,9 +48,9 @@ async def retirar(repo):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("metodo,aprobado", [
-    ("TRANSFERENCIA", True), ("EFECTIVO", False), ("EFECTIVO", True),
+    ("TRANSFERENCIA", True), ("EFECTIVO", True),
 ])
-async def test_retiro_pagado_o_en_efectivo_no_crea_cobros_ni_duplica_stock(metodo, aprobado):
+async def test_retiro_pagado_no_crea_cobros_ni_duplica_stock(metodo, aprobado):
     repo = RepoRetiro(metodo, aprobado)
     pagos = deepcopy(repo.pedido["pagos"])
     result = await retirar(repo)
@@ -65,9 +66,10 @@ async def test_retiro_pagado_o_en_efectivo_no_crea_cobros_ni_duplica_stock(metod
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("aprobado", [False, None])
-async def test_transferencia_sin_prueba_de_cobertura_no_permite_retirar(aprobado):
-    repo = RepoRetiro("TRANSFERENCIA", aprobado)
-    with pytest.raises(ReglaDeNegocio, match="retiro requiere pago completo"):
+@pytest.mark.parametrize("metodo", ["EFECTIVO", "TRANSFERENCIA"])
+async def test_sin_prueba_de_cobertura_no_permite_retirar(aprobado, metodo):
+    repo = RepoRetiro(metodo, aprobado)
+    with pytest.raises(ReglaDeNegocio, match="pago completo"):
         await retirar(repo)
     assert repo.pedido["estado"] == "LISTO"
     assert repo.escrituras == 0

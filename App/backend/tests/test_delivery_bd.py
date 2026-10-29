@@ -161,7 +161,7 @@ async def test_la_asignacion_deja_el_envio_y_el_repartidor_en_estado(uow, servic
 
 
 @pytest.mark.asyncio
-async def test_un_repartidor_ocupado_no_recibe_otro_viaje(uow, servicio):
+async def test_planificacion_asigna_mas_pedidos_que_repartidores(uow, servicio):
     await liberar_repartidores(uow)
     disponibles = len(await servicio.repo.repartidores_disponibles())
 
@@ -173,7 +173,8 @@ async def test_un_repartidor_ocupado_no_recibe_otro_viaje(uow, servicio):
 
     repartidores_usados = [v.repartidor_id for v in resultado.viajes]
     assert len(repartidores_usados) == len(set(repartidores_usados))
-    assert len(resultado.sin_asignar) >= 1, "deberia sobrar al menos un pedido sin repartidor"
+    assert resultado.sin_asignar == []
+    assert sum(len(v.pedidos) for v in resultado.viajes) == disponibles + 1
 
 
 @pytest.mark.asyncio

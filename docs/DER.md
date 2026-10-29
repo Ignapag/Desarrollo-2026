@@ -246,6 +246,7 @@ erDiagram
         timestamptz creado_en
         timestamptz actualizado_en
         jsonb variantes
+        integer hamburguesas_por_unidad
     }
     PRODUCTO_INGREDIENTE {
         bigint producto_id PK

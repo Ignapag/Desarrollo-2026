@@ -205,6 +205,9 @@ async def test_regreso_con_version_obsoleta_revierte_desasignacion(uow):
 async def test_reasignacion_atomica_fallida_conserva_viaje_original(uow):
     servicio, _, viaje, _, envios = await crear_viaje_propio(uow)
     _, ocupado, _, _, _ = await crear_viaje_propio(uow)
+    await uow.ejecutar(
+        "UPDATE repartidor SET estado='FUERA_DE_SERVICIO' WHERE usuario_id=%s", (ocupado,)
+    )
     with pytest.raises(ReglaDeNegocio):
         async with uow.conn.transaction():
             await servicio.reasignar_envio(

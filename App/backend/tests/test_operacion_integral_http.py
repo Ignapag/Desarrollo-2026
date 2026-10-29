@@ -402,10 +402,14 @@ async def test_correccion_efectivo_delivery_fallido_regreso_retiro_y_cobro_idemp
     assert any(r["id"] == c.repartidor for r in riders)
     retiro = await c.editar(regresado, tipo_entrega="RETIRO")
     assert Decimal(retiro["total"]) == 100 and retiro["direccion_id"] is None
-    entregado = await c.estado(retiro, "ENTREGADO")
-    assert entregado["observaciones"] == "Sin timbre"
-    assert (entregado["id"], entregado["numero"]) == identidad
-    assert Decimal(entregado["saldo_pendiente"]) == 100
+    await solicitud(
+        c.api, "PATCH", f"/api/pedidos/{retiro['id']}/estado", esperado=409,
+        json={"estado": "ENTREGADO", "version_esperada": retiro["version"],
+              "estado_esperado": "LISTO"},
+    )
+    assert retiro["observaciones"] == "Sin timbre"
+    assert (retiro["id"], retiro["numero"]) == identidad
+    assert Decimal(retiro["saldo_pendiente"]) == 100
     cobro = {
         "pedido_id": pedido["id"],
         "clave_operacion": str(uuid4()),
@@ -429,6 +433,8 @@ async def test_correccion_efectivo_delivery_fallido_regreso_retiro_y_cobro_idemp
     saldo = await solicitud(c.api, "GET", f"/api/pagos/pedido/{pedido['id']}/estado")
     assert saldo["esta_saldado"] and saldo["cantidad_pagos"] == 1
     assert Decimal(saldo["total_pagado"]) == 100 and Decimal(saldo["saldo_pendiente"]) == 0
+    entregado = await c.estado(await c.detalle(pedido), "ENTREGADO")
+    assert Decimal(entregado["saldo_pendiente"]) == 0
     final = await c.detalle(pedido)
     assert final["estado"] == "ENTREGADO" and final["version"] == entregado["version"]
     assert len(final["pagos"]) == 1 and Decimal(final["neto_cobrado"]) == 100

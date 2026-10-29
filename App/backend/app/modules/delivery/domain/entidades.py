@@ -87,12 +87,14 @@ class PedidoParaDespachar:
 
 @dataclass(slots=True, frozen=True)
 class RepartidorDisponible:
-    """Repartidor libre (sin viaje abierto) candidato a recibir una asignación."""
+    """Repartidor activo candidato, con carga informativa sin límite de pedidos."""
 
     repartidor_id: int
     nombre: str
     lat: float | None
     lng: float | None
+    hamburguesas_asignadas: int = 0
+    estado: str = "DISPONIBLE"
 
     @property
     def tiene_ubicacion(self) -> bool:
@@ -140,7 +142,7 @@ def agrupar_pedidos(
     pedidos: list[PedidoParaDespachar],
     *,
     radio_km: float,
-    max_por_viaje: int = 2,
+    max_por_viaje: int | None = None,
 ) -> list[GrupoDeReparto]:
     """Agrupa pedidos cercanos para que salgan en el mismo viaje.
 
@@ -154,7 +156,7 @@ def agrupar_pedidos(
     Un pedido sin ningun vecino cercano sale solo: agrupar es una
     optimizacion, no una condicion para despachar.
     """
-    if max_por_viaje < 1:
+    if max_por_viaje is not None and max_por_viaje < 1:
         raise ValueError("max_por_viaje debe ser al menos 1")
 
     # Orden por antigüedad (y id como desempate) para priorizar a los más viejos.
@@ -167,7 +169,7 @@ def agrupar_pedidos(
         grupo = GrupoDeReparto(pedidos=[ancla])
 
         # Completa el viaje con el vecino más cercano hasta llegar al máximo permitido.
-        while grupo.cantidad < max_por_viaje:
+        while max_por_viaje is None or grupo.cantidad < max_por_viaje:
             companiero = _vecino_mas_cercano(ancla, pendientes, radio_km)
             if companiero is None:
                 break
@@ -272,12 +274,12 @@ def planificar(
     *,
     radio_agrupacion_km: float,
     radio_busqueda_km: float | None = None,
-    max_por_viaje: int = 2,
+    max_por_viaje: int | None = None,
 ) -> list[AsignacionPropuesta]:
     """Arma los grupos y les asigna repartidor, sin tocar la base.
 
-    Cada repartidor se usa una sola vez: al quedar asignado a un viaje deja
-    de estar disponible para el resto de la planificacion.
+    Un repartidor puede recibir varios grupos; la carga se muestra al personal
+    y no impone un máximo de pedidos.
     """
     grupos = agrupar_pedidos(
         pedidos, radio_km=radio_agrupacion_km, max_por_viaje=max_por_viaje
@@ -286,12 +288,10 @@ def planificar(
     libres = list(repartidores)
     propuestas: list[AsignacionPropuesta] = []
 
-    # Asigna repartidores grupo por grupo, retirando de la lista a los ya elegidos.
+    # La cercanía sigue siendo criterio de asignación, sin agotar al repartidor.
     for grupo in grupos:
         elegido = elegir_repartidor(grupo, libres, radio_busqueda_km=radio_busqueda_km)
         distancia = grupo.distancia_desde(elegido) if elegido else None
-        if elegido is not None:
-            libres.remove(elegido)
         propuestas.append(
             AsignacionPropuesta(grupo=grupo, repartidor=elegido, distancia_km=distancia)
         )

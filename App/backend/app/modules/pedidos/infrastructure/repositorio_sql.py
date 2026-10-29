@@ -407,7 +407,15 @@ class RepositorioPedidosSQL:
             LEFT JOIN usuario u ON u.id = c.usuario_id
             WHERE (%s::bigint IS NULL OR p.cliente_id = %s)
               AND (%s::text IS NULL OR p.estado=%s)
-              AND (%s::boolean IS NULL OR (p.estado NOT IN ('ENTREGADO','CANCELADO'))=%s)
+              AND (%s::boolean IS NULL OR CASE WHEN %s THEN
+                    p.estado NOT IN ('ENTREGADO','CANCELADO') OR (
+                        p.estado='ENTREGADO' AND p.total > (
+                            SELECT COALESCE(sum(CASE WHEN pg.tipo='COBRO'
+                                THEN pg.monto ELSE -pg.monto END),0)
+                            FROM pago pg WHERE pg.pedido_id=p.id AND pg.estado='CONCILIADO'
+                        )
+                    )
+                  ELSE p.estado IN ('ENTREGADO','CANCELADO') END)
               AND (%s::text IS NULL OR concat_ws(' ',p.numero,c.nombre,u.nombre,u.apellido,
                   c.telefono_whatsapp,p.observaciones) ILIKE '%%' || %s || '%%')
               AND (%s::bigint IS NULL OR EXISTS (
@@ -554,6 +562,10 @@ class RepositorioPedidosSQL:
             return await self.uow.uno(
                 """
                 SELECT p.*,
+                       (p.total <= (
+                           SELECT COALESCE(sum(CASE WHEN tipo='COBRO' THEN monto ELSE -monto END),0)
+                           FROM pago WHERE pedido_id=p.id AND estado='CONCILIADO'
+                       )) AS pago_completo,
                        (p.metodo_pago_acordado='EFECTIVO' OR p.total <= (
                            SELECT COALESCE(sum(CASE WHEN tipo='COBRO' THEN monto ELSE -monto END),0)
                            FROM pago WHERE pedido_id=p.id AND estado='CONCILIADO'

@@ -193,8 +193,8 @@ def _crear_pedido(cur) -> int:
     )
 
 
-def test_trigger_limita_dos_pedidos_por_viaje(cur):
-    """Regla del negocio: cada repartidor sale con hasta 2 pedidos."""
+def test_viaje_admite_mas_de_dos_pedidos_sin_tope_de_capacidad(cur):
+    """La carga es informativa; la base permite acumular envíos en una salida."""
     repartidor_id = valor(cur, "SELECT usuario_id FROM repartidor LIMIT 1")
     viaje_id = valor(
         cur,
@@ -202,20 +202,16 @@ def test_trigger_limita_dos_pedidos_por_viaje(cur):
         (repartidor_id,),
     )
 
-    for _ in range(2):
+    for _ in range(6):
         pedido_id = _crear_pedido(cur)
         cur.execute(
             "INSERT INTO envio (pedido_id, viaje_id) VALUES (%s, %s)", (pedido_id, viaje_id)
         )
 
-    tercero = _crear_pedido(cur)
-    with pytest.raises(psycopg.errors.CheckViolation):
-        cur.execute(
-            "INSERT INTO envio (pedido_id, viaje_id) VALUES (%s, %s)", (tercero, viaje_id)
-        )
+    assert valor(cur, "SELECT count(*) FROM envio WHERE viaje_id=%s", (viaje_id,)) == 6
 
 
-def test_un_repartidor_no_tiene_dos_viajes_abiertos(cur):
+def test_un_repartidor_no_tiene_dos_salidas_planificadas(cur):
     repartidor_id = valor(cur, "SELECT usuario_id FROM repartidor LIMIT 1")
     cur.execute("INSERT INTO viaje (repartidor_id) VALUES (%s)", (repartidor_id,))
     with pytest.raises(psycopg.errors.UniqueViolation):

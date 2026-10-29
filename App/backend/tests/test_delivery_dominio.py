@@ -141,7 +141,7 @@ def test_elige_al_vecino_mas_cercano_no_al_primero_que_encuentra():
     lejano = pedido(2, lat=-34.868, lng=-57.915, minutos=1)   # ~1,1 km
     cercano = pedido(3, lat=-34.8605, lng=-57.9075, minutos=2)  # ~70 m
 
-    grupos = agrupar_pedidos([ancla, lejano, cercano], radio_km=1.5)
+    grupos = agrupar_pedidos([ancla, lejano, cercano], radio_km=1.5, max_por_viaje=2)
 
     assert {p.pedido_id for p in grupos[0].pedidos} == {1, 3}
 
@@ -215,7 +215,7 @@ def test_ante_empate_elige_el_de_menor_id():
 
 # ------------------------------------------------ planificacion completa
 
-def test_planificar_asigna_un_repartidor_distinto_a_cada_viaje():
+def test_planificar_asigna_el_repartidor_mas_cercano_a_cada_grupo():
     pedidos = [
         pedido(1, lat=-34.860, lng=-57.907, minutos=0),
         pedido(2, lat=-34.884, lng=-57.935, minutos=1),
@@ -229,10 +229,10 @@ def test_planificar_asigna_un_repartidor_distinto_a_cada_viaje():
 
     assert len(propuestas) == 2
     asignados = [p.repartidor.repartidor_id for p in propuestas if p.asignable]
-    assert len(set(asignados)) == 2, "un repartidor no puede estar en dos viajes"
+    assert len(set(asignados)) == 2
 
 
-def test_planificar_deja_sin_asignar_si_faltan_repartidores():
+def test_planificar_reutiliza_repartidor_para_varios_grupos():
     pedidos = [
         pedido(1, lat=-34.860, lng=-57.907, minutos=0),
         pedido(2, lat=-34.884, lng=-57.935, minutos=1),
@@ -240,8 +240,8 @@ def test_planificar_deja_sin_asignar_si_faltan_repartidores():
 
     propuestas = planificar(pedidos, [repartidor(1)], radio_agrupacion_km=1.5)
 
-    assert sum(1 for p in propuestas if p.asignable) == 1
-    assert sum(1 for p in propuestas if not p.asignable) == 1
+    assert all(p.asignable for p in propuestas)
+    assert {p.repartidor.repartidor_id for p in propuestas} == {1}
 
 
 def test_planificar_informa_la_distancia_al_primer_domicilio():

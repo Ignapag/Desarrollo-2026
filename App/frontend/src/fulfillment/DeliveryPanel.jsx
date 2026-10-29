@@ -10,7 +10,7 @@ import { useAuth } from '../auth/AuthContext';
 import { useData } from '../shared/store/DataContext';
 import { apiFetch } from '../shared/api/http';
 import { createOrderCommands } from './orderCommands';
-import { dateTime, knownLabel, money } from './orderModel';
+import { dateTime, isShipmentPaid, knownLabel, money } from './orderModel';
 import { buttonClass, Reason, DataError } from './operationUi';
 import OrderDetail from './OrderDetail';
 import WhatsAppAttentionNotice from './WhatsAppAttentionNotice';
@@ -109,7 +109,7 @@ export default function DeliveryPanel() {
       <h2 id={`trip-${trip.id}`} className="text-xl font-extrabold text-monu-dark">Viaje de {trip.repartidor_nombre}</h2>
       <p className="text-sm">{trip.estado === 'PLANIFICADO' ? 'Asignado, todavía en el local' : 'En ruta'} · Creado: {dateTime(trip.creado_en)} · Salida: {dateTime(trip.salida_en)}</p>
       {can(user, 'delivery.operar') && trip.estado === 'PLANIFICADO' && <StartTrip trip={trip} run={run} busy={busy} />}
-      <div className="space-y-4">{trip.envios.map((shipment) => <Shipment key={`${shipment.id}:${shipment.estado}`} trip={trip} shipment={shipment} run={run} busy={busy || !can(user, 'delivery.operar')} onDetail={can(user, 'pedidos.ver') ? () => setSelected(shipment.pedido_id) : null} />)}</div>
+      <div className="space-y-4">{trip.envios.map((shipment) => <Shipment key={`${shipment.id}:${shipment.estado}`} trip={trip} shipment={shipment} run={run} busy={busy || !can(user, 'delivery.operar')} canCollect={can(user, 'pagos.registrar') && can(user, 'pagos.conciliar')} onDetail={can(user, 'pedidos.ver') ? () => setSelected(shipment.pedido_id) : null} />)}</div>
     </section>)}
     {/* Detalle del pedido (correcciones) abierto desde un envío */}
     {selected && <OrderDetail key={selected} id={selected} onClose={({ changed }) => { setSelected(null); if (changed) void refresh(); }} />}
@@ -125,12 +125,13 @@ function StartTrip({ trip, run, busy }) {
  * Tarjeta de un envío: datos del cliente, dirección (con enlace a Google Maps),
  * saldo a cobrar y acciones de entrega o de problema mientras el viaje está en ruta.
  */
-function Shipment({ shipment, trip, run, busy, onDetail }) {
+function Shipment({ shipment, trip, run, busy, onDetail, canCollect }) {
   // Nota del problema de entrega y datos derivados del envío (dirección, teléfono, si está en ruta).
   const [reason, setReason] = useState('');
   const address = [shipment.calle, shipment.altura, shipment.piso_depto, shipment.zona_nombre].filter(Boolean).join(', ');
   const phone = shipment.telefono_cliente?.replace(/[^+\d]/g, '');
   const onRoad = trip.estado === 'EN_RUTA' && Boolean(trip.salida_en) && shipment.estado === 'EN_CAMINO';
+  const paid = isShipmentPaid(shipment);
   // Un acuse válido debe corresponder a este envío y a su pedido.
   const accepts = (result) => result?.envio_id === shipment.id && result.pedido_id === shipment.pedido_id;
   return <article className="rounded-xl bg-monu-bone border border-monu-green/20 p-4 space-y-3">
@@ -141,16 +142,16 @@ function Shipment({ shipment, trip, run, busy, onDetail }) {
     <p className="flex gap-2 break-words"><MapPin aria-hidden="true" className="h-5 w-5 shrink-0" />{address || 'Dirección no disponible: consultá con el local.'}</p>
     {shipment.referencia && <p className="text-sm break-words">Referencia: {shipment.referencia}</p>}
     <p className="text-sm">Total: {money(shipment.total)} · Saldo pendiente: {money(shipment.saldo_pendiente)}</p>
-    {Number(shipment.saldo_pendiente) > 0 && <p className="text-sm text-orange-900">Coordiná el cobro con el local. Entregar el pedido no registra dinero recibido.</p>}
+    {!paid && <p role="status" className="text-sm text-orange-900">Registrá el pago completo antes de marcar entregado. {canCollect ? 'Abrí el detalle para confirmar el ingreso real.' : 'Coordiná el cobro con el local.'}</p>}
     {/* Contacto: llamada, mapa y detalle del pedido */}
     <div className="flex flex-wrap gap-3">
       {phone ? <a href={`tel:${phone}`} className={`${buttonClass} inline-flex gap-2 items-center`}><Phone aria-hidden="true" className="h-5 w-5" />Llamar al cliente</a> : <p className="text-sm">Teléfono no disponible</p>}
       {shipment.calle && <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`} target="_blank" rel="noopener noreferrer" className={`${buttonClass} inline-flex gap-2 items-center`}><Navigation aria-hidden="true" className="h-5 w-5" />Ver dirección<span className="sr-only"> (otra pestaña)</span></a>}
-      {onDetail && <button type="button" onClick={onDetail} disabled={busy} className={buttonClass}>Detalle y correcciones</button>}
+      {onDetail && <button type="button" onClick={onDetail} disabled={busy} className={buttonClass}>{!paid && canCollect ? 'Ver pedido y cobrar' : 'Detalle y correcciones'}</button>}
     </div>
     {/* Acciones disponibles solo con el envío en camino */}
     {onRoad && <div className="space-y-3">
-      <button type="button" disabled={busy} onClick={() => { if (!busy) void run(() => commands.shipment(shipment.id, 'entregar'), accepts); }} className={`${buttonClass} bg-monu-dark text-white`}>Marcar entregado</button>
+      <button type="button" disabled={busy || !paid} onClick={() => { if (!busy && paid) void run(() => commands.shipment(shipment.id, 'entregar'), accepts); }} className={`${buttonClass} bg-monu-dark text-white disabled:opacity-50 disabled:cursor-not-allowed`}>Marcar entregado</button>
       <details><summary className="cursor-pointer min-h-11 flex items-center text-sm font-bold text-monu-green">Problema con la entrega</summary><form className="space-y-2" onSubmit={(event) => { event.preventDefault(); if (!busy) void run(() => commands.shipment(shipment.id, 'fallo', { motivo: reason.trim() || 'Problema de entrega registrado por el repartidor.' }), accepts); }}><Reason value={reason} onChange={setReason} disabled={busy} /><button disabled={busy} className={buttonClass}>Registrar problema de entrega</button><p className="text-sm">El pedido sigue asignado hasta registrar su regreso al local.</p></form></details>
     </div>}
   </article>;

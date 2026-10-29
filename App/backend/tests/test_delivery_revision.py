@@ -206,8 +206,11 @@ async def test_http_personal_consulta_repartidores_disponibles_sin_exponer_datos
     assert respuesta.status_code == 200
     filas = respuesta.json()
     elegido = next(f for f in filas if f["id"] == disponible)
-    assert elegido == {"id": disponible, "nombre": "Rider Prueba", "estado": "DISPONIBLE"}
-    assert all(f["id"] != rider for f in filas)
+    assert elegido == {
+        "id": disponible, "nombre": "Rider Prueba", "estado": "DISPONIBLE",
+        "hamburguesas_asignadas": 0,
+    }
+    assert any(f["id"] == rider and f["estado"] == "EN_RUTA" for f in filas)
     autenticar(api, rider, "REPARTIDOR")
     assert (await api.get("/api/delivery/repartidores")).status_code == 403
 

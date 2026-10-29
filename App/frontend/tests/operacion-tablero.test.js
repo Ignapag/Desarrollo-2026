@@ -46,6 +46,22 @@ const sections = (container) => elements(container, (node) => node.localName ===
 const cardNumbers = (section) => elements(section, (node) => node.localName === 'button').map((node) => node.textContent);
 const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
 
+test('el tablero conserva repartos asignados, en camino y entregados históricos por cobrar', async (t) => {
+  useOrders([
+    raw(701, 'LISTO', { tipo_entrega: 'DELIVERY', envio: { viaje_id: 5, repartidor_id: 3, estado: 'ASIGNADO', estado_viaje: 'PLANIFICADO' } }),
+    raw(702, 'EN_CAMINO', { tipo_entrega: 'DELIVERY', envio: { viaje_id: 6, repartidor_id: 3, estado: 'EN_CAMINO', estado_viaje: 'EN_RUTA' } }),
+    raw(703, 'ENTREGADO'),
+  ]);
+  const container = await mount(t);
+  assert.equal(Boolean(opener(container, 701)), true);
+  assert.equal(Boolean(opener(container, 702)), true);
+  assert.equal(Boolean(opener(container, 703)), true);
+  assert.equal(Boolean(statusButton(container, 'Por cobrar')), true);
+  const groups = board.groupOrders(data.state.orders, board.scopeStates('active'), Date.now());
+  assert.deepEqual(groups.POR_COBRAR.orders.map((o) => o.id), [703]);
+  assert.equal(groups.EN_CAMINO.count, 1);
+});
+
 test('ordena operativos por espera y cerrados por cierre más reciente', () => {
   const ordered = board.sortOrders([raw(1, 'PENDIENTE', { creado_en: minutes(3) }), raw(2, 'PENDIENTE', { creado_en: minutes(40) }), raw(3, 'PENDIENTE', { creado_en: null })].map(model.mapOrder), 'PENDIENTE');
   assert.deepEqual(ordered.map((order) => order.id), [2, 1, 3]);
@@ -229,9 +245,10 @@ test('pagar o devolver reagrupa sin recargar ni duplicar tarjetas y conserva la 
   assert.match(statusButton(container, 'En preparación').getAttribute('aria-label'), /1 pedido/);
 });
 
-test('el retiro listo requiere cobertura conciliada o efectivo, sin saltar cocina ni delivery', () => {
+test('el retiro listo requiere cobertura conciliada, sin saltar cocina ni delivery', () => {
   const options = (order) => model.stateCommands(order, 'EMPLEADO').map((command) => command.estado);
-  assert.ok(options(raw(1, 'LISTO', { metodo_pago_acordado: 'EFECTIVO' })).includes('ENTREGADO'));
+  assert.equal(options(raw(1, 'LISTO', { metodo_pago_acordado: 'EFECTIVO' })).includes('ENTREGADO'), false);
+  assert.ok(options(raw(1, 'LISTO', { metodo_pago_acordado: 'EFECTIVO', neto_cobrado: '1000', saldo_pendiente: '0' })).includes('ENTREGADO'));
   assert.ok(options(raw(1, 'LISTO', { metodo_pago_acordado: 'TRANSFERENCIA', neto_cobrado: '1000', saldo_pendiente: '0' })).includes('ENTREGADO'));
   assert.equal(options(raw(1, 'LISTO', { metodo_pago_acordado: 'TRANSFERENCIA' })).includes('ENTREGADO'), false);
   assert.equal(options(raw(1, 'LISTO', { metodo_pago_acordado: 'TRANSFERENCIA', neto_cobrado: '500', saldo_pendiente: '500' })).includes('ENTREGADO'), false);
