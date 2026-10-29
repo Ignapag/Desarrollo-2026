@@ -51,6 +51,7 @@ class RepositorioPedidos(RepositorioEdicionItems, Protocol):
         finalizados_hoy: bool = False,
     ) -> list[dict]: ...
     async def obtener(self, pedido_id: int, *, bloquear: bool = False) -> dict | None: ...
+    async def revision(self, **filtros) -> str: ...
     async def detalle(self, pedido_id: int) -> dict | None: ...
     async def costo_direccion(self, direccion_id: int) -> Decimal | None: ...
     async def costo_localidad(self, localidad: str) -> Decimal | None: ...
@@ -496,6 +497,14 @@ class ServicioPedidos:
         if repartidor_id is not None:
             return await self.repo.listar(cliente_id=cliente_id, repartidor_id=repartidor_id)
         return await self.repo.listar(cliente_id=cliente_id)
+
+    async def revision(
+        self, *, cliente_id: int | None = None, repartidor_id: int | None = None,
+    ) -> str:
+        """Detecta cambios del tablero activo sin cargar todos los detalles."""
+        return await self.repo.revision(
+            cliente_id=cliente_id, repartidor_id=repartidor_id, activos=True,
+        )
 
     async def cambiar_estado(
         self,

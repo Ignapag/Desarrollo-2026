@@ -288,6 +288,41 @@ test('el sondeo de pedidos sólo consulta cuando hay una pantalla suscripta y vi
   assert.equal(calls, 2);
 });
 
+test('el tablero detecta pedidos nuevos con una huella y conserva la lista si no cambió', async (t) => {
+  const previousInterval = window.setInterval;
+  const previousClear = window.clearInterval;
+  let poll;
+  let delay;
+  window.setInterval = (callback, ms) => { poll = callback; delay = ms; return 1; };
+  window.clearInterval = () => {};
+  t.after(() => { window.setInterval = previousInterval; window.clearInterval = previousClear; });
+  let data;
+  let revision = 'a'.repeat(64);
+  let orders = [];
+  const calls = [];
+  globalThis.fetch = async (path) => { calls.push(path); return response(path === '/api/pedidos/revision' ? { revision } : orders); };
+  function Capture() { const current = useData(); useLayoutEffect(() => { data = current; }); return null; }
+  await mount(t, createElement(Capture));
+  const unsubscribe = data.watchOrders();
+  t.after(unsubscribe);
+  assert.equal(delay, 5000);
+  await act(async () => poll());
+  const known = data.state.orders;
+  calls.length = 0;
+  await act(async () => poll());
+  assert.deepEqual(calls, ['/api/pedidos/revision']);
+  assert.equal(data.state.orders, known);
+  revision = 'b'.repeat(64);
+  orders = [{ id: 71, numero: 1071, estado: 'PENDIENTE', version: 1, tipo_entrega: 'RETIRO', cliente: 'Pedido nuevo automático', total: '100', items: [], pagos: [], historial: [] }];
+  calls.length = 0;
+  await act(async () => poll());
+  assert.deepEqual(calls, ['/api/pedidos/revision', '/api/pedidos?activos=true']);
+  assert.equal(data.state.orders[0].number, 1071);
+  const updated = data.state.orders;
+  await act(async () => data.refreshOrders(undefined, true));
+  assert.equal(data.state.orders, updated);
+});
+
 test('abrir detalle muestra el pedido conocido mientras se comprueba la versión vigente', async (t) => {
   const waiting = deferred();
   const order = { id: 17, numero: 88, version: 3, estado: 'PENDIENTE', tipo_entrega: 'RETIRO', cliente: 'Cliente conocido', metodo_pago_acordado: 'EFECTIVO', total: '12000', saldo_pendiente: '12000', neto_cobrado: '0', items: [], pagos: [], historial: [] };

@@ -1,8 +1,9 @@
 """Endpoints para crear, consultar y avanzar pedidos."""
 
+import hashlib
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Response, status
 
 from app.errores import DatosInvalidos, SinPermiso
 from app.modules.pedidos.application.servicio_pedidos import ItemNuevoPedido
@@ -85,6 +86,21 @@ async def listar_pedidos(
         **({"finalizados_hoy": True} if finalizados_hoy else {}),
     )
     return [PedidoSalida.para_sesion(fila, sesion) for fila in filas]
+
+
+@router.get("/revision")
+async def revision_pedidos(
+    sesion: PermisoPedidosVer, servicio: ServicioPedidosDep, response: Response,
+) -> dict[str, str]:
+    """Huella de cambios del tablero activo; respeta el alcance y permisos de la sesión."""
+    cliente_id = await servicio.cliente_para_usuario(sesion.usuario_id) \
+        if sesion.rol == Rol.CLIENTE else None
+    repartidor_id = sesion.usuario_id if sesion.rol == Rol.REPARTIDOR else None
+    revision = await servicio.revision(cliente_id=cliente_id, repartidor_id=repartidor_id)
+    permisos = ','.join(sorted(sesion.permisos or []))
+    clave = f"{sesion.usuario_id}:{sesion.rol}:{permisos}:{revision}"
+    response.headers['Cache-Control'] = 'private, no-store'
+    return {"revision": hashlib.sha256(clave.encode()).hexdigest()}
 
 
 @router.get("/{pedido_id}", response_model=PedidoSalida)

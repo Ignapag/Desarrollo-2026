@@ -11,6 +11,7 @@ import { apiFetch } from '../api/http';
 import { UserFacingError, userErrorMessage } from '../api/userErrors.js';
 import { portal } from '../portal';
 import { mapOrder, createFreshnessFence, ordersPath, confirmedOrder } from '../../fulfillment/orderModel';
+import { createOrderPoller, ORDER_POLL_MS } from '../../fulfillment/orderUpdates';
 import { createOrderCommands } from '../../fulfillment/orderCommands';
 import { productPhoto } from './productImages';
 
@@ -75,8 +76,11 @@ function mapInventory(item) {
 function dataReducer(state, action) {
   switch (action.type) {
     // Pedidos: sincronización completa, error de carga y alta/actualización de uno confirmado.
-    case 'SYNC_ORDERS':
-      return { ...state, orders: action.payload, ordersOwner: action.owner, ordersStatus: 'ready', ordersError: null };
+    case 'SYNC_ORDERS': {
+      const unchanged = state.ordersOwner === action.owner && JSON.stringify(state.orders) === JSON.stringify(action.payload);
+      if (unchanged && state.ordersStatus === 'ready' && !state.ordersError) return state;
+      return { ...state, orders: unchanged ? state.orders : action.payload, ordersOwner: action.owner, ordersStatus: 'ready', ordersError: null };
+    }
     case 'ORDERS_ERROR':
       return { ...state, ...(action.unauthorized && { orders: [] }), ordersStatus: 'error', ordersError: action.payload };
     case 'UPSERT_ORDER':
@@ -199,6 +203,7 @@ export function DataProvider({ children }) {
   const inventoryFence = useRef(createFreshnessFence());
   const customerCache = useRef(new Map());
   const orderSubscribers = useRef(0);
+  const ordersPoller = useRef(null);
   const lastOrdersRead = useRef(0);
   const operationsRef = useRef(new Map());
   const [operations, setOperations] = useState({ owner: user, entries: [] });
@@ -357,7 +362,10 @@ export function DataProvider({ children }) {
   const watchOrders = useCallback(() => {
     orderSubscribers.current += 1;
     if (lastOrdersRead.current && Date.now() - lastOrdersRead.current > 3000) void refreshOrders().catch(() => undefined);
-    return () => { orderSubscribers.current -= 1; };
+    return () => {
+      orderSubscribers.current -= 1;
+      if (orderSubscribers.current === 0) ordersPoller.current?.pause();
+    };
   }, [refreshOrders]);
 
   // Ejecuta una mutación de pedido bajo la valla de frescura y publica el pedido confirmado;
@@ -481,33 +489,42 @@ export function DataProvider({ children }) {
     };
   }, [user, refreshCatalog, refreshOrders]);
 
-  // Sondeo de pedidos cada 8 s para el personal, solo mientras alguna pantalla los observa.
+  // Comprueba cambios cada 5 s; solo descarga pedidos si cambiaron o pasó un minuto.
   useEffect(() => {
     if (!['EMPLEADO', 'ADMINISTRADOR', 'DUENIO', 'REPARTIDOR'].includes(user?.backendRole)) return undefined;
-    let controller = null;
-    const updateOrders = async () => {
-      if (document.hidden || controller || orderSubscribers.current === 0) return;
-      controller = new AbortController();
-      try {
-        await refreshOrders(controller.signal);
-      } catch {
-        // refreshOrders publica el error y conserva el último tablero disponible.
-      } finally {
-        controller = null;
-      }
-    };
+    const poller = createOrderPoller({
+      enabled: () => !document.hidden && globalThis.navigator?.onLine !== false && orderSubscribers.current > 0,
+      readRevision: async (signal) => {
+        const value = await apiFetch('/api/pedidos/revision', { signal });
+        if (!/^[a-f0-9]{64}$/.test(value?.revision || '')) throw new UserFacingError('No pudimos actualizar los pedidos. Intentá nuevamente.');
+        return value.revision;
+      },
+      refresh: refreshOrders,
+      onError: (error) => {
+        const unauthorized = [401, 403].includes(error.status);
+        dispatch({ type: 'ORDERS_ERROR', unauthorized, payload: userErrorMessage(error, 'No pudimos actualizar los pedidos. Se conserva la última información.') });
+        if (unauthorized) void refreshSession?.();
+      },
+    });
+    ordersPoller.current = poller;
+    const updateOrders = () => { void poller.update(); };
     const onVisibilityChange = () => {
-      if (document.hidden) controller?.abort();
-      else void updateOrders();
+      if (document.hidden || globalThis.navigator?.onLine === false) poller.pause();
+      else updateOrders();
     };
-    const timer = window.setInterval(updateOrders, 8000);
+    const timer = window.setInterval(updateOrders, ORDER_POLL_MS);
     document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('online', onVisibilityChange);
+    window.addEventListener('offline', onVisibilityChange);
     return () => {
       window.clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisibilityChange);
-      controller?.abort();
+      window.removeEventListener('online', onVisibilityChange);
+      window.removeEventListener('offline', onVisibilityChange);
+      poller.pause();
+      if (ordersPoller.current === poller) ordersPoller.current = null;
     };
-  }, [user?.id, user?.backendRole, refreshOrders]);
+  }, [user?.id, user?.backendRole, refreshOrders, refreshSession]);
 
   // Ejecuta una mutación de catálogo o inventario bajo su valla y luego reconcilia con un GET nuevo.
   const runResourceMutation = async (kind, operation, permission) => {

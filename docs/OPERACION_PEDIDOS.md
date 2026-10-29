@@ -77,6 +77,26 @@ tienen saldo: conservan su estado ENTREGADO, aparecen también en la consulta
 de activos mientras exista deuda y pasan a quedar sólo en el historial cuando
 se saldan. Registrar un cobro no inventa una entrega ni cambia su estado físico.
 
+## Actualización automática de pedidos
+
+El tablero activo comprueba cambios cada 5 segundos mediante
+`GET /api/pedidos/revision`. Esa respuesta contiene una huella privada de los
+pedidos y sus pagos, envíos, viajes, ítems, historial y direcciones. Aplica el
+mismo alcance por cliente/repartidor y varía al cambiar los permisos de la sesión.
+La huella se calcula con una consulta SQL, sin cargar el detalle completo.
+
+El navegador descarga el listado sólo cuando cambia la huella, al recuperarse
+de un error o como reconciliación una vez por minuto. No vuelve a dibujar el
+tablero cuando recibe los mismos datos. Sigue disponible la actualización manual.
+Las operaciones del propio usuario se reflejan con la respuesta de la escritura.
+
+Sólo consulta mientras una pantalla observa pedidos, la pestaña está visible y
+hay conexión. No solapa lecturas y cancela el sondeo al ocultar o abandonar la
+vista. Los fallos espacian los reintentos hasta un minuto; 401/403 retira los
+datos privados y revalida la sesión. No se reenvían escrituras automáticamente.
+Búsquedas, historial y la sección desplegada de hoy conservan su consulta cada
+8 segundos. Es actualización cercana al tiempo real, sujeta a la latencia de red.
+
 ## Pedidos de hoy
 
 Debajo del tablero de gestión, **Pedidos de hoy** es una sección plegable,

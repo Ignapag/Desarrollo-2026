@@ -1,5 +1,6 @@
 """Repositorio SQL parametrizado de pedidos."""
 
+import hashlib
 import json
 from decimal import Decimal
 
@@ -389,20 +390,55 @@ class RepositorioPedidosSQL:
         activos: bool | None = None,
         finalizados_hoy: bool = False,
     ) -> list[dict]:
+        pedidos = await self._filas_listado(
+            cliente_id=cliente_id, repartidor_id=repartidor_id, q=q, estado=estado,
+            activos=activos, finalizados_hoy=finalizados_hoy,
+        )
+        await self._completar(pedidos)
+        return pedidos
+
+    async def revision(self, **filtros) -> str:
+        """Huella privada del listado y sus relaciones, en una sola consulta SQL."""
+        filas = await self._filas_listado(**filtros, con_revision=True)
+        return hashlib.sha256(
+            json.dumps(filas, sort_keys=True, default=str).encode()
+        ).hexdigest()
+
+    async def _filas_listado(
+        self, *, cliente_id: int | None, repartidor_id: int | None = None,
+        q: str | None = None, estado: str | None = None, activos: bool | None = None,
+        finalizados_hoy: bool = False, con_revision: bool = False,
+    ) -> list[dict]:
         """Lista pedidos con sus relaciones, aplicando filtros opcionales.
 
         Filtra por cliente, estado, activos, texto libre y, para repartidores, solo los pedidos de
         sus viajes abiertos.
         """
+        # SQL constante: las entradas del usuario siguen siendo parámetros.
+        revision = """
+            ,(SELECT md5(COALESCE(jsonb_agg(to_jsonb(pg) ORDER BY pg.id)::text,'[]'))
+                FROM pago pg WHERE pg.pedido_id=p.id) AS revision_pagos
+            ,(SELECT md5(COALESCE(jsonb_agg(to_jsonb(e) ||
+                    jsonb_build_object('viaje',to_jsonb(v)) ORDER BY e.id)::text,'[]'))
+                FROM envio e LEFT JOIN viaje v ON v.id=e.viaje_id
+                WHERE e.pedido_id=p.id) AS revision_envios
+            ,(SELECT md5(COALESCE(jsonb_agg(to_jsonb(i) ORDER BY i.id)::text,'[]'))
+                FROM pedido_item i WHERE i.pedido_id=p.id) AS revision_items
+            ,(SELECT md5(COALESCE(jsonb_agg(to_jsonb(h) ORDER BY h.id)::text,'[]'))
+                FROM pedido_estado_historial h WHERE h.pedido_id=p.id) AS revision_historial
+            ,(SELECT md5(to_jsonb(d)::text) FROM direccion d
+                WHERE d.id=p.direccion_id) AS revision_direccion
+        """ if con_revision else ""
         # Cada filtro es opcional: un parámetro NULL desactiva su condición.
         pedidos = await self.uow.todos(
-            """
+            f"""
             SELECT p.id, p.numero, p.cliente_id,
                    COALESCE(NULLIF(concat_ws(' ', u.nombre, u.apellido), ''), c.nombre) AS cliente,
                    p.tipo_entrega, p.direccion_id, p.estado, p.subtotal,
                    p.costo_envio, p.total, p.observaciones, p.creado_en,
                    p.version,p.metodo_pago_acordado,p.confirmado_en,p.preparacion_en,
                    p.listo_en,p.entregado_en,p.cancelado_en,c.telefono_whatsapp AS telefono
+                   {revision}
             FROM pedido p
             JOIN cliente c ON c.id = p.cliente_id
             LEFT JOIN usuario u ON u.id = c.usuario_id
@@ -450,7 +486,6 @@ class RepositorioPedidosSQL:
                 finalizados_hoy,
             ),
         )
-        await self._completar(pedidos)
         return pedidos
 
     async def detalle(self, pedido_id: int) -> dict:
