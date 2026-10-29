@@ -9,11 +9,18 @@ El hash es compatible con el que genera `seed.sql` via pgcrypto
 (`crypt(password, gen_salt('bf'))`): ambos producen un hash bcrypt estandar
 ($2b$/$2a$), asi que `verificar_password` funciona igual sobre una cuenta
 creada por la API que sobre una de los datos de desarrollo.
+
+bcrypt tarda cientos de milisegundos a proposito: desde codigo async se usa
+`verificar_password_sin_bloquear`, que lo corre en un hilo para no frenar el
+event loop y que tambien paga ese costo cuando la cuenta no existe.
 """
 
 from __future__ import annotations
 
+import asyncio
+import secrets
 from datetime import UTC, datetime, timedelta
+from functools import cache
 from typing import Any
 
 import bcrypt
@@ -36,6 +43,40 @@ def verificar_password(password: str, password_hash: str) -> bool:
     except ValueError:
         # Hash vacio, corrupto o en un formato que bcrypt no reconoce.
         return False
+
+
+@cache
+def _hash_ficticio() -> str:
+    """Hash de una clave aleatoria descartada, con el mismo costo que `hashear_password`."""
+    return hashear_password(secrets.token_urlsafe(32))
+
+
+def _costo(password_hash: str) -> int | None:
+    """Rondas de un hash bcrypt (`$2b$12$...` -> 12), o None si no tiene ese formato."""
+    partes = password_hash.split("$")
+    return int(partes[2]) if len(partes) > 3 and partes[2].isdigit() else None
+
+
+def _verificar_o_simular(password: str, password_hash: str | None) -> bool:
+    # Sin cuenta, o con un hash mas barato que el estandar (seed.sql usa costo
+    # 6 de pgcrypto) o ilegible, se paga ademas la verificacion ficticia: asi
+    # la demora no revela si el username existe. Lo ficticio nunca autentica.
+    costo = _costo(password_hash) if password_hash is not None else None
+    if costo is None or costo < _costo(_hash_ficticio()):
+        verificar_password(password, _hash_ficticio())
+    if password_hash is None:
+        return False
+    return verificar_password(password, password_hash)
+
+
+async def verificar_password_sin_bloquear(password: str, password_hash: str | None) -> bool:
+    """Verifica la contraseña en un hilo aparte, sin bloquear el event loop.
+
+    ``password_hash=None`` indica que la cuenta no existe: se ejecuta una
+    verificación de costo equivalente y el resultado es siempre ``False``.
+    Todo intento paga al menos una verificación del costo de `hashear_password`.
+    """
+    return await asyncio.to_thread(_verificar_o_simular, password, password_hash)
 
 
 class TokenInvalido(Exception):

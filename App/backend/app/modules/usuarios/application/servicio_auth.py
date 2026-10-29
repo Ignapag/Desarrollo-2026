@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 from app.core import auditoria
 from app.core.db import UnidadDeTrabajo
-from app.core.seguridad import crear_token, verificar_password
+from app.core.seguridad import crear_token, verificar_password_sin_bloquear
 from app.errores import NoAutenticado
 from app.modules.usuarios.domain.entidades import AccionesAuditoria, Rol
 from app.modules.usuarios.infrastructure.repositorio_sql import RepositorioUsuariosSQL
@@ -46,11 +46,15 @@ class ServicioAuth:
 
         El mensaje de error nunca distingue "el usuario no existe" de "la
         contrasenia es incorrecta": decirlo facilitaria enumerar nombres de
-        usuario validos por fuerza bruta.
+        usuario validos por fuerza bruta. Por lo mismo, bcrypt se ejecuta
+        tambien cuando el usuario no existe (contra un hash ficticio).
         """
         fila = await self.repo.por_username(username)
+        password_valida = await verificar_password_sin_bloquear(
+            password, fila["password_hash"] if fila else None
+        )
         # Credenciales inválidas: se audita el intento fallido sin revelar la causa.
-        if fila is None or not verificar_password(password, fila["password_hash"]):
+        if fila is None or not password_valida:
             await auditoria.registrar(
                 self.uow,
                 accion=AccionesAuditoria.SESION_FALLIDA,
