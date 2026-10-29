@@ -123,13 +123,15 @@ class ColaWhatsAppSQL:
         )
 
     async def bandeja(self):
-        """Bandeja del personal: comprobantes, cambios pendientes, atenciones y últimas salidas."""
+        """Bandeja del personal: comprobantes, cambios y atenciones pendientes y últimas salidas."""
+        # Un comprobante revisado deja la bandeja; la decisión queda guardada en el comprobante
+        # y, al aprobarlo con saldo, en el cobro conciliado del pedido.
         comprobantes = await self.uow.todos(
             """SELECT c.id,c.pedido_id,p.numero,p.total,b.metodo_pago,
             c.estado,c.creado_en,c.revisado_por,c.motivo
             FROM whatsapp_comprobante c JOIN pedido p ON p.id=c.pedido_id
             JOIN whatsapp_borrador b ON b.pedido_id=p.id
-            ORDER BY (c.estado='PENDIENTE') DESC,c.creado_en DESC LIMIT 100"""
+            WHERE c.estado='PENDIENTE' ORDER BY c.creado_en,c.id LIMIT 100"""
         )
         cambios = await self.uow.todos(
             "SELECT * FROM whatsapp_cambio WHERE estado='PENDIENTE_EMPLEADO' ORDER BY id LIMIT 100"

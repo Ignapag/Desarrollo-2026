@@ -128,6 +128,12 @@ async def test_carrito_modificacion_cocina_revision_y_notificacion(
     assert any(
         "prepar" in m["texto"].lower() for m in conversacion["mensajes"] if m["direccion"] == "bot"
     )
+    # La aprobación del comprobante llega al chat simulado igual que por WhatsApp.
+    assert any(
+        "Pago confirmado" in m["texto"]
+        for m in conversacion["mensajes"]
+        if m["direccion"] == "bot"
+    )
     assert all(
         m["estado"] == "SIMULADO" for m in conversacion["mensajes"] if m["direccion"] == "bot"
     )

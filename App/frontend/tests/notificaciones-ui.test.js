@@ -78,16 +78,13 @@ test('contador real, apertura sin marcar leídas y lectura independiente por sol
   assert.equal(document.activeElement, button(container, 'Notificaciones'));
 });
 
-test('Todas incluye revisadas; pendientes, permisos y estados vacíos se mantienen separados', async (t) => {
+test('un comprobante revisado no genera aviso; permisos y estados vacíos se mantienen separados', async (t) => {
   globalThis.fetch = async () => response({ ...empty(), comprobantes: [{ id: 5, pedido_id: 125, estado: 'APROBADO' }] });
   const container = await mount(t, staff({ permisos: ['whatsapp.ver'] }));
-  await click(button(container, 'Notificaciones: 1 sin leer'));
+  await click(button(container, 'Notificaciones'));
   assert.match(container.textContent, /No tenés notificaciones pendientes/);
   await click(button(container, 'Todas'));
-  assert.match(container.textContent, /Comprobante revisado/);
-  await click(button(container, 'Marcar CLIENTES como leídas'));
-  assert.ok(button(container, 'Notificaciones'));
-  assert.doesNotMatch(container.textContent, /Sin leer/);
+  assert.doesNotMatch(container.textContent, /Comprobante/);
   assert.equal(find(container, (node) => node.localName === 'a').length, 0);
   assert.doesNotMatch(container.textContent, /Pan agotado/);
 });

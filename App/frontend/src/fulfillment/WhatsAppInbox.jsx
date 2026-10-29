@@ -80,10 +80,22 @@ function ChangeDetails({ anterior, posterior }) {
   );
 }
 
+// La API exige registrar el motivo; confirmar un pago sin nota usa este texto fijo.
+const RECEIPT_APPROVAL_TEXT = 'Transferencia verificada por el personal desde la bandeja.';
+
+// Mensaje de resultado según el tipo de registro y el estado que confirmó la API, que
+// puede ser el de una revisión previa de otra persona (por ejemplo, un rechazo anterior).
+function reviewFeedback(isReceipt, reference, estado) {
+  if (estado === 'RECHAZADO') return `${isReceipt ? 'Comprobante' : 'Cambio'} del ${reference} rechazado. Se avisó al cliente por el chat.`;
+  if (isReceipt) return `Pago del ${reference} confirmado. Se avisó al cliente por el chat.`;
+  return `Cambio del ${reference} aplicado. Actualizá el pedido para comprobar el resultado.`;
+}
+
 /**
- * Tarjeta de revisión de un comprobante o de un cambio de pedido. Exige motivo y,
- * para aprobar, verificación manual del pago o aceptación del nuevo total.
- * `onReviewed`/`onReviewFailed` refrescan la bandeja tras la decisión.
+ * Tarjeta de revisión de un comprobante o de un cambio de pedido. Para confirmar un
+ * pago exige la verificación manual de la transferencia (la nota es opcional); para
+ * rechazar o resolver un cambio exige motivo, y aprobar un cambio con otro precio
+ * exige aceptar el nuevo total. `onReviewed`/`onReviewFailed` refrescan la bandeja.
  */
 function ReviewCard({ record, kind, onReviewed, onReviewFailed }) {
   const { user } = useAuth();
@@ -118,8 +130,9 @@ function ReviewCard({ record, kind, onReviewed, onReviewFailed }) {
     const decision = event.nativeEvent.submitter?.value;
     if (!['aprobar', 'rechazar'].includes(decision)) return;
     const approve = decision === 'aprobar';
-    if (!reason.trim()) {
-      setError('Registrá el motivo de la decisión y la verificación realizada.');
+    const confirmsPayment = approve && isReceipt;
+    if (!reason.trim() && !confirmsPayment) {
+      setError(isReceipt ? 'Registrá el motivo del rechazo.' : 'Registrá el motivo de la decisión y la verificación realizada.');
       reasonRef.current?.focus();
       return;
     }
@@ -132,7 +145,7 @@ function ReviewCard({ record, kind, onReviewed, onReviewFailed }) {
         method: 'POST',
         body: JSON.stringify({
           aprobar: approve,
-          motivo: reason.trim(),
+          motivo: reason.trim() || RECEIPT_APPROVAL_TEXT,
           ...(isReceipt ? { total_verificado: record.total } : {
             total_verificado: record.posterior?.total ?? null,
             resolucion_financiera: approve && priceChanged ? 'COBRO_PENDIENTE' : null,
@@ -142,7 +155,7 @@ function ReviewCard({ record, kind, onReviewed, onReviewFailed }) {
       if (!['APROBADO', 'APLICADO', 'RECHAZADO'].includes(result?.estado)) {
         throw new UserFacingError('No pudimos confirmar la revisión. Actualizá el pedido y comprobá su estado antes de repetirla.');
       }
-      await onReviewed(`Revisión registrada para el pedido #${record.numero || record.pedido_id}. Actualizá el pedido para comprobar el resultado.`);
+      await onReviewed(reviewFeedback(isReceipt, `pedido #${record.numero || record.pedido_id}`, result.estado));
     } catch (failure) {
       const message = userErrorMessage(failure, 'No pudimos confirmar la revisión. Actualizá el pedido y comprobá su estado antes de repetirla.');
       setError(message);
@@ -190,12 +203,12 @@ function ReviewCard({ record, kind, onReviewed, onReviewFailed }) {
         </>
       )}
       {error && <p role="alert" id={`${cardId}-error`} className="p-3 rounded-lg bg-red-50 text-red-800 text-sm">{error}</p>}
-      {/* Formulario de revisión mientras está pendiente; si no, el motivo registrado */}
-      {pending ? (
+      {/* Formulario de revisión; la bandeja sólo lista registros pendientes */}
+      {pending && (
         <form noValidate onSubmit={review} className="space-y-3">
           <label className="block text-sm font-bold text-monu-dark space-y-1">
-            <span>Motivo y verificación realizada (obligatorio)</span>
-            <textarea ref={reasonRef} required maxLength={500} rows={3} disabled={busy} value={reason} onChange={(event) => setReason(event.target.value)} aria-describedby={error ? `${cardId}-error` : undefined} className="w-full px-3 py-2 text-base font-normal border border-monu-green/30 rounded-lg focus:outline-none focus:ring-2 focus:ring-monu-green" />
+            <span>{isReceipt ? 'Nota (opcional para confirmar, obligatoria para rechazar)' : 'Motivo y verificación realizada (obligatorio)'}</span>
+            <textarea ref={reasonRef} required={!isReceipt} maxLength={500} rows={3} disabled={busy} value={reason} onChange={(event) => setReason(event.target.value)} aria-describedby={error ? `${cardId}-error` : undefined} className="w-full px-3 py-2 text-base font-normal border border-monu-green/30 rounded-lg focus:outline-none focus:ring-2 focus:ring-monu-green" />
           </label>
           {isReceipt && (
             <label className="flex gap-3 items-start min-h-11 text-sm text-monu-dark">
@@ -203,6 +216,7 @@ function ReviewCard({ record, kind, onReviewed, onReviewFailed }) {
               <span>Verifiqué personalmente el importe y la acreditación de la transferencia. El comprobante por sí solo no demuestra el pago.</span>
             </label>
           )}
+          {isReceipt && <p className="text-sm text-monu-text">Al confirmar se registra el cobro por transferencia del saldo pendiente y se avisa al cliente por el chat que su pago está confirmado.</p>}
           {!isReceipt && priceChanged && (
             <label className="flex gap-3 items-start min-h-11 text-sm text-monu-dark">
               <input type="checkbox" checked={financialAccepted} disabled={busy} onChange={(event) => setFinancialAccepted(event.target.checked)} className="mt-1 w-5 h-5 shrink-0 accent-monu-green" />
@@ -210,11 +224,11 @@ function ReviewCard({ record, kind, onReviewed, onReviewFailed }) {
             </label>
           )}
           <div className="flex flex-wrap gap-3">
-            <button type="submit" value="aprobar" disabled={busy || approvalBlocked} className={`${actionClass} bg-monu-green text-white hover:bg-monu-green/90`}>{busy ? 'Guardando revisión...' : 'Aprobar revisión'}</button>
+            <button type="submit" value="aprobar" disabled={busy || approvalBlocked} className={`${actionClass} bg-monu-green text-white hover:bg-monu-green/90`}>{busy ? 'Guardando revisión...' : isReceipt ? 'Confirmar pago' : 'Aprobar revisión'}</button>
             <button type="submit" value="rechazar" disabled={busy || !manage} className={`${actionClass} border border-red-300 text-red-800 hover:bg-red-50`}>Rechazar</button>
           </div>
         </form>
-      ) : record.motivo && <p className="text-sm text-monu-text break-words">Motivo registrado: {record.motivo}</p>}
+      )}
     </article>
   );
 }

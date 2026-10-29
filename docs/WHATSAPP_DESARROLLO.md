@@ -343,8 +343,9 @@ una conexión. El canal interno `/api/whatsapp/simular` conserva su guarda de pe
    el comprobante pendiente y descargarlo. Aclarar que todavía no se acreditó
    dinero ni se habilitó preparar por transferencia.
 5. El empleado verifica ficticiamente el ingreso en la base de demostración,
-   aprueba el total vigente desde la bandeja y envía a preparación. Volver al
-   chat y mostrar el aviso persistido. Después de preparar, pedir `cantidad 2`:
+   marca la casilla de verificación y pulsa **Confirmar pago** en la bandeja: el
+   comprobante sale de la bandeja y el pedido queda pagado. Volver al chat y
+   mostrar el aviso «Pago confirmado»; luego enviar a preparación. Después de preparar, pedir `cantidad 2`:
    se deriva directamente al personal, sin pedir confirmación al cliente y sin
    cambiar el pedido vigente.
 6. Para mostrar el caso sin proveedor, configurar `GEMINI_MODO=real` sin clave
@@ -499,7 +500,7 @@ texto libre para representar agregados.
    Cada adjunto distinto se conserva como tarea; repetir el mismo evento no
    duplica el aviso. Las solicitudes generales de empleado se agrupan mientras
    estén pendientes. La bandeja ofrece hasta 100 atenciones por categoría y
-   prioriza comprobantes pendientes sobre el historial de revisados.
+   hasta 100 comprobantes pendientes; los revisados dejan de listarse.
 
 Ejemplo del cuerpo de una entrada simulada, con el texto obtenido de la web:
 
@@ -526,10 +527,10 @@ Los contratos y permisos efectivos están en
 | `POST /api/whatsapp/borradores` | Público, sin sesión; `201`. Acepta items y, opcionalmente, modalidad, pago, dirección nueva y `contacto` con `nombre`, `apellido` (1–80 caracteres) y `telefono` (11–15 dígitos internacionales). El frontend requiere los tres datos; el contacto es opcional en la API para compatibilidad. Rechaza teléfono de identidad en la raíz, cliente_id, precios y campos extra. Devuelve referencia, mensaje, vencimiento y enlace si hay número configurado. No crea cliente ni pedido operativo. |
 | `POST /api/whatsapp/simular` | Empleado, administrador o dueño; solo entorno no productivo con WhatsApp simulado. `202`, guarda una entrada con `id`, `telefono`, `texto` y `media_id` opcional. |
 | `GET /api/whatsapp/avisos` | Empleado, administrador o dueño. Resumen sin datos personales: `comprobantes_pendientes` (incluye adjuntos sin compra) y `atenciones_pendientes` (solicitudes y derivaciones por fallo de proveedor); cuenta únicamente `PENDIENTE`, sin límite de 100. Respuesta privada sin caché. |
-| `GET /api/whatsapp/bandeja` | Empleado, administrador o dueño. Devuelve `comprobantes` con total vigente, `cambios` pendientes, `atenciones` pendientes y `salidas`. Cada atención incluye `id`, `motivo` (`SOLICITUD`, `PROVEEDOR` o `COMPROBANTE`), `telefono`, `cliente`, `pedido_id`/`numero`/`estado_pedido`/`total` (nulos sin pedido), `tipo_entrega`, `metodo_pago`, `borrador_vencido`, `productos`, `mensaje` que la originó, `tiene_archivo` y sus `respuestas` con el estado de la outbox. Las vinculadas incluyen hasta cinco `mensajes` recientes; las generales sólo muestran su mensaje origen. Las referencias `MB-` se reemplazan por `[referencia]`. |
+| `GET /api/whatsapp/bandeja` | Empleado, administrador o dueño. Devuelve `comprobantes` pendientes de revisión con total vigente (los aprobados o rechazados ya no se listan), `cambios` pendientes, `atenciones` pendientes y `salidas`. Cada atención incluye `id`, `motivo` (`SOLICITUD`, `PROVEEDOR` o `COMPROBANTE`), `telefono`, `cliente`, `pedido_id`/`numero`/`estado_pedido`/`total` (nulos sin pedido), `tipo_entrega`, `metodo_pago`, `borrador_vencido`, `productos`, `mensaje` que la originó, `tiene_archivo` y sus `respuestas` con el estado de la outbox. Las vinculadas incluyen hasta cinco `mensajes` recientes; las generales sólo muestran su mensaje origen. Las referencias `MB-` se reemplazan por `[referencia]`. |
 | `POST /api/whatsapp/atenciones/{id}/respuesta` | Mismos roles internos. Cuerpo `texto` (1 a 1000 caracteres) y `solicitud_id` (UUID). `202`: crea una salida en `whatsapp_salida` con `atencion_id` y `enviado_por`; devuelve `id`, `atencion_id` y `estado` (`PENDIENTE`). No significa enviado. Repetir el mismo `solicitud_id` devuelve la misma salida; una atención resuelta responde `409`. |
 | `POST /api/whatsapp/atenciones/{id}/resolucion` | Mismos roles internos. Cuerpo `resolucion` (1 a 500 caracteres). Registra empleado, fecha y detalle; devuelve `estado: "RESUELTA"` y es idempotente. No envía mensajes. La conversación vuelve a `VINCULADO` o `CREADO` salvo que tenga un cambio pendiente de revisión. |
-| `POST /api/whatsapp/comprobantes/{id}/revision` | Mismos roles internos. Cuerpo `aprobar`, `motivo` y, al aprobar, `total_verificado` observado en la bandeja. Una diferencia con el total vigente rechaza la aprobación: recargar y revisar nuevamente. |
+| `POST /api/whatsapp/comprobantes/{id}/revision` | Mismos roles internos. Cuerpo `aprobar`, `motivo` y, al aprobar, `total_verificado` observado en la bandeja. Una diferencia con el total vigente rechaza la aprobación: recargar y revisar nuevamente. Aprobar registra el cobro conciliado del saldo y encola «Pago confirmado» al cliente; la bandeja envía un motivo fijo si la nota queda vacía. |
 | `GET /api/whatsapp/comprobantes/{id}/archivo` | Mismos roles internos. Solo modo real; descarga autenticada como adjunto, sin caché y con `nosniff`. |
 | `GET /api/whatsapp/atenciones/{id}/archivo` | Mismos roles internos y protección de descarga; sólo atenciones de motivo `COMPROBANTE`, usando el archivo del mensaje origen. No expone URLs ni credenciales del proveedor. |
 | `POST /api/whatsapp/cambios/{id}/revision` | Mismos roles internos. `aprobar` y `motivo`; al cambiar importe requiere `total_verificado` igual al nuevo total y `resolucion_financiera: "COBRO_PENDIENTE"`. Revalida versión, estado, stock y saldo. |

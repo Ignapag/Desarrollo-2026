@@ -19,15 +19,16 @@ export function validateInbox(data) {
 const dateValue = (value) => typeof value === 'string' && Number.isFinite(Date.parse(value)) ? value : null;
 const orderReference = (item) => positiveId(item.numero) ? 'Pedido #' + item.numero : positiveId(item.pedido_id) ? 'Pedido #' + item.pedido_id : null;
 
-// Avisos de WhatsApp: comprobantes (por verificar o revisados) y atenciones que piden ayuda.
+// Avisos de WhatsApp: comprobantes por verificar y atenciones que piden ayuda.
+// Un comprobante revisado (aprobado o rechazado) ya no requiere acción y no genera aviso.
 export function inboxNotifications(inbox) {
   if (!inbox) return [];
-  const receipts = inbox.comprobantes.map((item) => ({
+  const receipts = inbox.comprobantes.filter((item) => item.estado === 'PENDIENTE').map((item) => ({
     key: 'comprobante:' + item.id, kind: 'comprobante', priority: 1,
-    title: item.estado === 'PENDIENTE' ? 'Comprobante pendiente' : 'Comprobante revisado', reference: orderReference(item),
-    description: item.estado === 'PENDIENTE' ? 'Transferencia por verificar.' : item.estado === 'APROBADO' ? 'Comprobante aprobado.' : 'Comprobante rechazado.',
-    pending: item.estado === 'PENDIENTE', date: dateValue(item.creado_en),
-    target: 'whatsapp-comprobantes-' + item.id, action: item.estado === 'PENDIENTE' ? 'Revisar comprobante' : 'Ver comprobante',
+    title: 'Comprobante pendiente', reference: orderReference(item),
+    description: 'Transferencia por verificar.',
+    pending: true, date: dateValue(item.creado_en),
+    target: 'whatsapp-comprobantes-' + item.id, action: 'Revisar comprobante',
     href: '/dashboard/orders?bandeja=comprobantes&aviso=whatsapp-comprobantes-' + item.id,
   }));
   const attentions = inbox.atenciones.filter((item) => item.motivo === 'COMPROBANTE' || attentionReasons.has(item.motivo)).map((item) => {

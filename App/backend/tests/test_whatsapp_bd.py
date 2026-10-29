@@ -320,6 +320,33 @@ async def test_rechazar_otro_adjunto_no_revoca_pago_aprobado(uow):
 
 
 @pytest.mark.asyncio
+async def test_comprobante_aprobado_acredita_avisa_y_sale_de_la_bandeja(uow):
+    from app.modules.whatsapp.infrastructure.cola import ColaWhatsAppSQL
+
+    s, pid = await crear_pedido_bot(uow, "TRANSFERENCIA")
+    empleado = await uow.valor("SELECT id FROM usuario WHERE rol='ADMINISTRADOR' LIMIT 1")
+    await s.recibir("foto-revisada", "5492215550000", "", "imagen-revisada")
+    await s.procesar("foto-revisada", {})
+    cid = await uow.valor(
+        "SELECT id FROM whatsapp_comprobante WHERE entrada_id='foto-revisada'"
+    )
+    cola = ColaWhatsAppSQL(uow)
+    assert cid in [c["id"] for c in (await cola.bandeja())["comprobantes"]]
+    total = await uow.valor("SELECT total FROM pedido WHERE id=%s", (pid,))
+    await s.revisar_comprobante(cid, True, empleado, "verificado", total_verificado=total)
+    # El cobro conciliado cubre el total y el cliente recibe la confirmación por el chat.
+    assert await uow.valor(
+        "SELECT sum(monto) FROM pago WHERE pedido_id=%s AND estado='CONCILIADO'", (pid,)
+    ) == total
+    aviso = await uow.valor(
+        "SELECT texto FROM whatsapp_salida WHERE clave=%s", (f"revision:{cid}",)
+    )
+    assert "Pago confirmado" in aviso
+    # Ya revisado, deja de figurar en la bandeja del personal.
+    assert cid not in [c["id"] for c in (await cola.bandeja())["comprobantes"]]
+
+
+@pytest.mark.asyncio
 async def test_reintento_despues_de_preparar_no_repite_stock(uow):
     from app.modules.pedidos.domain.entidades import EstadoPedido
 

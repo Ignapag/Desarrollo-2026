@@ -62,13 +62,13 @@ try {
     });
     await page.goto(origin + '/dashboard/orders');
     const bell = () => page.getByRole('button', { name: /^Notificaciones(?::|$)/ });
-    await page.getByRole('button', { name: 'Notificaciones: 5 sin leer', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Notificaciones: 4 sin leer', exact: true }).waitFor();
     await bell().click();
     const dialog = page.getByRole('dialog', { name: 'Notificaciones' });
     await dialog.waitFor();
     await dialog.getByRole('heading', { name: 'Cliente necesita ayuda', exact: true }).waitFor();
     assert.equal(await dialog.locator('li').count(), 2);
-    const clients = dialog.getByRole('tab', { name: 'CLIENTES: 3 sin leer', exact: true });
+    const clients = dialog.getByRole('tab', { name: 'CLIENTES: 2 sin leer', exact: true });
     await clients.focus(); await page.keyboard.press('ArrowRight');
     assert.equal(await dialog.getByRole('tab', { name: 'STOCK: 2 sin leer', exact: true }).getAttribute('aria-selected'), 'true');
     await dialog.getByRole('heading', { name: 'Pan agotado', exact: true }).waitFor();
@@ -82,15 +82,16 @@ try {
     assert.ok(await bell().evaluate((element) => element === document.activeElement));
     await page.keyboard.press('Enter'); await dialog.waitFor();
     await dialog.getByRole('button', { name: 'Marcar STOCK como leídas', exact: true }).click();
-    await page.getByRole('button', { name: 'Notificaciones: 3 sin leer', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Notificaciones: 2 sin leer', exact: true }).waitFor();
     assert.equal(await dialog.locator('li').count(), 2, 'Leer STOCK no resuelve faltantes ni lee CLIENTES');
     await dialog.getByRole('tab', { name: /^CLIENTES:/ }).click();
     await dialog.getByRole('button', { name: 'Marcar CLIENTES como leídas', exact: true }).click();
     await page.getByRole('button', { name: 'Notificaciones', exact: true }).waitFor();
     assert.equal(await dialog.locator('li').count(), 2, 'Leer CLIENTES no resuelve sus pendientes');
     await dialog.getByRole('button', { name: 'Todas', exact: true }).click();
-    await dialog.getByRole('heading', { name: 'Comprobante revisado', exact: true }).waitFor();
-    assert.equal(await dialog.locator('li').count(), 3);
+    // El comprobante aprobado del fixture no genera aviso: ya no requiere acción.
+    assert.equal(await dialog.locator('li').count(), 2);
+    assert.equal(await dialog.getByText('Pedido #127', { exact: false }).count(), 0);
     await page.screenshot({ path: path.join(evidence, viewport.width + '-clientes.png'), fullPage: true, animations: 'disabled' });
     await dialog.getByRole('tab', { name: /^STOCK:/ }).click();
     assert.equal(await dialog.locator('li').count(), 2);
@@ -124,7 +125,7 @@ try {
     // Mismo navegador, otra cuenta y sin permisos de inventario ni pedidos.
     currentUser = { ...user, id: 2, permisos: ['whatsapp.ver'] };
     await page.reload();
-    await page.getByRole('button', { name: 'Notificaciones: 3 sin leer', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Notificaciones: 2 sin leer', exact: true }).waitFor();
     await bell().click();
     assert.equal(await dialog.getByRole('link').count(), 0);
     assert.equal(await dialog.getByRole('heading', { name: 'Pan agotado' }).count(), 0);

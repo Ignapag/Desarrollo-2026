@@ -339,7 +339,29 @@ test('aprobar desde WhatsAppInbox real actualiza el DataProvider con un GET post
   assert.equal(data.state.orders.some((entry) => entry.version === 3), false);
   await act(async () => { freshGet.resolve(response([{ ...order, version: 4, estado: 'CONFIRMADO' }])); await reviewing; });
   assert.equal(data.state.orders[0].version, 4);
-  assert.match(container.textContent, /Revisión registrada/);
+  assert.match(container.textContent, /Cambio del pedido #88 aplicado/);
+});
+
+test('confirmar un comprobante exige verificar la transferencia, admite nota vacía y lo retira de la bandeja', async (t) => {
+  let review = null;
+  globalThis.fetch = async (path, options) => {
+    if (path === '/api/whatsapp/bandeja') return response({ comprobantes: review ? [] : [{ id: 4, pedido_id: 17, numero: 88, total: '12000', metodo_pago: 'TRANSFERENCIA', estado: 'PENDIENTE' }], cambios: [], atenciones: [], salidas: [] });
+    if (path === '/api/whatsapp/comprobantes/4/revision') { review = JSON.parse(options.body); return response({ id: 4, estado: 'APROBADO', pedido_id: 17 }); }
+    return response([]);
+  };
+  const container = await mount(t, WhatsAppInbox, {}, true);
+  const toggle = elements(container, (node) => node.localName === 'button' && node.textContent.includes('Bandeja de WhatsApp'))[0];
+  await act(async () => reactProps(toggle).onClick());
+  await completed(() => Boolean(button(container, 'Confirmar pago')));
+  assert.equal(reactProps(button(container, 'Confirmar pago')).disabled, true);
+  const verified = elements(container, (node) => node.localName === 'input' && reactProps(node).type === 'checkbox')[0];
+  await act(async () => reactProps(verified).onChange({ target: { checked: true } }));
+  assert.equal(reactProps(button(container, 'Confirmar pago')).disabled, false);
+  const form = elements(container, (node) => node.localName === 'form')[0];
+  await act(async () => reactProps(form).onSubmit({ preventDefault() {}, nativeEvent: { submitter: { value: 'aprobar' } } }));
+  await completed(() => /Pago del pedido #88 confirmado/.test(container.textContent));
+  assert.deepEqual(review, { aprobar: true, motivo: 'Transferencia verificada por el personal desde la bandeja.', total_verificado: '12000' });
+  assert.doesNotMatch(container.textContent, /Comprobante #4/);
 });
 
 for (const way of ['botón', 'Escape']) {

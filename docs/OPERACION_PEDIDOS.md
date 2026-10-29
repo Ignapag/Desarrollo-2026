@@ -120,8 +120,8 @@ humana por solicitud del cliente o fallo del proveedor, y stock bajo o agotado.
 Los niveles de inventario provienen del backend: SIN_STOCK y BAJO_UMBRAL, con
 el umbral mínimo configurado para cada ingrediente. No se agregan umbrales locales.
 
-El contador indica avisos disponibles sin leer, incluidos los comprobantes
-revisados visibles en Todas. Abrir el panel no marca avisos automáticamente;
+El contador indica avisos disponibles sin leer. Un comprobante revisado (aprobado
+o rechazado) ya no genera aviso. Abrir el panel no marca avisos automáticamente;
 se pueden marcar individualmente, los de la solapa seleccionada o al abrir su destino.
 Cambiar de solapa no marca lecturas. El contador global suma los no leídos de
 las categorías autorizadas; cada solapa muestra su propio contador. Leer no
@@ -140,10 +140,11 @@ además de su reconciliación después de escrituras. Reparto, fuera de este
 layout, conserva su resumen liviano /api/whatsapp/avisos.
 
 Todas muestra la instantánea disponible, no un historial completo: el endpoint
-existente devuelve hasta cien comprobantes y hasta cien atenciones pendientes
-por grupo (comprobantes y otras atenciones). Los contadores integrados en el
-centro corresponden a esos registros disponibles. Las atenciones resueltas y
-los faltantes recuperados dejan de figurar al actualizar sus fuentes.
+existente devuelve hasta cien comprobantes pendientes de revisión y hasta cien
+atenciones pendientes por grupo (comprobantes y otras atenciones). Los contadores
+integrados en el centro corresponden a esos registros disponibles. Los comprobantes
+revisados, las atenciones resueltas y los faltantes recuperados dejan de figurar
+al actualizar sus fuentes.
 
 Se guardan únicamente claves de lectura, hasta quinientas por usuario, en
 localStorage de este navegador. No hay sincronización entre dispositivos ni
@@ -154,6 +155,23 @@ de ese faltante para avisar si vuelve a ocurrir. Los datos y respuestas de otra
 sesión se descartan. Los errores conservan la última instantánea con un aviso
 de posible desactualización en la categoría afectada; un 401/403 retira los datos sin acceso. Una carga
 fallida nunca se anuncia como ausencia de pendientes.
+
+## Confirmar un comprobante desde la bandeja
+
+La bandeja de WhatsApp lista sólo los comprobantes pendientes de revisión. Para
+acreditar uno, el personal con `whatsapp.gestionar`, `pagos.registrar` y
+`pagos.conciliar` marca la casilla de verificación personal de la transferencia y
+pulsa **Confirmar pago**. La nota es opcional; sin texto se registra
+«Transferencia verificada por el personal desde la bandeja.». Rechazar exige motivo.
+
+`POST /api/whatsapp/comprobantes/{id}/revision` confirma en una transacción:
+el comprobante queda `APROBADO`, se registra un cobro por transferencia
+`CONCILIADO` por el saldo pendiente (el pedido pasa a **Pagados** si todavía no
+entró a cocina) y se encola «✅ Pago confirmado» para el cliente. Ese mensaje
+llega al chat de demostración del cliente igual que la salida de WhatsApp; en
+modo real lo envía el worker. El comprobante deja la bandeja y la campanita en la
+siguiente actualización. Repetir la revisión no duplica el cobro ni el mensaje.
+Confirmar el pago no envía el pedido a cocina; ese paso sigue siendo explícito.
 
 ## Retiro en el local
 

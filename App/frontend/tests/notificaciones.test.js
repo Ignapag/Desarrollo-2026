@@ -30,13 +30,11 @@ test('incluye sólo comprobantes, atención humana y niveles de stock confirmado
   assert.equal(result[0].date, null);
 });
 
-test('Todas conserva comprobantes revisados y ordena las novedades por prioridad y fecha sin duplicados', () => {
-  const items = inboxNotifications({ ...empty(), comprobantes: [receipt({ id: 1, creado_en: '2026-10-28T14:00:00-03:00' }), receipt({ id: 2 }), receipt({ id: 3, estado: 'APROBADO' })] });
+test('los comprobantes revisados no generan avisos y las novedades se ordenan por prioridad y fecha sin duplicados', () => {
+  const items = inboxNotifications({ ...empty(), comprobantes: [receipt({ id: 1, creado_en: '2026-10-28T14:00:00-03:00' }), receipt({ id: 2 }), receipt({ id: 3, estado: 'APROBADO' }), receipt({ id: 4, estado: 'RECHAZADO' })] });
   const result = sortNotifications([...items, ...items]);
-  assert.equal(result.length, 3);
-  assert.equal(result[0].key, 'comprobante:2');
-  assert.equal(result.find((item) => item.key === 'comprobante:3').pending, false);
-  assert.equal(result.find((item) => item.key === 'comprobante:3').title, 'Comprobante revisado');
+  assert.deepEqual(result.map((item) => item.key), ['comprobante:2', 'comprobante:1']);
+  assert.ok(result.every((item) => item.pending && item.title === 'Comprobante pendiente'));
 });
 
 test('la lectura no resuelve el pendiente y se aísla por usuario guardando sólo claves', () => {
