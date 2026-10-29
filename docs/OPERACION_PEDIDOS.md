@@ -353,6 +353,41 @@ Una nueva preparación requiere `RECONSUMIR`. Una entrega marcada por error pued
 volver a listo con `CONSERVAR`, sujeto a la situación real del reparto. Estos
 tratamientos quedan registrados junto con el actor y el origen del cambio.
 
+## Ingredientes extra por hamburguesa
+
+El local configura los agregados en el editor de recetas: ingrediente de la receta,
+porción en su unidad de inventario, precio de venta por porción y máximo por hamburguesa
+(de 1 a 50). `POST /api/productos` y `PUT /api/productos/{id}/receta` reciben
+`extras: [{ingrediente_id, cantidad_requerida, precio, max_por_item}]`. Omitir `extras`
+en una edición conserva la configuración anterior; `[]` desactiva todos los agregados.
+Los valores deben ser positivos. El precio de venta usa `producto_opcion.costo_adicional`
+y se mantiene separado de `ingrediente.costo_unitario`; no se calcula desde el costo.
+La migración 033 no asigna precios ni porciones comerciales predeterminados.
+
+El catálogo público publica `extras_disponibles` con nombre, unidad, porción, precio,
+máximo y variantes aplicables. Solo ofrece opciones activas de ingredientes activos
+que pertenecen a la receta efectiva. Dips Extra no admite agregados. La selección
+del cliente es `extras: [{ingrediente_id, cantidad}]`, sin precios ni porciones;
+cero elimina la selección. El backend rechaza ingredientes ajenos, duplicados,
+cantidades fraccionarias o booleanas, límites excedidos y quitar/agregar el mismo
+ingrediente. El menú muestra el recargo antes de incorporar el producto al carrito.
+
+Cada línea conserva `extras_snapshot` con cantidad, nombre, unidad, porción y precio
+de venta; la API devuelve esa composición en `items[].extras`. `costo_opciones` es
+el recargo por hamburguesa y el subtotal es `(precio_unitario + costo_opciones) × cantidad`.
+`receta_snapshot` suma la porción adicional en la unidad real del inventario, sin
+transformar gramos en unidades ni cambiar de variante. Dos configuraciones distintas
+conservan líneas separadas. Cambios posteriores del catálogo no alteran una compra
+guardada ni sus consumos.
+
+La demanda conjunta se valida antes de registrar un pedido con extras y vuelve a
+validarse al confirmar/preparar. Stock consume la composición congelada dentro de
+la misma transacción y conserva el bloqueo e idempotencia por pedido/ciclo. Editar
+extras antes de cocina recalcula precio y diferencial de stock; quitar todos restaura
+la receta base histórica. Las líneas conservadas o recuperadas mantienen los extras
+congelados. Cancelaciones previas a cocina devuelven la reserva completa; los límites
+de edición, devoluciones, reapertura, pagos y saldo pendiente siguen vigentes.
+
 ## WhatsApp y autoridad
 
 Actualización local del 20/10/2026, aún sin publicar en esta sesión. La IA interpreta

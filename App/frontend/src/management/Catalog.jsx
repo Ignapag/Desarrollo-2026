@@ -200,7 +200,7 @@ export default function Catalog() {
               <input id="new-product-description" type="text" value={newItem.description} onChange={e => setNewItem({...newItem, description: e.target.value})} className="min-h-11 w-full border rounded-lg px-3 py-2 font-bold focus:outline-monu-green" placeholder="Ej: Carne, cheddar, bacon y salsa monu." />
             </div>
           </fieldset>
-          <RecipeEditor value={recipe} onChange={setRecipe} inventory={state.inventory} disabled={saving} basePrice={newItem.price} showErrors={showRecipeErrors} />
+          <RecipeEditor value={recipe} onChange={setRecipe} inventory={state.inventory} disabled={saving} basePrice={newItem.price} showErrors={showRecipeErrors} allowExtras={selectedCategory !== 'Dips Extra'} />
           <div ref={errorSummary} tabIndex={-1}><DataError message={createError} />
             {createError && Object.keys(fieldErrors).length > 0 && <ul className="mt-2 space-y-1 text-sm text-red-800">{Object.entries(fieldErrors).map(([field, message]) => <li key={field}><a href={`#new-product-${field}`} className="underline">{message}</a></li>)}</ul>}
           </div>

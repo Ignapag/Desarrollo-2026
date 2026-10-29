@@ -4,6 +4,7 @@ from decimal import Decimal
 from typing import Protocol
 
 from app.errores import DatosInvalidos, NoEncontrado, ReglaDeNegocio
+from app.modules.pedidos.application.extras import cotizar_extras
 from app.modules.stock.domain.entidades import INGREDIENTES_QUITABLES
 
 
@@ -16,6 +17,7 @@ class RepositorioEdicionItems(Protocol):
     async def item_tiene_opciones(self, item_id: int) -> bool: ...
     async def receta_edicion(self, producto_id: int, variante: str | None) -> list[dict]: ...
     async def nombres_ingredientes(self, ids: list[int]) -> dict[int, str]: ...
+    async def extras_producto(self, producto_id: int, variante: str | None) -> list[dict]: ...
     async def guardar_items(
         self,
         pedido_id: int,
@@ -116,6 +118,7 @@ async def preparar_items(
             "subtotal",
             "receta_snapshot",
             "pedido_id",
+            "extras",
         }
         if set(item) - permitidos:
             raise DatosInvalidos("El item contiene opciones no admitidas")
@@ -183,6 +186,42 @@ async def preparar_items(
             }
         if not receta:
             raise ReglaDeNegocio("El producto no tiene una receta valida")
+        anteriores_extras = anterior.get("extras", []) if anterior is not None else []
+        actuales = [
+            {"ingrediente_id": e["ingrediente_id"], "cantidad": e["cantidad"]}
+            for e in anteriores_extras
+        ]
+        pedidos_extras = solicitado.get("extras", actuales)
+        if pedidos_extras != actuales or anterior is None and pedidos_extras:
+            # Reconstruye la base histórica antes de cambiar los extras guardados.
+            receta = [dict(r) for r in receta]
+            por_id = {r["ingrediente_id"]: r for r in receta}
+            for extra in anteriores_extras:
+                fila = por_id[extra["ingrediente_id"]]
+                fila["cantidad_requerida"] = str(
+                    Decimal(str(fila["cantidad_requerida"]))
+                    - Decimal(str(extra["cantidad_requerida"])) * extra["cantidad"]
+                )
+            cantidades_anteriores = {e["ingrediente_id"]: e["cantidad"] for e in anteriores_extras}
+            solo_retiros = (
+                anterior is not None and isinstance(pedidos_extras, list | tuple)
+                and all(
+                    isinstance(e, dict) and set(e) == {"ingrediente_id", "cantidad"}
+                    and isinstance(e["ingrediente_id"], int)
+                    and not isinstance(e["ingrediente_id"], bool)
+                    and isinstance(e["cantidad"], int) and not isinstance(e["cantidad"], bool)
+                    and 0 <= e["cantidad"] <= cantidades_anteriores.get(e["ingrediente_id"], -1)
+                    for e in pedidos_extras
+                )
+            )
+            opciones = anteriores_extras if solo_retiros else await repo.extras_producto(
+                item["producto_id"], item.get("variante")
+            )
+            cotizacion = cotizar_extras(pedidos_extras, receta, opciones)
+            item["extras"] = cotizacion["extras_snapshot"]
+            item["costo_opciones"] = cotizacion["costo_opciones"]
+            item["receta_snapshot"] = cotizacion["receta_snapshot"]
+            receta = item["receta_snapshot"]
         # Las aclaraciones se recalculan solo en líneas nuevas o cuando cambian.
         if anterior is None or (
             "aclaraciones" in solicitado and solicitado["aclaraciones"] != anterior["aclaraciones"]
@@ -193,6 +232,11 @@ async def preparar_items(
             item["aclaraciones"] = normalizar_aclaraciones(
                 solicitado.get("aclaraciones"), nombres, receta
             )
+        nombres_retirados = {
+            n.strip()[4:].casefold() for n in (item.get("aclaraciones") or "").split(",")
+        }
+        if any(e["nombre"].casefold() in nombres_retirados for e in item.get("extras", [])):
+            raise DatosInvalidos("No se puede quitar y agregar el mismo ingrediente")
         item["cantidad"] = solicitado["cantidad"]
         item["subtotal"] = (
             Decimal(str(item["precio_unitario"])) + Decimal(str(item.get("costo_opciones", 0)))

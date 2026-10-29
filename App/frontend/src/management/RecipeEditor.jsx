@@ -6,14 +6,14 @@ import { buttonClass, inputClass } from '../fulfillment/operationUi';
 import { parseRecipeQuantity, recipeUnit } from './recipeModel';
 
 /** Campo de cantidad de receta con validación (acepta fracciones como 1/4) y ayuda con el valor interpretado. */
-function QuantityField({ id, label, value, unit, disabled, onChange, showErrors }) {
+function QuantityField({ id, label, value, unit, disabled, onChange, showErrors, perExtra = false }) {
   const [touched, setTouched] = useState(false);
   const parsed = parseRecipeQuantity(value);
   const error = (touched || showErrors) && !parsed.valid;
   return <div className="min-w-0 space-y-1">
     <label htmlFor={id} className="block text-sm font-bold text-monu-dark">{label} <span className="font-normal text-monu-text">({unit})</span></label>
     <input id={id} type="text" inputMode="text" autoComplete="off" spellCheck={false} maxLength={32} value={value} disabled={disabled} onBlur={() => setTouched(true)} onChange={(event) => onChange(event.target.value)} aria-describedby={`${id}-help`} aria-invalid={error || undefined} className={`${inputClass} w-full bg-white`} placeholder="Ej.: 0,25 o 1/4" />
-    <p id={`${id}-help`} className={`min-h-5 text-xs ${error ? 'text-red-800' : 'text-monu-text'}`} role={error ? 'alert' : undefined}>{parsed.valid ? `${parsed.approximate ? 'Aprox. ' : ''}${parsed.display} ${unit} por producto` : error ? parsed.error : 'Decimal o fracción, por ejemplo 0,25 o 1/4.'}</p>
+    <p id={`${id}-help`} className={`min-h-5 text-xs ${error ? 'text-red-800' : 'text-monu-text'}`} role={error ? 'alert' : undefined}>{parsed.valid ? `${parsed.approximate ? 'Aprox. ' : ''}${parsed.display} ${unit} por ${perExtra ? 'extra' : 'producto'}` : error ? parsed.error : 'Decimal o fracción, por ejemplo 0,25 o 1/4.'}</p>
   </div>;
 }
 
@@ -22,7 +22,7 @@ function QuantityField({ id, label, value, unit, disabled, onChange, showErrors 
  * quitar o cambiar el precio de variantes (edición de recetas existentes) y `basePrice`
  * es el precio sugerido de la primera variante.
  */
-export default function RecipeEditor({ value, onChange, inventory, disabled = false, lockVariants = false, basePrice = '', showErrors = false }) {
+export default function RecipeEditor({ value, onChange, inventory, disabled = false, lockVariants = false, basePrice = '', showErrors = false, allowExtras = true }) {
   const id = useId();
   // Operaciones sobre filas de ingredientes y variantes (cada variante guarda una cantidad por ingrediente).
   const updateRow = (index, changes) => onChange({ ...value, ingredients: value.ingredients.map((row, i) => i === index ? { ...row, ...changes } : row) });
@@ -63,6 +63,18 @@ export default function RecipeEditor({ value, onChange, inventory, disabled = fa
           </div>
           {ingredient?.stock != null && Number.isFinite(ingredient.stock) && <p className="text-sm font-medium text-monu-dark">Stock registrado: {ingredient.stock.toLocaleString('es-AR', { maximumFractionDigits: 3 })} {unit}.</p>}
           {ingredient && ingredient.category !== 'UNIDAD' && <p className="text-xs text-monu-text">Se descuenta en {unit}, como está registrado en inventario. Para un cuarto de pieza, el ingrediente debe medirse en unidades.</p>}
+          {allowExtras && ingredient && <div className="space-y-3 border-t border-monu-green/15 pt-3">
+            <label className="flex min-h-11 items-center gap-2 text-sm font-bold"><input type="checkbox" checked={row.extraEnabled || false} onChange={(event) => updateRow(index, { extraEnabled: event.target.checked })} className="size-4 accent-monu-green focus-visible:ring-2 focus-visible:ring-monu-green" />Ofrecer {ingredient.name} como extra</label>
+            {row.extraEnabled && <>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <QuantityField perExtra id={`${id}-extra-portion-${row.key}`} label="Porción por extra" value={row.extraPortion || ''} unit={unit} disabled={disabled} onChange={(extraPortion) => updateRow(index, { extraPortion })} showErrors={showErrors} />
+                <label className="space-y-1 text-sm font-bold" htmlFor={`${id}-extra-price-${row.key}`}>Precio de venta ($)<input id={`${id}-extra-price-${row.key}`} inputMode="decimal" value={row.extraPrice || ''} onChange={(event) => updateRow(index, { extraPrice: event.target.value })} className={`${inputClass} w-full bg-white`} /></label>
+                <label className="space-y-1 text-sm font-bold" htmlFor={`${id}-extra-max-${row.key}`}>Máximo por hamburguesa<input id={`${id}-extra-max-${row.key}`} type="number" min="1" max="50" step="1" value={row.extraMax || ''} onChange={(event) => updateRow(index, { extraMax: event.target.value })} className={`${inputClass} w-full bg-white`} /></label>
+              </div>
+              <p className="text-sm text-monu-text">El precio es por porción adicional. El costo del inventario se administra por separado. El extra se ofrece en las variantes que contienen este ingrediente.</p>
+              {showErrors && (!parseRecipeQuantity(row.extraPortion).valid || !/^\d{1,10}(?:[.,]\d{1,2})?$/.test(String(row.extraPrice)) || Number(String(row.extraPrice).replace(',', '.')) <= 0 || !Number.isInteger(Number(row.extraMax)) || Number(row.extraMax) < 1 || Number(row.extraMax) > 50) && <p role="alert" className="text-sm text-red-800">Completá porción, precio mayor que cero y máximo entero entre 1 y 50.</p>}
+            </>}
+          </div>}
         </div>;
       })}
     </div>

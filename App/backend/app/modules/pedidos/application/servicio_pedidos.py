@@ -7,7 +7,12 @@ from decimal import Decimal
 from typing import Protocol
 
 from app.errores import DatosInvalidos, NoEncontrado, ReglaDeNegocio
-from app.modules.pedidos.application.edicion_items import RepositorioEdicionItems, preparar_items
+from app.modules.pedidos.application.edicion_items import (
+    RepositorioEdicionItems,
+    normalizar_aclaraciones,
+    preparar_items,
+)
+from app.modules.pedidos.application.extras import cotizar_extras
 from app.modules.pedidos.domain.entidades import EstadoPedido, puede_transicionar
 
 
@@ -19,6 +24,7 @@ class ItemNuevoPedido:
     cantidad: int
     aclaraciones: str | None = None
     variante: str | None = None
+    extras: tuple | list = ()
 
 
 class RepositorioPedidos(RepositorioEdicionItems, Protocol):
@@ -29,6 +35,8 @@ class RepositorioPedidos(RepositorioEdicionItems, Protocol):
     async def direccion_valida(self, cliente_id: int, direccion_id: int) -> bool: ...
     async def crear_direccion(self, cliente_id: int, datos: dict) -> int | None: ...
     async def productos(self, ids: list[int]) -> list[dict]: ...
+    async def extras_producto(self, producto_id: int, variante: str | None) -> list[dict]: ...
+    async def validar_stock_recetas(self, items: list[dict]) -> None: ...
     async def crear(
         self,
         *,
@@ -104,6 +112,26 @@ class ServicioPedidos:
         """Recibe el repositorio de pedidos y el procesador de stock."""
         self.repo = repo
         self.stock = stock
+
+    async def cotizar_extras_item(self, item: dict) -> dict:
+        """Cotiza los agregados desde la configuración vigente del local."""
+        receta = await self.repo.receta_edicion(item["producto_id"], item.get("variante"))
+        nombres = await self.repo.nombres_ingredientes([r["ingrediente_id"] for r in receta])
+        aclaraciones = normalizar_aclaraciones(item.get("aclaraciones"), nombres, receta)
+        opciones = await self.repo.extras_producto(item["producto_id"], item.get("variante"))
+        return cotizar_extras(item.get("extras", []), receta, opciones, aclaraciones) | {
+            "aclaraciones": aclaraciones
+        }
+
+    async def validar_disponibilidad_items(self, items: list[dict]) -> None:
+        """Valida la demanda conjunta sin reservar ni consumir stock."""
+        resueltos = []
+        for item in items:
+            receta = item.get("receta_snapshot")
+            if receta is None:
+                receta = await self.repo.receta_edicion(item["producto_id"], item.get("variante"))
+            resueltos.append(dict(item, receta_snapshot=receta))
+        await self.repo.validar_stock_recetas(resueltos)
 
     async def cotizar_edicion(
         self, pedido_id: int, *, items: list[dict], cambios: dict,
@@ -393,7 +421,7 @@ class ServicioPedidos:
             raise DatosInvalidos("El pedido no puede contener mas de 50 lineas")
 
         # Agrupa líneas idénticas y controla el máximo de 50 unidades por producto y variante.
-        cantidades: dict[tuple[int, str | None, str | None], int] = {}
+        cantidades: dict[tuple[int, str | None, str | None, tuple], int] = {}
         por_producto: dict[tuple[int, str | None], int] = {}
         for item in items:
             if (
@@ -409,11 +437,27 @@ class ServicioPedidos:
             por_producto[producto_variante] = por_producto.get(producto_variante, 0) + item.cantidad
             if por_producto[producto_variante] > 50:
                 raise DatosInvalidos("La cantidad acumulada del producto no puede superar 50")
-            clave = (item.producto_id, item.variante, item.aclaraciones)
+            # Cotizar antes de agrupar valida entradas manipuladas y canoniza el orden.
+            cotizacion = None
+            if item.extras:
+                cotizacion = await self.cotizar_extras_item(
+                    {
+                        "producto_id": item.producto_id,
+                        "variante": item.variante,
+                        "aclaraciones": item.aclaraciones,
+                        "extras": item.extras,
+                    }
+                )
+            clave_extras = (
+                tuple((e["ingrediente_id"], e["cantidad"]) for e in cotizacion["extras"])
+                if cotizacion
+                else ()
+            )
+            clave = (item.producto_id, item.variante, item.aclaraciones, clave_extras)
             cantidades[clave] = cantidades.get(clave, 0) + item.cantidad
 
         # Todos los productos deben existir y estar disponibles.
-        ids_solicitados = sorted({producto_id for producto_id, _, _ in cantidades})
+        ids_solicitados = sorted({clave[0] for clave in cantidades})
         productos = await self.repo.productos(ids_solicitados)
         por_id = {fila["id"]: fila for fila in productos}
         faltantes = sorted(set(ids_solicitados) - set(por_id))
@@ -427,7 +471,7 @@ class ServicioPedidos:
 
         # Arma el snapshot de cada línea con el precio y nombre vigentes (de la variante si aplica).
         items_snapshot: list[dict] = []
-        for (producto_id, variante, aclaracion), cantidad in cantidades.items():
+        for (producto_id, variante, aclaracion, extras), cantidad in cantidades.items():
             producto = por_id[producto_id]
             variantes = producto.get("variantes") or []
             precio = producto["precio_base"]
@@ -456,6 +500,18 @@ class ServicioPedidos:
                     **({"variante": variante} if variante is not None else {}),
                 }
             )
+            if extras:
+                cotizacion = await self.cotizar_extras_item(
+                    {
+                        "producto_id": producto_id,
+                        "variante": variante,
+                        "aclaraciones": aclaracion,
+                        "extras": [{"ingrediente_id": i, "cantidad": c} for i, c in extras],
+                    }
+                )
+                items_snapshot[-1].update({k: v for k, v in cotizacion.items() if k != "extras"})
+        if any(item.get("extras_snapshot") for item in items_snapshot):
+            await self.validar_disponibilidad_items(items_snapshot)
         if metodo_pago_acordado not in {"EFECTIVO", "TRANSFERENCIA"}:
             raise DatosInvalidos("El metodo acordado no es valido")
         # El método acordado solo se envía si difiere del valor por defecto.
@@ -652,8 +708,7 @@ class ServicioPedidos:
 
     @staticmethod
     def _comprobar_version(pedido: dict, version: int | None, estado: str | None = None) -> None:
-        """Falla si la versión o el estado del pedido no son los esperados (concurrencia optimista).
-        """
+        """Exige la versión y el estado esperados para evitar cambios concurrentes."""
         if version is not None and pedido.get("version") != version:
             raise ReglaDeNegocio("El pedido cambio; actualice antes de continuar")
         if estado is not None and pedido["estado"] != estado:
@@ -662,8 +717,7 @@ class ServicioPedidos:
     async def detalle(
         self, pedido_id: int, *, cliente_id: int | None = None, repartidor_id: int | None = None
     ) -> dict:
-        """Devuelve el detalle de un pedido, restringido al cliente o al repartidor si se indican.
-        """
+        """Devuelve el detalle restringido al cliente o repartidor indicados."""
         pedido = await self.repo.detalle(pedido_id)
         if pedido is None or cliente_id is not None and pedido["cliente_id"] != cliente_id:
             raise NoEncontrado("El pedido no existe")

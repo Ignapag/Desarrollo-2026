@@ -6,6 +6,7 @@ from decimal import Decimal
 from app.errores import ErrorDominio
 from app.modules.whatsapp.application.edicion_conversacional import (
     ARGUMENTOS_EDICION,
+    extras_entrada,
     normalizar,
     resolver_items,
 )
@@ -14,7 +15,7 @@ from app.modules.whatsapp.domain.mensajes import resumen
 
 MAX_OPERACIONES = 8
 ACCIONES_PLAN = (set(ARGUMENTOS_EDICION) - {"cancelar"}) | {"datos"}
-_CAMPOS_ITEM = {"id", "producto_id", "cantidad", "variante", "aclaraciones"}
+_CAMPOS_ITEM = {"id", "producto_id", "cantidad", "variante", "aclaraciones", "extras"}
 
 
 def _argumentos_validos(nombre, args):
@@ -58,7 +59,8 @@ def _plan_valido(args):
 
 def _items_simples(items):
     """Copia los ítems del pedido conservando solo los campos editables."""
-    return [{k: v for k, v in item.items() if k in _CAMPOS_ITEM} for item in items]
+    return [{k: extras_entrada(v) if k == "extras" else v
+             for k, v in item.items() if k in _CAMPOS_ITEM} for item in items]
 
 
 def _guardar(b, estado, pregunta=None, edicion=None):

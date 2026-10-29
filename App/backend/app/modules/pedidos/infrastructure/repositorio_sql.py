@@ -5,7 +5,10 @@ import json
 from decimal import Decimal
 
 from app.core.db import UnidadDeTrabajo
+from app.errores import ReglaDeNegocio
 from app.modules.pedidos.domain.entidades import EstadoPedido
+from app.modules.stock.application.servicio_stock import StockInsuficiente
+from app.modules.stock.domain.entidades import ingredientes_omitidos_de_aclaraciones
 
 
 class RepositorioPedidosSQL:
@@ -30,6 +33,52 @@ class RepositorioPedidosSQL:
                 (cliente_id,),
             )
         )
+
+    async def extras_producto(self, producto_id: int, variante: str | None) -> list[dict]:
+        """Opciones activas que pertenecen a la receta efectiva, sin Dips Extra."""
+        return await self.uow.todos(
+            """SELECT o.ingrediente_id,i.nombre,i.unidad_medida,o.cantidad_requerida,
+                      o.costo_adicional AS precio,o.max_por_item
+               FROM producto_opcion o JOIN ingrediente i ON i.id=o.ingrediente_id
+               JOIN producto p ON p.id=o.producto_id JOIN categoria c ON c.id=p.categoria_id
+               WHERE o.producto_id=%s AND o.tipo='AGREGADO' AND o.activo AND i.activo
+                 AND p.activo AND c.activa
+                 AND o.costo_adicional>0 AND o.cantidad_requerida>0
+                 AND lower(c.nombre)<>'dips extra'
+                 AND EXISTS(SELECT 1 FROM receta_producto(p.id,%s) r
+                            WHERE r.ingrediente_id=o.ingrediente_id)
+               ORDER BY o.ingrediente_id FOR SHARE OF o,p,c""",
+            (producto_id, variante),
+        )
+
+    async def validar_stock_recetas(self, items: list[dict]) -> None:
+        """Suma demanda en unidades de inventario y serializa la lectura de saldos."""
+        demanda = {}
+        for item in items:
+            receta = item["receta_snapshot"]
+            if not receta:
+                raise ReglaDeNegocio("El producto no tiene una receta valida")
+            nombres = await self.nombres_ingredientes([r["ingrediente_id"] for r in receta])
+            omitidos = ingredientes_omitidos_de_aclaraciones(item.get("aclaraciones"))
+            for fila in receta:
+                ingrediente_id = fila["ingrediente_id"]
+                if nombres.get(ingrediente_id, "").casefold() in omitidos:
+                    continue
+                demanda[ingrediente_id] = demanda.get(ingrediente_id, Decimal("0")) + (
+                    Decimal(str(fila["cantidad_requerida"])) * item["cantidad"]
+                )
+        for ingrediente_id, cantidad in sorted(demanda.items()):
+            saldo = await self.uow.uno(
+                "SELECT cantidad_actual,activo FROM ingrediente WHERE id=%s FOR UPDATE",
+                (ingrediente_id,),
+            )
+            if saldo is None or not saldo["activo"]:
+                raise ReglaDeNegocio("La receta contiene ingredientes inactivos o inexistentes")
+            if cantidad > saldo["cantidad_actual"]:
+                raise StockInsuficiente(
+                    "Stock insuficiente para los extras del pedido",
+                    {"ingrediente_id": ingrediente_id},
+                )
 
     async def cliente_para_usuario(self, usuario_id: int) -> int | None:
         """Devuelve el cliente activo vinculado a una cuenta de usuario activa."""
@@ -121,7 +170,14 @@ class RepositorioPedidosSQL:
         Cada ítem guarda una copia (snapshot) de la receta vigente para descontar stock luego.
         """
         subtotal = sum(
-            (Decimal(str(item["precio_unitario"])) * item["cantidad"] for item in items),
+            (
+                (
+                    Decimal(str(item["precio_unitario"]))
+                    + Decimal(str(item.get("costo_opciones", 0)))
+                )
+                * item["cantidad"]
+                for item in items
+            ),
             Decimal("0"),
         )
         costo_envio = (
@@ -150,12 +206,17 @@ class RepositorioPedidosSQL:
         pedido_id = fila["id"]
         # Inserta cada línea congelando precio, nombre y receta del momento de la compra.
         for item in items:
-            item_subtotal = Decimal(str(item["precio_unitario"])) * item["cantidad"]
-            receta = await self.uow.todos(
-                "SELECT ingrediente_id, cantidad_requerida, es_base "
-                "FROM receta_producto(%s, %s) ORDER BY ingrediente_id",
-                (item["producto_id"], item.get("variante")),
-            )
+            costo_opciones = Decimal(str(item.get("costo_opciones", 0)))
+            item_subtotal = (Decimal(str(item["precio_unitario"])) + costo_opciones) * item[
+                "cantidad"
+            ]
+            receta = item.get("receta_snapshot")
+            if receta is None:
+                receta = await self.uow.todos(
+                    "SELECT ingrediente_id, cantidad_requerida, es_base "
+                    "FROM receta_producto(%s, %s) ORDER BY ingrediente_id",
+                    (item["producto_id"], item.get("variante")),
+                )
             receta_snapshot = [
                 {**ingrediente, "cantidad_requerida": str(ingrediente["cantidad_requerida"])}
                 for ingrediente in receta
@@ -165,8 +226,8 @@ class RepositorioPedidosSQL:
                 INSERT INTO pedido_item
                     (pedido_id, producto_id, nombre_producto, cantidad,
                      precio_unitario, costo_opciones, subtotal, aclaraciones,
-                     variante, receta_snapshot)
-                VALUES (%s, %s, %s, %s, %s, 0, %s, %s, %s, %s::jsonb)
+                     variante, receta_snapshot,extras_snapshot)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb,%s::jsonb)
                 """,
                 (
                     pedido_id,
@@ -174,10 +235,12 @@ class RepositorioPedidosSQL:
                     item["nombre_producto"],
                     item["cantidad"],
                     item["precio_unitario"],
+                    costo_opciones,
                     item_subtotal,
                     item["aclaraciones"],
                     item.get("variante"),
                     json.dumps(receta_snapshot),
+                    json.dumps(item.get("extras_snapshot", [])),
                 ),
             )
         await self.uow.ejecutar(
@@ -247,21 +310,39 @@ class RepositorioPedidosSQL:
             if item.get("id") is not None:
                 await self.uow.ejecutar(
                     "UPDATE pedido_item SET cantidad=%s,aclaraciones=%s,subtotal=%s,"
+                    "costo_opciones=%s,receta_snapshot=%s::jsonb,extras_snapshot=%s::jsonb,"
                     "eliminado_en=NULL "
                     "WHERE id=%s AND pedido_id=%s",
-                    (item["cantidad"], item["aclaraciones"], item["subtotal"],
-                     item["id"], pedido_id),
+                    (
+                        item["cantidad"],
+                        item["aclaraciones"],
+                        item["subtotal"],
+                        item["costo_opciones"],
+                        json.dumps(item["receta_snapshot"]),
+                        json.dumps(item.get("extras", [])),
+                        item["id"],
+                        pedido_id,
+                    ),
                 )
             else:
                 item["id"] = await self.uow.valor(
                     "INSERT INTO pedido_item(pedido_id,producto_id,nombre_producto,cantidad,"
                     "precio_unitario,costo_opciones,subtotal,aclaraciones,"
-                    "variante,receta_snapshot) "
-                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb) RETURNING id",
-                    (pedido_id, item["producto_id"], item["nombre_producto"], item["cantidad"],
-                     item["precio_unitario"], item["costo_opciones"], item["subtotal"],
-                     item["aclaraciones"], item.get("variante"),
-                     json.dumps(item["receta_snapshot"])),
+                    "variante,receta_snapshot,extras_snapshot) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb) RETURNING id",
+                    (
+                        pedido_id,
+                        item["producto_id"],
+                        item["nombre_producto"],
+                        item["cantidad"],
+                        item["precio_unitario"],
+                        item["costo_opciones"],
+                        item["subtotal"],
+                        item["aclaraciones"],
+                        item.get("variante"),
+                        json.dumps(item["receta_snapshot"]),
+                        json.dumps(item.get("extras", [])),
+                    ),
                 )
 
     async def guardar_edicion(
@@ -522,9 +603,11 @@ class RepositorioPedidosSQL:
             pedido.update(items=[], historial=[], pagos=[], direccion=None, envio=None)
         items = await self.uow.todos(
             "SELECT id,pedido_id,producto_id,nombre_producto,cantidad,precio_unitario,"
-            "costo_opciones,subtotal,aclaraciones,variante,receta_snapshot "
+            "costo_opciones,subtotal,aclaraciones,variante,receta_snapshot,"
+            "extras_snapshot AS extras "
             "FROM pedido_item WHERE pedido_id=ANY(%s) "
-            "AND eliminado_en IS NULL ORDER BY id", (ids,)
+            "AND eliminado_en IS NULL ORDER BY id",
+            (ids,),
         )
         for item in items:
             por_id[item["pedido_id"]]["items"].append(item)
@@ -581,7 +664,8 @@ class RepositorioPedidosSQL:
         return await self.uow.todos(
             """
             SELECT id, producto_id, nombre_producto, cantidad, precio_unitario,
-                   costo_opciones, subtotal, aclaraciones, variante, receta_snapshot
+                   costo_opciones, subtotal, aclaraciones, variante, receta_snapshot,
+                   extras_snapshot AS extras
             FROM pedido_item WHERE pedido_id = %s
               AND (eliminado_en IS NOT NULL) = %s ORDER BY id
             """,

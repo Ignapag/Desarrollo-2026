@@ -34,12 +34,23 @@ class VarianteReceta:
 
 
 @dataclass(frozen=True, slots=True)
+class ExtraProducto:
+    """Precio de venta y porción en la unidad real del ingrediente."""
+
+    ingrediente_id: int
+    cantidad_requerida: Decimal
+    precio: Decimal
+    max_por_item: int
+
+
+@dataclass(frozen=True, slots=True)
 class CambioReceta:
     """Nueva receta de un producto, con la marca de tiempo esperada para concurrencia."""
 
     actualizado_en_esperado: datetime
     ingredientes: tuple[IngredienteProducto, ...]
     variantes: tuple[VarianteReceta, ...] = ()
+    extras: tuple[ExtraProducto, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +66,7 @@ class DatosProducto:
     orden: int = 0
     ingredientes: tuple[IngredienteProducto, ...] = ()
     variantes: tuple[VarianteProducto, ...] = ()
+    extras: tuple[ExtraProducto, ...] = ()
 
 
 def validar_receta(ingredientes: tuple[IngredienteProducto, ...]) -> None:

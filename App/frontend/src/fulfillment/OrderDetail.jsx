@@ -2,6 +2,7 @@
 // historial, y las operaciones del personal (estado, reparto, pagos y edición)
 // según permisos. Toda operación pasa por la cola de mutaciones de DataContext.
 import { UserFacingError, userErrorMessage } from '../shared/api/userErrors.js';
+import { extrasLabel } from '../ordering/ingredientExtras';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { can } from '../auth/permissions';
 import { useAuth } from '../auth/AuthContext';
@@ -136,7 +137,7 @@ export default function OrderDetail({ id, onClose, requireFresh = false }) {
           {order.observaciones && <><dt className="font-bold">Nota</dt><dd className="whitespace-pre-wrap break-words">{order.observaciones}</dd></>}
         </dl>
         {/* Productos del pedido */}
-        <ul className="space-y-2">{order.items.map((item) => <li key={item.id} className="text-sm font-bold">{item.cantidad} × {item.nombre_producto}{item.aclaraciones ? ` · ${item.aclaraciones}` : ''}</li>)}</ul>
+        <ul className="space-y-2">{order.items.map((item) => <li key={item.id} className="text-sm font-bold">{item.cantidad} × {item.nombre_producto}{item.aclaraciones ? ` · ${item.aclaraciones}` : ''}{item.extras?.length ? ` · ${extrasLabel(item.extras)}` : ''}</li>)}</ul>
         {/* Operaciones de estado y reparto; la key las remonta cuando cambia la versión o el envío */}
         {user && <div key={`${order.id}:${order.version}:${order.envio?.viaje_id}:${order.envio?.estado}:${order.envio?.estado_viaje}`} className="space-y-6 border-t border-monu-green/20 pt-5">
           {(can(user, 'pedidos.cambiar_estado') || can(user, 'pedidos.recuperar')) && <StateOperation can={(key) => can(user, key)} order={order} role={user.backendRole} commands={commands} run={run} busy={busy || stale} />}

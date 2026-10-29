@@ -26,10 +26,11 @@ export function buildWhatsAppDraftPayload({ cart, delivery, payment, address, nu
       ? { calle: address.trim(), numero: number.trim(), localidad: zone }
       : null,
     items: cart.map((item) => ({
-      producto_id: Number(String(item.id).split('-')[0]),
+      producto_id: item.productId || Number(String(item.id).split('-')[0]),
       cantidad: item.quantity,
       variante: item.variant || null,
       aclaraciones: item.notes || null,
+      ...((item.extras || []).length ? { extras: item.extras.map(({ ingrediente_id, cantidad }) => ({ ingrediente_id, cantidad })) } : {}),
     })),
   };
 }

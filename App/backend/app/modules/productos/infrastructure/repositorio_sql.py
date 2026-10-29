@@ -19,7 +19,7 @@ class RepositorioProductosSQL:
 
         Con ``solo_activos`` excluye productos inactivos o de categorías inactivas.
         """
-        return await self.uow.todos(
+        productos = await self.uow.todos(
             """
             SELECT p.id, p.categoria_id, c.nombre AS categoria, p.nombre,
                    p.descripcion, p.precio_base, p.imagen_url,
@@ -41,6 +41,30 @@ class RepositorioProductosSQL:
             """,
             (solo_activos,),
         )
+        opciones = await self.uow.todos(
+            """SELECT o.producto_id,o.ingrediente_id,i.nombre,i.unidad_medida,
+                      o.cantidad_requerida,o.costo_adicional AS precio,o.max_por_item,
+                      ARRAY(SELECT v->>'nombre' FROM producto p2,
+                            jsonb_array_elements(p2.variantes) v
+                            WHERE p2.id=o.producto_id AND EXISTS (
+                                SELECT 1 FROM receta_producto(p2.id,v->>'nombre') r
+                                WHERE r.ingrediente_id=o.ingrediente_id)) AS variantes
+               FROM producto_opcion o JOIN ingrediente i ON i.id=o.ingrediente_id
+               JOIN producto p ON p.id=o.producto_id JOIN categoria c ON c.id=p.categoria_id
+               WHERE o.tipo='AGREGADO' AND o.activo AND i.activo
+                 AND o.costo_adicional>0 AND o.cantidad_requerida>0
+                 AND lower(c.nombre)<>'dips extra'
+                 AND EXISTS(SELECT 1 FROM receta_producto(p.id,NULL) r
+                            WHERE r.ingrediente_id=o.ingrediente_id)
+               ORDER BY lower(i.nombre),i.id"""
+        )
+        for producto in productos:
+            producto["extras_disponibles"] = [
+                {k: v for k, v in opcion.items() if k != "producto_id"}
+                for opcion in opciones
+                if opcion["producto_id"] == producto["id"]
+            ]
+        return productos
 
     async def categoria_existe(self, categoria_id: int) -> bool:
         """Indica si la categoría existe y está activa."""
@@ -52,8 +76,7 @@ class RepositorioProductosSQL:
         )
 
     async def nombre_existe(self, categoria_id: int, nombre: str) -> bool:
-        """Indica si ya hay un producto con ese nombre (sin distinguir mayúsculas) en la categoría.
-        """
+        """Busca el nombre en la categoría sin distinguir mayúsculas."""
         return bool(
             await self.uow.valor(
                 """
@@ -111,6 +134,7 @@ class RepositorioProductosSQL:
                 ),
             )
         await self._guardar_variantes(producto_id, datos.variantes)
+        await self._guardar_extras(producto_id, datos.extras)
         return await self.uow.uno(
             """
             SELECT p.id, p.categoria_id, c.nombre AS categoria, p.nombre,
@@ -200,6 +224,12 @@ class RepositorioProductosSQL:
             "actualizado_en": producto["actualizado_en"],
             "ingredientes": ingredientes,
             "variantes": variantes,
+            "extras": await self.uow.todos(
+                "SELECT ingrediente_id,cantidad_requerida,costo_adicional AS precio,max_por_item "
+                "FROM producto_opcion WHERE producto_id=%s AND tipo='AGREGADO' AND activo "
+                "AND costo_adicional>0 AND cantidad_requerida>0 ORDER BY ingrediente_id",
+                (producto_id,),
+            ),
         }
 
     async def _leer_ingredientes(self, producto_id: int, variante: str | None) -> list[dict]:
@@ -224,7 +254,8 @@ class RepositorioProductosSQL:
         # Solo retira relaciones ausentes; los upserts conservan las claves históricas.
         variantes = [
             {"variante": variante.nombre, "ingrediente_id": item.ingrediente_id}
-            for variante in datos.variantes for item in variante.ingredientes
+            for variante in datos.variantes
+            for item in variante.ingredientes
         ]
         await self.uow.ejecutar(
             """UPDATE producto_variante_ingrediente r SET eliminado_en=now()
@@ -255,6 +286,7 @@ class RepositorioProductosSQL:
                 (producto_id, item.ingrediente_id, item.cantidad_requerida, item.es_base),
             )
         await self._guardar_variantes(producto_id, datos.variantes)
+        await self._guardar_extras(producto_id, datos.extras)
         return await self.obtener_receta(producto_id)
 
     async def cambiar_estado(self, producto_id: int, activo: bool) -> dict | None:
@@ -289,3 +321,28 @@ class RepositorioProductosSQL:
             """,
             (producto_id,),
         )
+
+    async def _guardar_extras(self, producto_id: int, extras) -> None:
+        """Reemplaza configuración explícita; omitirla conserva las opciones anteriores."""
+        if extras is not None:
+            await self.uow.ejecutar(
+                "UPDATE producto_opcion SET activo=FALSE WHERE producto_id=%s AND tipo='AGREGADO'",
+                (producto_id,),
+            )
+            for extra in extras:
+                await self.uow.ejecutar(
+                    """INSERT INTO producto_opcion(producto_id,ingrediente_id,tipo,
+                           cantidad_requerida,costo_adicional,max_por_item,activo)
+                       VALUES (%s,%s,'AGREGADO',%s,%s,%s,TRUE)
+                       ON CONFLICT(producto_id,ingrediente_id,tipo) DO UPDATE SET
+                           cantidad_requerida=EXCLUDED.cantidad_requerida,
+                           costo_adicional=EXCLUDED.costo_adicional,
+                           max_por_item=EXCLUDED.max_por_item,activo=TRUE""",
+                    (
+                        producto_id,
+                        extra.ingrediente_id,
+                        extra.cantidad_requerida,
+                        extra.precio,
+                        extra.max_por_item,
+                    ),
+                )

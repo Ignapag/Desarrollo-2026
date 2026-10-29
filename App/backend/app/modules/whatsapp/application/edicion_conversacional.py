@@ -234,7 +234,7 @@ async def editar_productos(bot, b, entrada, accion):
             "No apliqué el cambio; revisemos una nueva propuesta."
         )
     # Si la composición resultante es idéntica a la actual, no hay nada que guardar.
-    campos = ("id", "producto_id", "cantidad", "variante", "aclaraciones")
+    campos = ("id", "producto_id", "cantidad", "variante", "aclaraciones", "extras")
     if [{k: i.get(k) for k in campos} for i in cotizacion["items"]] == [
         {k: i.get(k) for k in campos} for i in pedido["items"]
     ]:
@@ -284,6 +284,11 @@ async def editar_productos(bot, b, entrada, accion):
     return "✅ Cambio guardado.\n\n" + resumen(await bot.repo.pedido(pedido["id"]))
 
 
+def extras_entrada(extras):
+    """Retira los importes congelados antes de enviar una composición a Pedidos."""
+    return [{"ingrediente_id": e["ingrediente_id"], "cantidad": e["cantidad"]} for e in extras]
+
+
 async def resolver_items(bot, b, entrada, pedido, accion, *, permitir_vacio=False):
     """Prepara una composicion sin escribir el pedido; conserva aclaraciones en b."""
     nombre = accion.get("accion")
@@ -313,11 +318,11 @@ async def resolver_items(bot, b, entrada, pedido, accion, *, permitir_vacio=Fals
         return await bot._derivar(b, entrada, {"accion": "humano"})
     # Copia editable de los ítems actuales del pedido.
     items = [
-        {
+        {**{
             k: i[k]
             for k in ("id", "producto_id", "cantidad", "aclaraciones", "variante")
             if k in i
-        }
+        }, **({"extras": extras_entrada(i["extras"])} if i.get("extras") else {})}
         for i in pedido["items"]
     ]
     if nombre == "cancelar":
@@ -430,6 +435,9 @@ async def resolver_items(bot, b, entrada, pedido, accion, *, permitir_vacio=Fals
         else:
             if nombre == "cambiar_variante" and "aclaraciones" not in args:
                 nuevo["aclaraciones"] = items[indice - 1].get("aclaraciones")
+            if nombre == "cambiar_variante" and items[indice - 1].get("extras"):
+                # La nueva línea se revalida contra la receta de la variante elegida.
+                nuevo["extras"] = items[indice - 1]["extras"]
             items[indice - 1] = nuevo
     elif nombre == "cantidad":
         cantidad = args.get("cantidad")
