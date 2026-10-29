@@ -46,7 +46,11 @@ export default function Orders() {
   const remote = Boolean(query.trim()) || scope !== 'active' || clientId != null;
   const queryPath = ordersPath({ q: query, cliente_id: clientId, activos: scope === 'history' ? false : scope === 'active' ? true : undefined });
   const refreshStatus = refreshFeedback?.path === queryPath && refreshFeedback.user === user ? refreshFeedback.status : 'idle';
-  useEffect(() => () => { refreshRequest.current?.controller?.abort(); refreshRequest.current = null; }, [queryPath, user]);
+  useEffect(() => () => {
+    refreshRequest.current?.controller?.abort();
+    refreshRequest.current = null;
+    setRefreshFeedback(null);
+  }, [queryPath, user]);
   // Sin filtros remotos, se suscribe al seguimiento en vivo de pedidos activos.
   useEffect(() => { if (!remote) return watchOrders?.(); return undefined; }, [remote, watchOrders]);
   // Con filtros remotos, vuelve a consultar cada 8 s mientras la pestaña está visible.

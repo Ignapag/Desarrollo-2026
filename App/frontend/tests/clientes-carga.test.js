@@ -85,6 +85,19 @@ for (const path of ['/dashboard/orders', '/dashboard/orders?q=Cliente']) {
     assert.match(container.textContent, /Cliente 903/);
     assert.doesNotMatch(container.textContent, /Revisá tu conexión/);
     assert.match(container.textContent, /Pedidos actualizados/);
+
+    const cancelled = deferred();
+    t.after(() => cancelled.resolve(response([])));
+    globalThis.fetch = async () => cancelled.promise;
+    await act(async () => { void reactProps(refresh()).onClick(); });
+    const scope = elements(container, (node) => node.localName === 'select')[0];
+    globalThis.fetch = async () => response([order(904)]);
+    await act(async () => reactProps(scope).onChange({ target: { value: 'history' } }));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
+    await act(async () => reactProps(scope).onChange({ target: { value: 'active' } }));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
+    assert.equal(refresh().disabled, false);
+    assert.doesNotMatch(container.textContent, /Actualizando pedidos/);
   });
 }
 
