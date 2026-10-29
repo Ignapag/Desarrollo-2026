@@ -5,8 +5,9 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 from typing import Literal
+from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.modules.delivery.application.servicio_delivery import (
     ResultadoPlanificacion,
@@ -150,6 +151,26 @@ class ResultadoInicioViaje(BaseModel):
 
     viaje_id: int
     pedidos_en_camino: list[int]
+
+
+class CobroEfectivoEntrada(BaseModel):
+    """Efectivo recibido por el repartidor: el saldo que vio y el UUID del intento.
+
+    Un reintento conserva la misma ``clave_operacion`` y el mismo monto para no duplicar el cobro.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    monto: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+    clave_operacion: UUID
+
+
+class ResultadoCobroEfectivo(BaseModel):
+    """Respuesta del cobro en la entrega: lo cobrado y el saldo que queda del pedido."""
+
+    envio_id: int
+    pedido_id: int
+    monto_cobrado: Decimal
+    saldo_restante: Decimal
 
 
 class ResultadoEntrega(BaseModel):

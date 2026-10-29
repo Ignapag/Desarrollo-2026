@@ -27,9 +27,11 @@ de eliminación que el módulo no implemente.
 - Cliente mantiene sus recorridos propios; no tiene matriz administrativa editable.
 - Dueño, Empleado y Repartidor tienen matrices editables. El backend rechaza permisos
   desconocidos o incompatibles, aunque se envíen manualmente.
-- Un repartidor sigue limitado a sus viajes/pedidos. No puede recibir pagos ni creación
+- Un repartidor sigue limitado a sus viajes/pedidos. No puede recibir permisos de pagos ni creación
   de pedidos o planificación global; para esas funciones se le asigna un rol operativo
   diferente. Conceder un permiso no elimina propiedad, estados ni reglas financieras.
+  Con `delivery.operar` sí cobra en efectivo el saldo de sus propios envíos en camino
+  desde el panel de reparto ([operación de pedidos](OPERACION_PEDIDOS.md#entrega-y-correcciones)).
 
 La migración `028_permisos_por_rol.sql` crea `rol_acceso` (versión por rol) y
 `rol_permiso` (concesiones). Conserva los accesos iniciales anteriores, incluida la

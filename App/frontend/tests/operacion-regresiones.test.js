@@ -94,6 +94,33 @@ test('el repartidor ve en camino y debe registrar el cobro antes de entregar', a
   assert.match(container.textContent, /En camino/);
 });
 
+test('el repartidor cobra el saldo en efectivo desde su panel y después puede entregar', async (t) => {
+  const posts = [];
+  let saldo = '12000.00';
+  globalThis.fetch = async (path, options = {}) => {
+    if (options.method === 'POST') {
+      posts.push({ path, body: JSON.parse(options.body) });
+      saldo = '0.00';
+      return response({ envio_id: 7, pedido_id: 17, monto_cobrado: '12000.00', saldo_restante: '0.00' });
+    }
+    if (path === '/api/delivery/viajes') return response([{ id: 5 }]);
+    if (path === '/api/delivery/viajes/5') return response({ id: 5, estado: 'EN_RUTA', salida_en: '2026-10-28T18:00:00Z', repartidor_nombre: 'Ana', envios: [{ id: 7, pedido_id: 17, numero: 88, estado: 'EN_CAMINO', total: '12000.00', saldo_pendiente: saldo, cliente_nombre: 'Cliente' }] });
+    return response(path === '/api/whatsapp/avisos' ? { comprobantes_pendientes: 0, atenciones_pendientes: 0 } : []);
+  };
+  const container = await mount(t, () => createElement(MemoryRouter, null, createElement(DeliveryPanel)), {}, true);
+  const cobrar = () => elements(container, (node) => node.localName === 'button' && /^Cobrar .* en efectivo$/.test(node.textContent))[0];
+  await completed(() => Boolean(cobrar()));
+  await act(async () => reactProps(cobrar()).onClick());
+  assert.match(container.textContent, /¿Recibiste .* en efectivo del cliente\?/);
+  assert.equal(posts.length, 0);
+  await act(async () => reactProps(button(container, 'Sí, registrar cobro')).onClick());
+  await completed(() => posts.length === 1 && reactProps(button(container, 'Marcar entregado')).disabled === false);
+  assert.equal(posts[0].path, '/api/delivery/envios/7/cobro-efectivo');
+  assert.equal(posts[0].body.monto, '12000.00');
+  assert.match(posts[0].body.clave_operacion, /^[0-9a-f-]{36}$/);
+  assert.equal(cobrar(), undefined);
+});
+
 test('reparto no anuncia éxito ante un acuse inesperado y permite comprobar el viaje', async (t) => {
   let writes = 0;
   globalThis.fetch = async (path, options = {}) => {

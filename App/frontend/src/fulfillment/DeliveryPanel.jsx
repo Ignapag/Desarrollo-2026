@@ -4,12 +4,12 @@
 import { UserFacingError, userErrorMessage } from '../shared/api/userErrors.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { MapPin, Phone, Navigation } from 'lucide-react';
+import { Banknote, MapPin, Phone, Navigation } from 'lucide-react';
 import { can, canVisit } from '../auth/permissions';
 import { useAuth } from '../auth/AuthContext';
 import { useData } from '../shared/store/DataContext';
 import { apiFetch } from '../shared/api/http';
-import { createOrderCommands } from './orderCommands';
+import { createOrderCommands, createPaymentAttempt } from './orderCommands';
 import { dateTime, isShipmentPaid, knownLabel, money } from './orderModel';
 import { buttonClass, Reason, DataError } from './operationUi';
 import OrderDetail from './OrderDetail';
@@ -142,7 +142,7 @@ function Shipment({ shipment, trip, run, busy, onDetail, canCollect }) {
     <p className="flex gap-2 break-words"><MapPin aria-hidden="true" className="h-5 w-5 shrink-0" />{address || 'Dirección no disponible: consultá con el local.'}</p>
     {shipment.referencia && <p className="text-sm break-words">Referencia: {shipment.referencia}</p>}
     <p className="text-sm">Total: {money(shipment.total)} · Saldo pendiente: {money(shipment.saldo_pendiente)}</p>
-    {!paid && <p role="status" className="text-sm text-orange-900">Registrá el pago completo antes de marcar entregado. {canCollect ? 'Abrí el detalle para confirmar el ingreso real.' : 'Coordiná el cobro con el local.'}</p>}
+    {!paid && <p role="status" className="text-sm text-orange-900">Registrá el pago completo antes de marcar entregado. {onRoad ? 'Si el cliente paga en efectivo, registralo con «Cobrar en efectivo». Una transferencia la verifica el local.' : canCollect ? 'Abrí el detalle para confirmar el ingreso real.' : 'Coordiná el cobro con el local.'}</p>}
     {/* Contacto: llamada, mapa y detalle del pedido */}
     <div className="flex flex-wrap gap-3">
       {phone ? <a href={`tel:${phone}`} className={`${buttonClass} inline-flex gap-2 items-center`}><Phone aria-hidden="true" className="h-5 w-5" />Llamar al cliente</a> : <p className="text-sm">Teléfono no disponible</p>}
@@ -151,8 +151,47 @@ function Shipment({ shipment, trip, run, busy, onDetail, canCollect }) {
     </div>
     {/* Acciones disponibles solo con el envío en camino */}
     {onRoad && <div className="space-y-3">
+      {!paid && <CashCollection shipment={shipment} run={run} busy={busy} accepts={accepts} />}
       <button type="button" disabled={busy || !paid} onClick={() => { if (!busy && paid) void run(() => commands.shipment(shipment.id, 'entregar'), accepts); }} className={`${buttonClass} bg-monu-dark text-white disabled:opacity-50 disabled:cursor-not-allowed`}>Marcar entregado</button>
       <details><summary className="cursor-pointer min-h-11 flex items-center text-sm font-bold text-monu-green">Problema con la entrega</summary><form className="space-y-2" onSubmit={(event) => { event.preventDefault(); if (!busy) void run(() => commands.shipment(shipment.id, 'fallo', { motivo: reason.trim() || 'Problema de entrega registrado por el repartidor.' }), accepts); }}><Reason value={reason} onChange={setReason} disabled={busy} /><button disabled={busy} className={buttonClass}>Registrar problema de entrega</button><p className="text-sm">El pedido sigue asignado hasta registrar su regreso al local.</p></form></details>
     </div>}
   </article>;
+}
+
+/**
+ * Cobro en efectivo del repartidor en la puerta: pide confirmar el importe recibido y lo
+ * registra a su nombre. El UUID del intento se conserva mientras el saldo no cambie, así un
+ * reintento tras una respuesta perdida no duplica el cobro. Las transferencias no se cobran acá.
+ */
+function CashCollection({ shipment, run, busy, accepts }) {
+  const [confirming, setConfirming] = useState(false);
+  const attempt = useRef(null);
+  const trigger = useRef(null);
+  const amount = shipment.saldo_pendiente;
+  const titleId = `cobro-efectivo-${shipment.id}`;
+  // Lleva el foco a la confirmación al abrirla, para seguir con teclado o lector de pantalla.
+  const focusOnOpen = useCallback((node) => { node?.focus(); }, []);
+  // Cierra la confirmación y devuelve el foco al botón que la abrió.
+  const cancel = () => {
+    setConfirming(false);
+    requestAnimationFrame(() => trigger.current?.focus());
+  };
+  // Registra el cobro del saldo visto; un saldo distinto genera un intento nuevo.
+  const collect = () => {
+    if (busy) return;
+    if (attempt.current?.body.monto !== amount) attempt.current = createPaymentAttempt({ monto: amount }, 'cobro-efectivo');
+    setConfirming(false);
+    void run(() => commands.shipment(shipment.id, 'cobro-efectivo', attempt.current.body), accepts);
+  };
+  if (!confirming) {
+    return <button ref={trigger} type="button" disabled={busy} onClick={() => setConfirming(true)} className={`${buttonClass} inline-flex gap-2 items-center bg-monu-green text-white disabled:opacity-50`}><Banknote aria-hidden="true" className="h-5 w-5" />Cobrar {money(amount)} en efectivo</button>;
+  }
+  return <div role="group" aria-labelledby={titleId} className="space-y-2 rounded-lg border border-monu-green/30 bg-white p-3">
+    <p id={titleId} className="font-bold text-monu-dark">¿Recibiste {money(amount)} en efectivo del cliente?</p>
+    <p className="text-sm">El cobro queda registrado a tu nombre y lo rendís en caja al volver al local.</p>
+    <div className="flex flex-wrap gap-3">
+      <button ref={focusOnOpen} type="button" disabled={busy} onClick={collect} className={`${buttonClass} bg-monu-green text-white`}>Sí, registrar cobro</button>
+      <button type="button" disabled={busy} onClick={cancel} className={buttonClass}>Cancelar</button>
+    </div>
+  </div>;
 }

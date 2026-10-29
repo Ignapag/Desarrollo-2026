@@ -8,7 +8,8 @@ auditoria.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from decimal import Decimal
+from typing import Any, Protocol
 
 from app.core import auditoria
 from app.core.db import UnidadDeTrabajo
@@ -62,16 +63,31 @@ class AutoridadPedidos(Protocol):
     async def cambiar_estado(self, pedido_id: int, nuevo: EstadoPedido, **opciones) -> dict: ...
 
 
+class CobrosEnEfectivo(Protocol):
+    """Puerto hacia pagos, dueño del registro del dinero, sus reintentos y su auditoría."""
+
+    async def registrar_pago_efectivo(
+        self, pedido_id: int, monto_recibido: Decimal, **opciones
+    ) -> Any: ...
+
+
 class ServicioDelivery:
-    """Casos de uso de reparto: planificación, salida, entregas, fallos y correcciones."""
+    """Casos de uso de reparto: planificación, salida, entregas, cobros, fallos y correcciones."""
 
     def __init__(
-        self, uow: UnidadDeTrabajo, repositorio: RepositorioDeliverySQL, pedidos: AutoridadPedidos
+        self,
+        uow: UnidadDeTrabajo,
+        repositorio: RepositorioDeliverySQL,
+        pedidos: AutoridadPedidos,
+        cobros: CobrosEnEfectivo | None = None,
     ) -> None:
-        """Recibe la unidad de trabajo, el repositorio SQL y la autoridad de pedidos."""
+        """Recibe la unidad de trabajo, el repositorio SQL, la autoridad de pedidos y el registro
+        de cobros en efectivo que usa el repartidor al entregar.
+        """
         self.uow = uow
         self.repo = repositorio
         self.pedidos = pedidos
+        self.cobros = cobros
 
     # ------------------------------ planificacion ---------------------
 
@@ -298,6 +314,48 @@ class ServicioDelivery:
         if envio["viaje_id"] != previo["viaje_id"]:
             raise ReglaDeNegocio("La asignacion cambio; actualiza el viaje")
         return envio, viaje
+
+    async def cobrar_en_efectivo(
+        self,
+        envio_id: int,
+        *,
+        monto: Decimal,
+        clave_operacion: str,
+        usuario_id: int | None = None,
+        rol: str | None = None,
+        ip_cliente: str | None = None,
+    ) -> dict:
+        """Registra el efectivo que el repartidor recibió del cliente en la puerta.
+
+        Solo en el propio viaje y con el envío en camino, igual que la entrega. El cobro queda
+        conciliado a nombre del repartidor, así la entrega se puede cerrar sin llamar al local;
+        el arqueo de caja lo incluye como efectivo recibido. Pagos valida que ``monto`` no supere
+        el saldo y resuelve los reintentos de la misma ``clave_operacion`` sin duplicar el cobro.
+        """
+        if self.cobros is None:
+            raise ReglaDeNegocio("El cobro en efectivo no está disponible en reparto")
+        envio, viaje = await self._envio_bloqueado(envio_id, usuario_id, rol)
+        if (
+            envio["estado"] != "EN_CAMINO"
+            or viaje["estado"] != "EN_RUTA"
+            or viaje["salida_en"] is None
+        ):
+            raise ReglaDeNegocio("Solo se cobra un envío en camino durante el viaje")
+        resultado = await self.cobros.registrar_pago_efectivo(
+            pedido_id=envio["pedido_id"],
+            monto_recibido=monto,
+            monto_a_pagar=monto,
+            conciliar_inmediato=True,
+            registrado_por=usuario_id,
+            ip_cliente=ip_cliente,
+            clave_operacion=clave_operacion,
+        )
+        return {
+            "envio_id": envio_id,
+            "pedido_id": envio["pedido_id"],
+            "monto_cobrado": resultado.detalle.monto_cobrado,
+            "saldo_restante": resultado.detalle.saldo_restante,
+        }
 
     async def registrar_entrega(
         self, envio_id: int, *, usuario_id: int | None = None, rol: str | None = None

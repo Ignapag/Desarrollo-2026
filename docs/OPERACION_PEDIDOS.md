@@ -304,8 +304,14 @@ separa su contrato de las verificaciones efectivamente ejecutadas.
 
 Un DELIVERY permanece en **En camino** mientras no se confirme su entrega.
 Registrar la entrega exige cobertura completa del total vigente, también en
-efectivo. Un repartidor puede cobrar al llegar, pero el ingreso debe quedar
-registrado por una cuenta autorizada antes de cerrar la entrega. El servicio
+efectivo. El repartidor cobra el efectivo en la puerta desde su panel: con el
+envío en camino, **Cobrar en efectivo** muestra el saldo, pide confirmar el importe
+recibido y lo registra con `POST /api/delivery/envios/{id}/cobro-efectivo`
+(`delivery.operar`, sin permisos de pagos). Solo opera sus propios envíos en ruta,
+nunca por encima del saldo, y el reintento con la misma `clave_operacion` no duplica
+el cobro. El cobro queda conciliado a su nombre y auditado, así puede marcar entregado
+sin llamar al local; caja lo cuenta como efectivo recibido y el repartidor lo rinde
+al volver. Una transferencia la sigue verificando el local. El servicio
 verifica el pago bajo bloqueo antes de cambiar envío o pedido; un rechazo
 conserva el viaje y el envío en curso.
 
@@ -328,7 +334,7 @@ El parámetro histórico `delivery.pedidos_por_viaje` ya no limita las asignacio
 | Situación | Recorrido |
 | --- | --- |
 | Retiro listo | Registrar el cobro completo y luego la entrega en el local, sin crear un viaje. |
-| Delivery listo | Asignar un repartidor, iniciar el viaje, registrar el cobro si falta y confirmar cada entrega pagada. |
+| Delivery listo | Asignar un repartidor, iniciar el viaje, cobrar en efectivo desde reparto o registrar el cobro desde el local, y confirmar cada entrega pagada. |
 | Cambio de dirección o retiro/delivery | Editar el mismo pedido antes de tener un repartidor asignado. La API valida cobertura y recalcula envío y total. |
 | Asignación incorrecta antes de salir | Desasignar el envío con un motivo; editar o asignar nuevamente. |
 | Problema después de salir | Registrar el fallo y coordinar el regreso real. El fallo por sí solo no libera al repartidor ni devuelve el pedido al local. |

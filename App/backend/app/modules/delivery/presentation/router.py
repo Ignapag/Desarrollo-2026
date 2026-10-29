@@ -6,15 +6,18 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
+from app.core.dependencias import IpCliente
 from app.errores import SinPermiso
 from app.modules.delivery.presentation.dependencias import ServicioDeliveryDep
 from app.modules.delivery.presentation.esquemas import (
     AsignacionManual,
+    CobroEfectivoEntrada,
     CorreccionEntrega,
     DetalleViaje,
     MotivoOperacion,
     PropuestaAsignacion,
     RegresoEnvio,
+    ResultadoCobroEfectivo,
     ResultadoEntrega,
     ResultadoInicioViaje,
     ResultadoPlanificacionSalida,
@@ -95,6 +98,30 @@ async def iniciar_viaje(
     """El repartidor sale del local: dispara la notificacion 'en camino'."""
     return ResultadoInicioViaje(
         **await servicio.iniciar_viaje(viaje_id, usuario_id=sesion.usuario_id, rol=sesion.rol)
+    )
+
+
+@router.post("/envios/{envio_id}/cobro-efectivo", response_model=ResultadoCobroEfectivo)
+async def cobrar_en_efectivo(
+    envio_id: int,
+    datos: CobroEfectivoEntrada,
+    sesion: PermisoDeliveryOperar,
+    servicio: ServicioDeliveryDep,
+    ip: IpCliente = None,
+) -> ResultadoCobroEfectivo:
+    """Registra el efectivo que el repartidor cobró en la puerta, sin permisos de pagos.
+
+    Solo para su propio envío en camino; luego puede marcarlo entregado sin llamar al local.
+    """
+    return ResultadoCobroEfectivo(
+        **await servicio.cobrar_en_efectivo(
+            envio_id,
+            monto=datos.monto,
+            clave_operacion=str(datos.clave_operacion),
+            usuario_id=sesion.usuario_id,
+            rol=sesion.rol,
+            ip_cliente=ip,
+        )
     )
 
 
