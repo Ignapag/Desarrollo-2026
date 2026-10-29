@@ -133,6 +133,12 @@ class RepositorioBot(Protocol):
     async def resolver_atencion(self, atencion, empleado_id, resolucion) -> None: ...
 
 
+class ConciliacionCobros(Protocol):
+    """Puerto hacia pagos para acreditar un cobro pendiente que ya registró el personal."""
+
+    async def conciliar_pago(self, pago_id: int, conciliar_por: int | None = None): ...
+
+
 class InterpretacionDesactualizada(ReglaDeNegocio):
     """El mismo pedido cambió mientras se interpretaba: corresponde reinterpretar."""
 
@@ -172,9 +178,10 @@ class ServicioBot:
         transferencia: str = "",
         stock: ServicioStock | None = None,
         productos=None,
+        conciliacion: ConciliacionCobros | None = None,
     ):
-        """Recibe el repositorio, el servicio de pedidos y la configuración del negocio (número y
-        datos de transferencia).
+        """Recibe el repositorio, el servicio de pedidos, la configuración del negocio (número y
+        datos de transferencia) y la conciliación de pagos usada al aprobar comprobantes.
         """
         self.repo = repo
         self.pedidos = pedidos
@@ -182,6 +189,7 @@ class ServicioBot:
         self.transferencia = transferencia
         self.stock = stock
         self.productos = productos
+        self.conciliacion = conciliacion
         self.quitables = QUITABLES
 
     async def crear_borrador(self, cliente_id: int | None, datos: dict) -> dict:
@@ -1267,7 +1275,27 @@ class ServicioBot:
             raise ReglaDeNegocio("El pedido está cerrado; resolver con el responsable de caja")
         if not motivo.strip():
             raise DatosInvalidos("Registrá el motivo y la verificación del importe")
+        if aprobar:
+            await self._acreditar_transferencias_informadas(pedido, empleado_id)
         return await self.repo.revisar(comprobante, aprobar, empleado_id, motivo)
+
+    async def _acreditar_transferencias_informadas(self, pedido, empleado_id):
+        """Concilia las transferencias que el personal ya informó desde Pedidos y entran en el
+        saldo, para que aprobar el comprobante no agregue un cobro duplicado y deje el informado
+        pendiente; después ``repo.revisar`` acredita sólo lo que falte del total.
+        """
+        if self.conciliacion is None:
+            return
+        saldo = pedido["total"] - pedido["pagado"]
+        for fondo in pedido["fondos"]:
+            if (
+                fondo["tipo"] == "COBRO"
+                and fondo["metodo_pago"] == "TRANSFERENCIA"
+                and fondo["estado"] == "PENDIENTE"
+                and 0 < fondo["monto"] <= saldo
+            ):
+                await self.conciliacion.conciliar_pago(fondo["id"], conciliar_por=empleado_id)
+                saldo -= fondo["monto"]
 
     async def revisar_cambio(
         self,

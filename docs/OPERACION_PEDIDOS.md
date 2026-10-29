@@ -170,9 +170,12 @@ pulsa **Confirmar pago**. La nota es opcional; sin texto se registra
 «Transferencia verificada por el personal desde la bandeja.». Rechazar exige motivo.
 
 `POST /api/whatsapp/comprobantes/{id}/revision` confirma en una transacción:
-el comprobante queda `APROBADO`, se registra un cobro por transferencia
-`CONCILIADO` por el saldo pendiente (el pedido pasa a **Pagados** si todavía no
-entró a cocina) y se encola «✅ Pago confirmado» para el cliente. Ese mensaje
+el comprobante queda `APROBADO`; las transferencias que el personal ya informó
+desde Pedidos sin confirmar el ingreso se concilian mediante pagos (sin crear otro
+cobro); lo que falte del saldo se registra como un cobro por transferencia
+`CONCILIADO` (el pedido pasa a **Pagados** si todavía no entró a cocina) y se
+encola «✅ Pago confirmado» para el cliente. No queda un cobro informado pendiente
+que luego pueda confundirse con un segundo pago. Ese mensaje
 llega al chat de demostración del cliente igual que la salida de WhatsApp; en
 modo real lo envía el worker. El comprobante deja la bandeja y la campanita en la
 siguiente actualización. Repetir la revisión no duplica el cobro ni el mensaje.

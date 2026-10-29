@@ -376,6 +376,45 @@ async def test_comprobante_de_pago_confirmado_desde_pedidos_se_da_por_chequeado(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("fraccion", [1, 2])
+async def test_aprobar_comprobante_acredita_la_transferencia_ya_informada_sin_duplicar(
+    uow, fraccion
+):
+    from uuid import uuid4
+
+    from app.modules.pagos.presentation.dependencias import (
+        obtener_servicio_conciliacion,
+        obtener_servicio_pagos,
+    )
+
+    s, pid = await crear_pedido_bot(uow, "TRANSFERENCIA")
+    empleado = await uow.valor("SELECT id FROM usuario WHERE rol='ADMINISTRADOR' LIMIT 1")
+    await s.recibir("foto-informada", "5492215550000", "", "imagen-informada")
+    await s.procesar("foto-informada", {})
+    cid = await uow.valor("SELECT id FROM whatsapp_comprobante WHERE entrada_id='foto-informada'")
+    total = await uow.valor("SELECT total FROM pedido WHERE id=%s", (pid,))
+    # El panel informó la transferencia (total o la mitad) sin confirmar el ingreso.
+    informado = await obtener_servicio_pagos(uow).registrar_transferencia(
+        pedido_id=pid, monto=total / fraccion, registrado_por=empleado,
+        clave_operacion=str(uuid4()),
+    )
+    await s.revisar_comprobante(cid, True, empleado, "verificado", total_verificado=total)
+    pagos = await uow.todos(
+        "SELECT id,estado,monto FROM pago WHERE pedido_id=%s ORDER BY id", (pid,)
+    )
+    # Se acredita el cobro informado y sólo se agrega lo que falta: nada queda pendiente.
+    assert pagos[0]["id"] == informado.id
+    assert all(p["estado"] == "CONCILIADO" for p in pagos)
+    assert len(pagos) == fraccion
+    assert sum(p["monto"] for p in pagos) == total
+    # Conciliar otra vez el informado no acredita dinero de más.
+    await obtener_servicio_conciliacion(uow).conciliar_pago(informado.id, conciliar_por=empleado)
+    assert await uow.valor(
+        "SELECT sum(monto) FROM pago WHERE pedido_id=%s AND estado='CONCILIADO'", (pid,)
+    ) == total
+
+
+@pytest.mark.asyncio
 async def test_reintento_despues_de_preparar_no_repite_stock(uow):
     from app.modules.pedidos.domain.entidades import EstadoPedido
 

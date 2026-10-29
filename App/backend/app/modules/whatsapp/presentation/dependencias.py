@@ -6,6 +6,7 @@ from fastapi import Depends
 
 from app.core.config import settings
 from app.core.dependencias import UoW
+from app.modules.pagos.presentation.dependencias import obtener_servicio_conciliacion
 from app.modules.pedidos.presentation.dependencias import obtener_servicio_pedidos
 from app.modules.productos.presentation.dependencias import obtener_servicio_productos
 from app.modules.stock.presentation.dependencias import obtener_servicio_stock
@@ -20,8 +21,8 @@ from app.modules.whatsapp.infrastructure.repositorio_sql import RepositorioBotSQ
 
 
 def construir_servicio(uow: UoW) -> ServicioBot:
-    """Arma el servicio del bot con su repositorio SQL y los servicios de pedidos, stock y productos
-    de la misma unidad de trabajo.
+    """Arma el servicio del bot con su repositorio SQL y los servicios de pedidos, stock, productos
+    y conciliación de pagos de la misma unidad de trabajo.
     """
     return ServicioBot(
         RepositorioBotSQL(uow),
@@ -30,6 +31,7 @@ def construir_servicio(uow: UoW) -> ServicioBot:
         settings.whatsapp_transferencia_datos,
         stock=obtener_servicio_stock(uow),
         productos=obtener_servicio_productos(uow),
+        conciliacion=obtener_servicio_conciliacion(uow),
     )
 
 
