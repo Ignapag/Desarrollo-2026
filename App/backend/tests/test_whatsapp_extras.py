@@ -22,15 +22,16 @@ def test_mensaje_inicial_suma_recargos_y_muestra_porciones_por_hamburguesa():
     productos = [{"id": 1, "nombre": "Cheese", "precio_base": "10000"}]
     texto = mensaje_web(datos, productos, datetime.now(UTC))
     assert "2 × Cheese — $ 22.800" in texto
-    assert "2 × Queso cheddar" in texto and "por hamburguesa" in texto
-    assert "$ 1.400" in texto
+    assert "  Extra: 2 × Queso cheddar — $ 1.400 por hamburguesa" in texto.splitlines()
+    assert "cada porción" not in texto and "UNIDAD" not in texto
 
 
 def test_resumen_operativo_muestra_extras_y_total_congelados():
     texto = resumen_pedido({"items": [{"cantidad": 1, "nombre_producto": "Cheese",
                                        "extras": [EXTRA]}],
                             "total": Decimal("11400"), "tipo_entrega": "RETIRO"})
-    assert "2 × Queso cheddar" in texto and "$ 1.400" in texto
+    assert "  Extra: 2 × Queso cheddar — $ 1.400 por hamburguesa" in texto.splitlines()
+    assert "cada porción" not in texto
     assert "$ 11.400" in texto
 
 

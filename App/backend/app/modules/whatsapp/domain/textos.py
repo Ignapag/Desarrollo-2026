@@ -16,13 +16,14 @@ def dinero(valor: Decimal | int | str) -> str:
 
 
 def _lineas_extras(extras: list[dict]) -> list[str]:
-    """Las cantidades y recargos son por hamburguesa, en la unidad del inventario."""
+    """Cantidad y recargo de cada extra por hamburguesa. La porción en la unidad del
+    inventario es un dato interno de stock y no se muestra al cliente.
+    """
     lineas = []
     for extra in extras:
         recargo = Decimal(str(extra["precio"])) * extra["cantidad"]
         lineas.append(
             f"  Extra: {extra['cantidad']} × {extra['nombre']} "
-            f"({extra['cantidad_requerida']} {extra['unidad_medida']} cada porción) "
             f"— {dinero(recargo)} por hamburguesa"
         )
     return lineas
