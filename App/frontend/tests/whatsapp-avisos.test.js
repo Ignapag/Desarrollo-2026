@@ -154,7 +154,6 @@ test('un comprobante sin compra abre revisión manual sin botón para acreditar 
   t.after(async () => { await act(async () => root.unmount()); document.body.removeChild(container); });
   setTestUser(staff());
   await act(async () => root.render(createElement(Inbox, { section: 'comprobantes', requestKey: 'recibo-general' })));
-  assert.match(container.textContent, /Comprobante sin pedido vinculado/);
   assert.match(container.textContent, /Descargar comprobante/);
   assert.doesNotMatch(container.textContent, /No hay comprobantes recibidos/);
   assert.equal(elements(container, (node) => node.localName === 'button' && node.textContent.includes('Aprobar')).length, 0);
@@ -215,39 +214,42 @@ test('bandeja sin gestionar sólo permite leer las conversaciones', async (t) =>
   const root = createRoot(container);
   t.after(async () => { await act(async () => root.unmount()); document.body.removeChild(container); });
   await act(async () => root.render(createElement(Inbox, { section: 'atenciones', requestKey: 'lectura' })));
-  assert.match(container.textContent, /Consulta/);
-  assert.doesNotMatch(container.textContent, /Encolar respuesta|Marcar como resuelta/);
+  assert.match(container.textContent, /\+5492215550000/);
+  assert.doesNotMatch(container.textContent, /Marcar como resuelta/);
 });
 
-test('respuesta con error conserva el texto, muestra un aviso seguro y reintenta con el mismo identificador', async (t) => {
+test('atención muestra pedido, cliente y teléfono, y se cierra sólo con el botón', async (t) => {
   setTestUser(staff());
-  const bodies = [];
+  const posts = [];
   let fail = true;
-  const inbox = { comprobantes: [], cambios: [], atenciones: [{ id: 49, motivo: 'SOLICITUD', mensaje: 'Consulta', productos: [], mensajes: [], respuestas: [] }], salidas: [] };
+  const inbox = { comprobantes: [], cambios: [], atenciones: [{ id: 49, motivo: 'SOLICITUD', pedido_id: 7, numero: 31, cliente: 'Ana', telefono: '5492215550000', mensaje: 'Consulta', productos: [{ cantidad: 2, nombre: 'Crispy', aclaraciones: 'Sin bacon' }], mensajes: [], respuestas: [] }], salidas: [] };
   globalThis.fetch = async (path, options = {}) => {
     if (options.method === 'POST') {
-      bodies.push(JSON.parse(options.body));
-      if (fail) return { ok: false, status: 500, json: async () => ({ detail: 'SQL /app/private solicitud_id' }) };
-      return response({ id: 12, atencion_id: 49, estado: 'PENDIENTE' });
+      posts.push({ path, body: JSON.parse(options.body) });
+      if (fail) return { ok: false, status: 500, json: async () => ({ detail: 'SQL /app/private' }) };
+      return response({ id: 49, estado: 'RESUELTA' });
     }
     return response(inbox);
   };
   const container = document.createElement('div'); document.body.appendChild(container);
   const root = createRoot(container);
   t.after(async () => { await act(async () => root.unmount()); document.body.removeChild(container); });
-  await act(async () => root.render(createElement(Inbox, { section: 'atenciones', requestKey: 'respuesta-fallida' })));
-  const field = elements(container, (node) => node.localName === 'textarea')[0];
-  await act(async () => reactProps(field).onChange({ target: { value: 'Estamos revisando tu pedido' } }));
-  const submit = () => reactProps(elements(container, (node) => node.localName === 'form')[0]).onSubmit({ preventDefault() {} });
-  await act(async () => submit());
-  assert.equal(field.value, 'Estamos revisando tu pedido');
+  await act(async () => root.render(createElement(Inbox, { section: 'atenciones', requestKey: 'resolver' })));
+  assert.match(container.textContent, /Pedido #31/);
+  assert.match(container.textContent, /2 × Crispy \(Sin bacon\)/);
+  assert.match(container.textContent, /Ana/);
+  assert.match(container.textContent, /\+5492215550000/);
+  assert.doesNotMatch(container.textContent, /Consulta|Responder por WhatsApp|Cómo se resolvió/);
+  assert.equal(elements(container, (node) => node.localName === 'textarea').length, 0);
+  const resolveButton = () => elements(container, (node) => node.localName === 'button' && node.textContent === 'Marcar como resuelta')[0];
+  await act(async () => reactProps(resolveButton()).onClick());
   assert.match(container.textContent, /comprobá su estado|Comprobá su estado/);
-  assert.doesNotMatch(container.textContent, /SQL|\/app\/private|solicitud_id|Respuesta registrada/);
+  assert.doesNotMatch(container.textContent, /SQL|\/app\/private/);
   fail = false;
-  await act(async () => submit());
-  assert.deepEqual(bodies[1], bodies[0]);
-  assert.equal(field.value, '');
-  assert.match(container.textContent, /Respuesta registrada/);
+  await act(async () => reactProps(resolveButton()).onClick());
+  assert.equal(posts.length, 2);
+  assert.equal(posts[1].path, '/api/whatsapp/atenciones/49/resolucion');
+  assert.ok(posts[1].body.resolucion.trim());
 });
 
 test('bandeja inesperada informa error en forma accesible y no anuncia datos vacíos', async (t) => {
@@ -273,5 +275,4 @@ test('etiquetas de WhatsApp inesperadas usan mensajes cerrados y toleran nombres
   await act(async () => root.render(createElement(Inbox, { section: 'atenciones', requestKey: 'etiquetas-desconocidas' })));
   assert.doesNotMatch(container.textContent, /SQL|\/app\/private|__proto__|constructor/);
   assert.match(container.textContent, /Sin informar|sin informar/);
-  assert.match(container.textContent, /Requiere atención de personal/);
 });

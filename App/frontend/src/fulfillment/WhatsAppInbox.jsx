@@ -1,15 +1,15 @@
 // Bandeja de WhatsApp del personal: revisión humana de comprobantes de pago y de
 // cambios pedidos por el cliente desde el bot, atención de conversaciones derivadas
-// (responder, llamar o resolver) y estado de los mensajes de salida.
+// (marcar como resueltas) y estado de los mensajes de salida.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { MessageCircle, ChevronDown, RefreshCw, Download, Phone, ExternalLink } from 'lucide-react';
+import { MessageCircle, ChevronDown, RefreshCw, Download } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { can } from '../auth/permissions';
 import { apiFetch } from '../shared/api/http';
 import { apiResponseError, UserFacingError, userErrorMessage } from '../shared/api/userErrors.js';
 import { useData } from '../shared/store/DataContext';
 import { useNotificationInboxLoader } from '../notifications/notificationHooks';
-import { knownLabel, paymentMethodLabel, stateLabel } from './orderModel';
+import { knownLabel, paymentMethodLabel } from './orderModel';
 
 // Clase base de los botones de acción de la bandeja.
 const actionClass = 'min-h-11 px-4 py-2 rounded-xl text-sm font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-monu-green focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
@@ -219,13 +219,6 @@ function ReviewCard({ record, kind, onReviewed, onReviewFailed }) {
   );
 }
 
-// Textos visibles del motivo por el que una conversación se derivó al personal.
-const reasonLabels = {
-  COMPROBANTE: 'Comprobante sin pedido vinculado. Revisá la conversación antes de registrar un pago.',
-  SOLICITUD: 'El cliente pidió atención o el bot no pudo clasificar el mensaje',
-  PROVEEDOR: 'No pudimos procesar el mensaje automáticamente. Revisá la conversación antes de continuar.',
-};
-
 // Textos visibles del estado de envío de un mensaje de salida por WhatsApp.
 const deliveryStates = {
   PENDIENTE: 'Pendiente de envío: todavía no llegó al cliente.',
@@ -237,48 +230,42 @@ const deliveryStates = {
   INCIERTO: 'Sin confirmación del proveedor: verificá antes de volver a responder.',
 };
 
-// Genera un UUID v4 (con alternativa para navegadores sin crypto.randomUUID).
-function newRequestId() {
-  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  bytes[6] = (bytes[6] & 0x0f) | 0x40;
-  bytes[8] = (bytes[8] & 0x3f) | 0x80;
-  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
+// La API exige registrar cómo se resolvió; el cierre desde la bandeja usa este texto fijo.
+const RESOLUTION_TEXT = 'Resuelta por el personal desde la bandeja.';
 
 /**
- * Formulario de texto genérico de una atención (responder o resolver). `onSubmit`
- * recibe el texto y devuelve el mensaje de resultado a mostrar.
+ * Tarjeta de una conversación que requiere atención del personal: pedido, cliente,
+ * teléfono y cierre.
  */
-function AttentionForm({ id, label, help, maxLength, submitLabel, busyLabel, onSubmit }) {
+function AttentionCard({ record, onChanged }) {
   const { user } = useAuth();
   const manage = can(user, 'whatsapp.gestionar');
-  const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState('');
-  const fieldRef = useRef(null);
   const submittingRef = useRef(false);
+  const cardId = `whatsapp-atencion-${record.id}`;
+  const phone = /^[0-9]{11,15}$/.test(record.telefono || '') ? record.telefono : null;
+  const title = record.pedido_id ? `Pedido #${record.numero || record.pedido_id}` : 'Conversación sin pedido registrado';
 
-  // Valida que haya texto, evita doble envío y muestra el resultado o el error.
-  const submit = async (event) => {
-    event.preventDefault();
+  // Marca la atención como resuelta; evita doble envío y muestra el resultado o el error.
+  const resolve = async () => {
     if (submittingRef.current || !manage) return;
-    if (!value.trim()) {
-      setError('Completá este campo antes de continuar.');
-      fieldRef.current?.focus();
-      return;
-    }
     submittingRef.current = true;
     setBusy(true);
     setError('');
     setResult('');
     try {
-      setResult(await onSubmit(value.trim()));
-      setValue('');
+      const response = await apiFetch(`/api/whatsapp/atenciones/${record.id}/resolucion`, {
+        method: 'POST',
+        body: JSON.stringify({ resolucion: RESOLUTION_TEXT }),
+      });
+      if (response?.id !== record.id || response.estado !== 'RESUELTA') throw new UserFacingError('No pudimos confirmar el cierre de la atención. Actualizá la bandeja y comprobá su estado antes de repetirlo.');
+      const refreshed = await onChanged(`Atención de ${title.toLowerCase()} marcada como resuelta.`);
+      setResult(refreshed ? 'Atención resuelta.' : 'Atención resuelta, pero no se pudo actualizar la bandeja. Actualizala.');
     } catch (failure) {
-      setError(userErrorMessage(failure, 'No pudimos confirmar la acción. Actualizá la bandeja y comprobá su estado antes de repetirla.'));
+      setError(userErrorMessage(failure, 'No pudimos confirmar el cierre de la atención. Actualizá la bandeja y comprobá su estado antes de repetirlo.'));
     } finally {
       submittingRef.current = false;
       setBusy(false);
@@ -286,145 +273,30 @@ function AttentionForm({ id, label, help, maxLength, submitLabel, busyLabel, onS
   };
 
   return (
-    <form onSubmit={submit} className="space-y-2">
-      <label htmlFor={id} className="block text-sm font-bold text-monu-dark">{label}</label>
-      <textarea id={id} ref={fieldRef} maxLength={maxLength} rows={3} disabled={busy} value={value} onChange={(event) => setValue(event.target.value)} aria-describedby={`${id}-help${error ? ` ${id}-error` : ''}`} aria-invalid={error ? 'true' : undefined} className="w-full px-3 py-2 text-base border border-monu-green/30 rounded-lg focus:outline-none focus:ring-2 focus:ring-monu-green" />
-      <p id={`${id}-help`} className="text-xs text-monu-text">{help} {value.length}/{maxLength}</p>
-      {error && <p id={`${id}-error`} role="alert" className="p-2 rounded-lg bg-red-50 text-red-800 text-sm">{error}</p>}
-      {result && <p role="status" className="text-sm font-bold text-monu-green">{result}</p>}
-      <button type="submit" disabled={busy} className={`${actionClass} bg-monu-green text-white hover:bg-monu-green/90`}>{busy ? busyLabel : submitLabel}</button>
-    </form>
-  );
-}
-
-/**
- * Tarjeta de una conversación que requiere atención del personal: datos del cliente
- * y del pedido, mensajes, enlaces a WhatsApp/llamada, respuestas y cierre.
- */
-function AttentionCard({ record, onChanged }) {
-  const { user } = useAuth();
-  const manage = can(user, 'whatsapp.gestionar');
-  const [downloading, setDownloading] = useState(false);
-  const [downloadError, setDownloadError] = useState('');
-  // Identificador de solicitud de la respuesta en curso (idempotencia ante reintentos).
-  const requestIdRef = useRef(newRequestId());
-  const pendingReply = useRef(null);
-  const cardId = `whatsapp-atencion-${record.id}`;
-  const phone = /^[0-9]{11,15}$/.test(record.telefono || '') ? record.telefono : null;
-  const title = record.pedido_id ? `Pedido #${record.numero || record.pedido_id}` : 'Conversación sin pedido registrado';
-
-  // Encola una respuesta por WhatsApp; conserva el identificador si el resultado es incierto
-  // (error de red o 5xx) para que reintentar no duplique el mensaje.
-  const reply = async (text) => {
-    // El mismo identificador en un reintento evita encolar la respuesta dos veces.
-    if (pendingReply.current && pendingReply.current !== text) throw new UserFacingError('Hay una respuesta por verificar. Actualizá la bandeja y reintentá con el mismo texto antes de enviar otra.');
-    pendingReply.current = text;
-    let result;
-    try {
-      result = await apiFetch(`/api/whatsapp/atenciones/${record.id}/respuesta`, {
-        method: 'POST',
-        body: JSON.stringify({ texto: text, solicitud_id: requestIdRef.current }),
-      });
-    } catch (failure) {
-      if (failure.status >= 400 && failure.status < 500 && failure.status !== 408) {
-        pendingReply.current = null;
-        requestIdRef.current = newRequestId();
-      }
-      throw failure;
-    }
-    if (!Number.isSafeInteger(result?.id) || result.id <= 0 || result.atencion_id !== record.id || !Object.hasOwn(deliveryStates, result.estado)) {
-      throw new UserFacingError('No pudimos confirmar el envío. Actualizá la bandeja y comprobá su estado antes de repetirlo.');
-    }
-    requestIdRef.current = newRequestId();
-    pendingReply.current = null;
-    const refreshed = await onChanged();
-    const state = deliveryStates[result.estado];
-    return `Respuesta registrada. ${state}${refreshed ? '' : ' No se pudo actualizar la bandeja; actualizala para ver el envío.'}`;
-  };
-
-  // Marca la atención como resuelta con la descripción de cómo se resolvió.
-  const resolve = async (text) => {
-    const result = await apiFetch(`/api/whatsapp/atenciones/${record.id}/resolucion`, {
-      method: 'POST',
-      body: JSON.stringify({ resolucion: text }),
-    });
-    if (result?.id !== record.id || result.estado !== 'RESUELTA') throw new UserFacingError('No pudimos confirmar el cierre de la atención. Actualizá la bandeja y comprobá su estado antes de repetirlo.');
-    const refreshed = await onChanged(`Atención de ${title.toLowerCase()} marcada como resuelta.`);
-    return refreshed ? 'Atención resuelta.' : 'Atención resuelta, pero no se pudo actualizar la bandeja. Actualizala.';
-  };
-
-  return (
     <article id={cardId} tabIndex={-1} className="p-4 bg-white border border-orange-200 rounded-xl space-y-3 min-w-0" aria-labelledby={`${cardId}-title`}>
-      {/* Encabezado, motivo de derivación y datos del cliente y del pedido */}
+      {/* Pedido y sus productos */}
       <h4 id={`${cardId}-title`} className="font-extrabold text-monu-dark">{title} · Atención #{record.id}</h4>
-      <p className="text-sm text-orange-900">{knownLabel(reasonLabels, record.motivo, 'Requiere atención de personal')}</p>
-      <dl className="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-[max-content_1fr]">
-        <dt className="font-bold text-monu-dark">Cliente</dt><dd className="text-monu-text break-words">{record.cliente || 'Sin nombre registrado'}</dd>
-        <dt className="font-bold text-monu-dark">Teléfono</dt><dd className="text-monu-text">{phone ? `+${phone}` : 'No disponible'}</dd>
-        <dt className="font-bold text-monu-dark">Estado</dt><dd className="text-monu-text">{record.pedido_id ? `Pedido ${stateLabel(record.estado_pedido)}` : record.estado_conversacion ? 'Borrador sin pedido operativo' : 'Consulta sin compra vinculada'}{record.total != null && ` · Total ${Number(record.total).toLocaleString('es-AR', { style: 'currency', currency: 'ARS' })}`}</dd>
-        <dt className="font-bold text-monu-dark">Entrega y pago</dt><dd className="text-monu-text">{knownLabel({ DELIVERY: 'Delivery', RETIRO: 'Retiro en el local' }, record.tipo_entrega, 'Entrega sin definir')} · {paymentMethodLabel(record.metodo_pago)}</dd>
-      </dl>
-      {/* Descarga del comprobante adjunto (si la atención es por un comprobante) */}
-      {record.tiene_archivo && record.motivo === 'COMPROBANTE' && <button type="button" disabled={downloading} className={`${actionClass} inline-flex items-center gap-2 border border-monu-green text-monu-green hover:bg-monu-green/10`} onClick={async () => {
-        if (downloading) return;
-        setDownloading(true);
-        setDownloadError('');
-        try { await downloadReceipt('atenciones', record.id); } catch (failure) { setDownloadError(userErrorMessage(failure, 'No pudimos descargar el comprobante. Intentá nuevamente.')); } finally { setDownloading(false); }
-      }}><Download aria-hidden="true" className="h-4 w-4" />{downloading ? 'Descargando...' : 'Descargar comprobante'}</button>}
-      {downloadError && <p role="alert" className="text-sm text-red-800">{downloadError}</p>}
-      {/* Borrador vencido y productos del borrador */}
-      {record.borrador_vencido && <p className="p-2 rounded-lg bg-orange-50 text-orange-900 text-sm">El borrador venció: el cliente debe prepararlo nuevamente desde la web. Sus datos siguen visibles aquí.</p>}
       {record.productos?.length > 0 && (
         <ul className="text-sm text-monu-dark list-disc pl-5">
           {record.productos.map((item, index) => <li key={index} className="break-words">{item.cantidad} × {item.nombre}{item.aclaraciones ? ` (${item.aclaraciones})` : ''}</li>)}
         </ul>
       )}
-      {/* Mensaje que originó la atención y últimos mensajes de la conversación */}
-      <div className="space-y-1">
-        <p className="text-sm font-bold text-monu-dark">Mensaje que originó la atención</p>
-        <p className="p-3 rounded-lg bg-monu-cream/40 text-sm text-monu-dark whitespace-pre-wrap break-words max-h-48 overflow-y-auto">{record.mensaje || 'Mensaje sin texto'}</p>
-      </div>
-      {record.mensajes?.length > 0 && (
-        <details className="text-sm">
-          <summary className="min-h-11 flex items-center cursor-pointer font-bold text-monu-dark rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-monu-green">Últimos mensajes de la conversación ({record.mensajes.length})</summary>
-          <ol className="mt-2 space-y-2">
-            {record.mensajes.map((message, index) => (
-              <li key={index} className="p-2 rounded-lg border border-monu-green/10 space-y-1 break-words">
-                <p><strong>Cliente:</strong> <span className="whitespace-pre-wrap">{message.texto || 'Adjunto o mensaje sin texto'}</span></p>
-                {message.respuesta && <p className="text-monu-text"><strong>Bot:</strong> <span className="whitespace-pre-wrap">{message.respuesta}</span></p>}
-              </li>
-            ))}
-          </ol>
-        </details>
-      )}
-      {/* Contacto directo con el cliente */}
-      {phone && (
-        <div className="flex flex-wrap gap-3">
-          <a href={`https://wa.me/${phone}`} target="_blank" rel="noopener noreferrer" className={`${actionClass} inline-flex gap-2 items-center border border-monu-green text-monu-green hover:bg-monu-green/10`}>
-            <ExternalLink aria-hidden="true" className="w-4 h-4" />Abrir chat en WhatsApp<span className="sr-only"> (se abre en otra pestaña)</span>
-          </a>
-          <a href={`tel:+${phone}`} className={`${actionClass} inline-flex gap-2 items-center border border-monu-green text-monu-green hover:bg-monu-green/10`}>
-            <Phone aria-hidden="true" className="w-4 h-4" />Llamar
-          </a>
-        </div>
-      )}
-      {/* Respuestas enviadas desde la bandeja con su estado de envío */}
-      <div className="space-y-2">
-        <p className="text-sm font-bold text-monu-dark">Respuestas del personal</p>
-        {record.respuestas?.length ? (
-          <ul className="space-y-2">
-            {record.respuestas.map((answer) => (
-              <li key={answer.id} className="p-2 rounded-lg border border-monu-green/10 text-sm break-words space-y-1">
-                <p className="whitespace-pre-wrap text-monu-dark">{answer.texto}</p>
-                <p className="text-monu-text">{knownLabel(deliveryStates, answer.estado, 'Estado de envío sin informar.')}{answer.empleado ? ` · ${answer.empleado}` : ''}</p>
-              </li>
-            ))}
-          </ul>
-        ) : <p className="text-sm text-monu-text">Todavía no se respondió desde la bandeja.</p>}
-      </div>
-      {/* Formularios para responder y para cerrar la atención */}
-      {manage && <AttentionForm id={`${cardId}-respuesta`} label="Responder por WhatsApp" help="Se agrega a la cola de salida; el estado de envío aparece en esta tarjeta al actualizar." maxLength={1000} submitLabel="Encolar respuesta" busyLabel="Encolando..." onSubmit={reply} />}
-      {manage && <AttentionForm id={`${cardId}-resolucion`} label="Cómo se resolvió (obligatorio para cerrar)" help="Registra tu decisión; no envía mensajes al cliente." maxLength={500} submitLabel="Marcar como resuelta" busyLabel="Guardando..." onSubmit={resolve} />}
+      {/* Datos del cliente */}
+      <dl className="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-[max-content_1fr]">
+        <dt className="font-bold text-monu-dark">Cliente</dt><dd className="text-monu-text break-words">{record.cliente || 'Sin nombre registrado'}</dd>
+        <dt className="font-bold text-monu-dark">Teléfono</dt><dd className="text-monu-text">{phone ? `+${phone}` : 'No disponible'}</dd>
+      </dl>
+      {/* Descarga del comprobante adjunto (si la atención es por un comprobante) */}
+      {record.tiene_archivo && record.motivo === 'COMPROBANTE' && <button type="button" disabled={downloading} className={`${actionClass} inline-flex items-center gap-2 border border-monu-green text-monu-green hover:bg-monu-green/10`} onClick={async () => {
+        if (downloading) return;
+        setDownloading(true);
+        setError('');
+        try { await downloadReceipt('atenciones', record.id); } catch (failure) { setError(userErrorMessage(failure, 'No pudimos descargar el comprobante. Intentá nuevamente.')); } finally { setDownloading(false); }
+      }}><Download aria-hidden="true" className="h-4 w-4" />{downloading ? 'Descargando...' : 'Descargar comprobante'}</button>}
+      {error && <p role="alert" className="p-2 rounded-lg bg-red-50 text-red-800 text-sm">{error}</p>}
+      {result && <p role="status" className="text-sm font-bold text-monu-green">{result}</p>}
+      {/* Cierre de la atención */}
+      {manage && <button type="button" disabled={busy} onClick={resolve} className={`${actionClass} bg-monu-green text-white hover:bg-monu-green/90`}>{busy ? 'Guardando...' : 'Marcar como resuelta'}</button>}
     </article>
   );
 }
