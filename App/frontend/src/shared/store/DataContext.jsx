@@ -240,7 +240,7 @@ export function DataProvider({ children }) {
 
   // Consulta los pedidos activos (reutiliza la lectura en curso) y solo publica si la valla lo acepta.
   const refreshOrders = useCallback((signal, force = false) => {
-    if (!user || (!can(user, 'pedidos.ver') && user.backendRole !== 'CLIENTE') || userRef.current !== user) return Promise.resolve();
+    if (!user || (!can(user, 'pedidos.ver') && user.backendRole !== 'CLIENTE') || userRef.current !== user) return Promise.resolve(false);
     if (!force && ordersRequestRef.current?.owner === user && !ordersRequestRef.current.signal?.aborted) return ordersRequestRef.current.request;
     const token = freshnessRef.current.read();
     const request = apiFetch(ordersPath({ activos: true }), { signal })
@@ -248,7 +248,9 @@ export function DataProvider({ children }) {
         if (userRef.current === user && !signal?.aborted && freshnessRef.current.accepts(token)) {
           dispatch({ type: 'SYNC_ORDERS', payload: orders.map(mapOrder), owner: user });
           lastOrdersRead.current = Date.now();
+          return true;
         }
+        return false;
       })
       .catch((error) => {
         if (userRef.current === user && !signal?.aborted && freshnessRef.current.accepts(token)) {

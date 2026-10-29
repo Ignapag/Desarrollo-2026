@@ -13,6 +13,7 @@ let DataProvider;
 let useData;
 let Customers;
 let OrderDetail;
+let Orders;
 let setTestUser;
 const previousFetch = globalThis.fetch;
 const response = (body) => ({ ok: true, status: 200, json: async () => body });
@@ -28,6 +29,7 @@ before(async () => {
   ({ DataProvider, useData } = await server.ssrLoadModule('/src/shared/store/DataContext.jsx'));
   ({ default: Customers } = await server.ssrLoadModule('/src/management/Customers.jsx'));
   ({ default: OrderDetail } = await server.ssrLoadModule('/src/fulfillment/OrderDetail.jsx'));
+  ({ default: Orders } = await server.ssrLoadModule('/src/fulfillment/Orders.jsx'));
   ({ setTestUser } = await server.ssrLoadModule('/src/auth/AuthContext.jsx'));
 });
 after(async () => { globalThis.fetch = previousFetch; await server?.close(); dom?.restore(); });
@@ -41,6 +43,49 @@ async function mount(t, child, path = '/') {
   container.rerender = () => root.render(createElement(MemoryRouter, routerProps, createElement(DataProvider, null, child)));
   t.after(async () => { await act(async () => root.unmount()); document.body.removeChild(container); });
   return container;
+}
+
+for (const path of ['/dashboard/orders', '/dashboard/orders?q=Cliente']) {
+  test(`actualizar pedidos informa la consulta y muestra los datos nuevos (${path})`, async (t) => {
+    const order = (id) => ({ id, numero: id, version: 1, estado: 'PENDIENTE', tipo_entrega: 'RETIRO', cliente: `Cliente ${id}`, total: '1000', saldo_pendiente: '1000', neto_cobrado: '0', creado_en: '2026-10-28T20:00:00Z', items: [], pagos: [], historial: [] });
+    globalThis.fetch = async () => response([order(901)]);
+    const container = await mount(t, createElement(Orders), path);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
+    const refresh = () => elements(container, (node) => node.localName === 'button' && /Actualiza.*pedidos/.test(node.textContent))[0];
+    assert.match(container.textContent, /Cliente 901/);
+    const waiting = deferred();
+    t.after(() => waiting.resolve(response([])));
+    let calls = 0;
+    globalThis.fetch = async () => { calls += 1; return waiting.promise; };
+    await act(async () => { void reactProps(refresh()).onClick(); });
+    assert.equal(refresh().disabled, true);
+    assert.equal(refresh().getAttribute('aria-busy'), 'true');
+    assert.equal(refresh().textContent, 'Actualizando pedidos...');
+    assert.match(container.textContent, /Cliente 901/);
+    await act(async () => { void reactProps(refresh()).onClick(); });
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
+    assert.equal(calls, 1);
+    await act(async () => waiting.resolve(response([order(902)])));
+    assert.match(container.textContent, /Cliente 902/);
+    assert.doesNotMatch(container.textContent, /Cliente 901/);
+    assert.match(container.textContent, /Pedidos actualizados/);
+    assert.equal(refresh().disabled, false);
+
+    globalThis.fetch = async () => { throw new Error('Sin conexión'); };
+    await act(async () => { void reactProps(refresh()).onClick(); });
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
+    assert.match(container.textContent, /Revisá tu conexión/);
+    assert.match(container.textContent, /Cliente 902/);
+    assert.doesNotMatch(container.textContent, /Pedidos actualizados/);
+    assert.equal(refresh().disabled, false);
+
+    globalThis.fetch = async () => response([order(903)]);
+    await act(async () => { void reactProps(refresh()).onClick(); });
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
+    assert.match(container.textContent, /Cliente 903/);
+    assert.doesNotMatch(container.textContent, /Revisá tu conexión/);
+    assert.match(container.textContent, /Pedidos actualizados/);
+  });
 }
 
 test('abrir personal carga pedidos sin descargar catálogo ni inventario que no se están usando', async (t) => {

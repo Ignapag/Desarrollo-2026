@@ -30,12 +30,14 @@ export default function Orders() {
   const [results, setResults] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [refreshFeedback, setRefreshFeedback] = useState(null);
   const [revision, setRevision] = useState(0);
   const [selected, setSelected] = useState(null);
   const [focus, setFocus] = useState(null);
   const [now, setNow] = useState(() => Date.now());
   // Refs: última ruta cargada, botones que abren cada pedido (para devolver el foco) y estado elegido.
   const loadedPath = useRef('');
+  const refreshRequest = useRef(null);
   const openers = useRef(new Map());
   const selectedState = useRef(null);
   const returnFocus = useRef(null);
@@ -43,6 +45,8 @@ export default function Orders() {
   // "Remoto" = búsqueda, historial o cliente: se consulta a la API en lugar de usar los pedidos en vivo.
   const remote = Boolean(query.trim()) || scope !== 'active' || clientId != null;
   const queryPath = ordersPath({ q: query, cliente_id: clientId, activos: scope === 'history' ? false : scope === 'active' ? true : undefined });
+  const refreshStatus = refreshFeedback?.path === queryPath && refreshFeedback.user === user ? refreshFeedback.status : 'idle';
+  useEffect(() => () => { refreshRequest.current?.controller?.abort(); refreshRequest.current = null; }, [queryPath, user]);
   // Sin filtros remotos, se suscribe al seguimiento en vivo de pedidos activos.
   useEffect(() => { if (!remote) return watchOrders?.(); return undefined; }, [remote, watchOrders]);
   // Con filtros remotos, vuelve a consultar cada 8 s mientras la pestaña está visible.
@@ -60,19 +64,24 @@ export default function Orders() {
   useEffect(() => {
     if (!remote) return undefined;
     const controller = new AbortController();
+    const manual = refreshRequest.current;
     const timer = setTimeout(() => {
       if (loadedPath.current !== queryPath) setLoading(true);
       setError('');
       apiFetch(queryPath, { signal: controller.signal })
-        .then((orders) => { if (!controller.signal.aborted) { loadedPath.current = queryPath; setResults({ path: queryPath, orders: orders.map(mapOrder) }); } })
+        .then((orders) => { if (!controller.signal.aborted) {
+          loadedPath.current = queryPath; setResults({ path: queryPath, orders: orders.map(mapOrder) });
+          if (manual && refreshRequest.current === manual) setRefreshFeedback({ path: queryPath, user, status: 'done' });
+        } })
         .catch((failure) => { if (!controller.signal.aborted) {
           if ([401, 403].includes(failure.status)) { setResults(null); setSelected((open) => { if (open != null) returnFocus.current = open; return null; }); loadedPath.current = ''; void refreshSession?.(); }
           setError(userErrorMessage(failure, 'No pudimos cargar el historial de pedidos. Intentá nuevamente.'));
+          setRefreshFeedback(null);
         } })
-        .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+        .finally(() => { if (!controller.signal.aborted) { setLoading(false); if (refreshRequest.current === manual) refreshRequest.current = null; } });
     }, 250);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [remote, queryPath, revision, state.orders, refreshSession]);
+  }, [remote, queryPath, revision, state.orders, refreshSession, user]);
   // Pedidos a mostrar y agrupación por estado con los totales.
   const orders = remote ? results?.path === queryPath ? results.orders.map((order) => projectOrder?.(order) || order) : [] : state.orders;
   const countsKnown = remote ? results?.path === queryPath : state.ordersStatus === 'ready' || orders.length > 0;
@@ -91,7 +100,22 @@ export default function Orders() {
   const nothing = countsKnown && !stale && !loadingOrders && groups.ALL.count === 0
     ? searchText ? `Sin resultados para «${searchText}».` : scope === 'active' ? 'No hay pedidos activos en este momento.' : 'No hay pedidos para mostrar.' : '';
   // Actualización manual: remota o de los pedidos en vivo.
-  const refresh = () => { if (remote) setRevision((value) => value + 1); else void refreshOrders(undefined, true).catch(() => undefined); };
+  const refresh = async () => {
+    if (refreshRequest.current) return;
+    const request = { controller: new AbortController() };
+    refreshRequest.current = request;
+    setRefreshFeedback({ path: queryPath, user, status: 'loading' });
+    if (remote) { setRevision((value) => value + 1); return; }
+    try {
+      const accepted = await refreshOrders(request.controller.signal, true);
+      if (refreshRequest.current === request) setRefreshFeedback(accepted === false ? null : { path: queryPath, user, status: 'done' });
+    } catch {
+      if (refreshRequest.current === request) setRefreshFeedback(null);
+    } finally {
+      if (refreshRequest.current === request) refreshRequest.current = null;
+    }
+  };
+  const refreshing = refreshStatus === 'loading';
   // Registra el botón de cada tarjeta para devolverle el foco al cerrar el detalle.
   const registerOpener = useCallback((id, node) => {
     if (!node) return undefined;
@@ -119,12 +143,12 @@ export default function Orders() {
       <label className="block basis-full sm:basis-auto flex-1 min-w-48 space-y-1 text-sm font-bold">Buscar por número de pedido, cliente o teléfono<input value={query} onChange={(event) => { const next = new URLSearchParams(params); next.delete('bandeja'); if (event.target.value) next.set('q', event.target.value); else next.delete('q'); setParams(next, { replace: true }); }} className={inputClass} /></label>
       <div className="flex flex-1 sm:flex-none min-w-0 gap-3 items-end">
         <label className="block flex-1 min-w-0 space-y-1 text-sm font-bold">Mostrar<select value={scope} onChange={(event) => { setResults(null); setScope(event.target.value); }} className={inputClass}><option value="active">Activos</option><option value="history">Cerrados / historial</option><option value="all">Todos los estados</option></select></label>
-        <button type="button" onClick={refresh} disabled={loading} className={`${buttonClass} shrink-0`}>Actualizar pedidos</button>
+        <button type="button" onClick={refresh} disabled={loading || refreshing} aria-busy={refreshing} className={`${buttonClass} shrink-0`}>{refreshing ? 'Actualizando pedidos...' : 'Actualizar pedidos'}</button>
       </div>
     </div>
     {/* Errores, carga y barra de estados */}
-    <DataError message={state.ordersError || error} retry={refresh} busy={loading} />
-    {loadingOrders && <p role="status">Consultando pedidos...</p>}
+    <DataError message={state.ordersError || error} retry={refresh} busy={loading || refreshing} />
+    <p role="status" className="min-h-6 text-sm text-monu-text/80">{refreshing || loadingOrders ? 'Consultando pedidos...' : refreshStatus === 'done' && !stale ? 'Pedidos actualizados.' : ''}</p>
     <StatusBar options={options} groups={groups} known={countsKnown} current={current} onSelect={setFocus} controls="orders-board" selectedRef={selectedState} />
     {/* Tablero: todas las columnas o un único estado enfocado */}
     <div id="orders-board">
