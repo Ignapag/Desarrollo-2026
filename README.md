@@ -10,7 +10,7 @@ Instagram.
 
 El sistema digitaliza la toma de pedidos, el menú web, el control de stock por
 ingrediente, la asignación de repartidores, el cierre de caja y los reportes de
-ventas, con un bot de WhatsApp para notificar al cliente el estado de su pedido.
+ventas, con un bot de WhatsApp para poder notificar al cliente el estado de su pedido.
 
 Integrantes en [INTEGRANTES.md](INTEGRANTES.md).
 
